@@ -33,7 +33,7 @@ GitHub environments `development`, `production` 을 만든다. prod 는 required
 ## 인프라 변경
 
 ```bash
-cd /Users/gilteunchoi/bawibase/bawi-cloud-core/infra/environments/apps/chorong
+cd ../bawi-cloud-core/infra/environments/apps/chorong   # 이 레포와 같은 상위 디렉토리에 clone 한 경우
 AWS_PROFILE=bawi terraform plan
 AWS_PROFILE=bawi terraform apply
 ```
