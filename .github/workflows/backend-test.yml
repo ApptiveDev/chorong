@@ -37,6 +37,10 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('backend/**/*.gradle*', 'backend/gradle/**') }}
           restore-keys: gradle-${{ runner.os }}-
 
+      - name: 포맷 검사
+        working-directory: backend
+        run: ./gradlew spotlessCheck
+
       - name: 테스트 실행
         working-directory: backend
         run: ./gradlew :core:test --stacktrace
