@@ -57,7 +57,7 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
 
-    // macOS Docker Desktop / Testcontainers 호환 설정 (bawibase-service 와 동일).
+    // macOS Docker Desktop / Testcontainers 호환 설정
     val userHome = System.getProperty("user.home")
     val rawSock = File("$userHome/Library/Containers/com.docker.docker/Data/docker.raw.sock")
     if (System.getProperty("os.name").startsWith("Mac", ignoreCase = true) && rawSock.exists()) {
