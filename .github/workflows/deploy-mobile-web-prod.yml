@@ -46,6 +46,8 @@ jobs:
           name: mobile-web-dist-prod
           path: mobile/dist/
           retention-days: 1
+          # pnpm 에셋 경로(assets/node_modules/.pnpm/...)가 숨김 디렉터리라 기본값이면 폰트가 빠진다
+          include-hidden-files: true
 
   deploy:
     name: 배포
