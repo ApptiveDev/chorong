@@ -5,6 +5,9 @@ import com.bawibase.chorong.domain.housing.dto.PurchaseResponse
 import com.bawibase.chorong.domain.housing.dto.ShopResponse
 import com.bawibase.chorong.domain.housing.service.HousingShopService
 import com.bawibase.chorong.domain.user.service.UserService
+import io.swagger.v3.oas.annotations.Parameter
+import io.swagger.v3.oas.annotations.security.SecurityRequirement
+import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -14,18 +17,20 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
+@Tag(name = "하우징 상점")
+@SecurityRequirement(name = "deviceId")
 @RequestMapping("/api/housing/shop")
 class HousingShopController(
     private val userService: UserService,
     private val shopService: HousingShopService,
 ) {
     @GetMapping
-    fun list(@RequestHeader(HousingMeController.DEVICE_HEADER) deviceId: String): ShopResponse =
+    fun list(@Parameter(hidden = true) @RequestHeader(HousingMeController.DEVICE_HEADER) deviceId: String): ShopResponse =
         shopService.list(userId(deviceId))
 
     @PostMapping("/purchase")
     fun purchase(
-        @RequestHeader(HousingMeController.DEVICE_HEADER) deviceId: String,
+        @Parameter(hidden = true) @RequestHeader(HousingMeController.DEVICE_HEADER) deviceId: String,
         @Valid @RequestBody request: PurchaseRequest,
     ): PurchaseResponse = shopService.purchase(userId(deviceId), request.itemId)
 

@@ -28,6 +28,19 @@ class NoteControllerTest {
     }
 
     @Test
+    fun `api docs and scalar page are served`() {
+        mockMvc.get("/api-docs").andExpect {
+            status { isOk() }
+            jsonPath("$.paths['/api/housing/me']") { exists() }
+            jsonPath("$.components.securitySchemes.deviceId.name") { value("X-Device-Id") }
+        }
+        mockMvc.get("/docs").andExpect {
+            status { isOk() }
+            content { string(org.hamcrest.Matchers.containsString("createApiReference")) }
+        }
+    }
+
+    @Test
     fun `create then list then delete`() {
         val location = mockMvc.post("/api/notes") {
             contentType = MediaType.APPLICATION_JSON
