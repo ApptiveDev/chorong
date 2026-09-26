@@ -4,8 +4,8 @@
 
 | 파일 | 트리거 | 하는 일 |
 |---|---|---|
-| `backend-test.yml` | `develop`/`main` 푸시, PR (`backend/**`) | `./gradlew spotlessCheck`, `./gradlew :core:test` (Testcontainers) |
-| `mobile-check.yml` | `develop`/`main` 푸시, PR (`mobile/**`) | `pnpm format:check`, `pnpm typecheck` |
+| `check-backend.yml` | `develop`/`main` 푸시, PR (`backend/**`) | `./gradlew spotlessCheck`, `./gradlew :core:test` (Testcontainers) |
+| `check-mobile.yml` | `develop`/`main` 푸시, PR (`mobile/**`) | `pnpm format:check`, `pnpm typecheck` |
 | `deploy-backend-dev.yml` | `develop` 푸시 (`backend/**`) | Docker 이미지 → ECR → ECS `bawibase-chorong-dev` 롤링 |
 | `deploy-backend-prod.yml` | `main` 푸시 (`backend/**`) | 위와 같음, prod |
 | `deploy-mobile-web-dev.yml` | `develop` 푸시 (`mobile/**`) | `expo export -p web` → S3 sync → CloudFront 무효화 |

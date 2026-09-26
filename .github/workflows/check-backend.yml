@@ -1,19 +1,19 @@
-name: 백엔드 테스트
+name: 백엔드 검사
 
 on:
   push:
     branches: [develop, main]
     paths:
       - 'backend/**'
-      - '.github/workflows/backend-test.yml'
+      - '.github/workflows/check-backend.yml'
   pull_request:
     paths:
       - 'backend/**'
-      - '.github/workflows/backend-test.yml'
+      - '.github/workflows/check-backend.yml'
 
 jobs:
-  test:
-    name: gradle test (Testcontainers)
+  check:
+    name: spotless + test
     if: github.repository == 'bawibase/bawibase-chorong'
     runs-on: ubuntu-latest
     timeout-minutes: 15

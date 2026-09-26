@@ -5,11 +5,11 @@ on:
     branches: [develop, main]
     paths:
       - 'mobile/**'
-      - '.github/workflows/mobile-check.yml'
+      - '.github/workflows/check-mobile.yml'
   pull_request:
     paths:
       - 'mobile/**'
-      - '.github/workflows/mobile-check.yml'
+      - '.github/workflows/check-mobile.yml'
 
 jobs:
   check:
