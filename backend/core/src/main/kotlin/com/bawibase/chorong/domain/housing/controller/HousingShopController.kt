@@ -25,12 +25,12 @@ class HousingShopController(
     private val userService: UserService,
     private val shopService: HousingShopService,
 ) {
-    @Operation(summary = "상점에서 구매 가능한 하우징 아이템 목록을 조회합니다.")
+    @Operation(description = "상점에서 구매 가능한 하우징 아이템 목록을 조회합니다.")
     @GetMapping
     fun list(@Parameter(hidden = true) @RequestHeader(HousingMeController.DEVICE_HEADER) deviceId: String): ShopResponse =
         shopService.list(userId(deviceId))
 
-    @Operation(summary = "요청한 아이템을 구매합니다.")
+    @Operation(description = "요청한 아이템을 구매합니다.")
     @PostMapping("/purchase")
     fun purchase(
         @Parameter(hidden = true) @RequestHeader(HousingMeController.DEVICE_HEADER) deviceId: String,

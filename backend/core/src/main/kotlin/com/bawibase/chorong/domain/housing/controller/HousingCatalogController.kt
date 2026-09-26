@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController
 class HousingCatalogController(
     private val catalogService: HousingCatalogService,
 ) {
-    @Operation(summary = "하우징 시스템을 구성하는 모든 요소 (방, 가구, 아바타)를 카탈로그라 정의하고 이를 조회합니다. 서비스 시작 시점에 값을 조회하고 캐싱하여 사용해야 합니다.")
+    @Operation(description = "하우징 시스템을 구성하는 모든 요소 (방, 가구, 아바타)를 카탈로그라 정의하고 이를 조회합니다. 서비스 시작 시점에 값을 조회하고 캐싱하여 사용해야 합니다.")
     @GetMapping
     fun catalog(): CatalogResponse = catalogService.catalog()
 }

@@ -28,12 +28,12 @@ class HousingMeController(
     private val userService: UserService,
     private val housingService: HousingService,
 ) {
-    @Operation(summary = "내 하우징 정보를 조회합니다. 내가 소유한 방과 가구, 방의 배열, 내 아바타 정보, 내 지갑 정보를 함께 조회합니다.")
+    @Operation(description = "내가 소유한 방과 가구, 방의 배열, 내 아바타 정보, 내 지갑 정보를 함께 조회합니다.")
     @GetMapping
     fun me(@Parameter(hidden = true) @RequestHeader(DEVICE_HEADER) deviceId: String): MeResponse =
         housingService.me(userId(deviceId))
 
-    @Operation(summary = "내 방의 레이아웃을 저장합니다.")
+    @Operation(description = "내 방의 레이아웃을 저장합니다.")
     @PutMapping("/rooms/{roomId}/layout")
     fun saveLayout(
         @Parameter(hidden = true) @RequestHeader(DEVICE_HEADER) deviceId: String,
@@ -41,7 +41,7 @@ class HousingMeController(
         @Valid @RequestBody request: LayoutRequest,
     ): LayoutResponse = housingService.saveLayout(userId(deviceId), roomId, request)
 
-    @Operation(summary = "내 활성 방을 변경합니다, 활성화 된 방은 서비스를 켠 후 노출되는 기본 방이 됩니다.")
+    @Operation(description = "내 활성 방을 변경합니다. 활성화 된 방은 서비스를 켠 후 노출되는 기본 방이 됩니다.")
     @PutMapping("/active-room")
     fun setActiveRoom(
         @Parameter(hidden = true) @RequestHeader(DEVICE_HEADER) deviceId: String,
