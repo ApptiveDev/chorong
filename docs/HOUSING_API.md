@@ -22,9 +22,11 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 
 ## 엔드포인트
 
+`/me`, `/shop` 는 `X-Device-Id` 헤더(기기별 UUID, 36자 이하)로 유저를 식별한다. 처음 보는 값이면 `app_user` 와 프로필을 만들고 카탈로그의 `is_default` 에셋을 지급한다. 헤더가 없으면 400 `HEADER_REQUIRED`.
+
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| GET | `/api/housing/catalog` | 전체 카탈로그. `version` 으로 앱 캐시 |
+| GET | `/api/housing/catalog` | 전체 카탈로그. `version` 은 카탈로그 행의 최종 수정 시각(epoch 초) |
 | GET | `/api/housing/me` | 보유 에셋, 재화, 방별 배치 |
 | PUT | `/api/housing/me/rooms/{roomId}/layout` | 해당 방 배치 저장 (전체 교체) |
 | PUT | `/api/housing/me/active-room` | 현재 보여줄 방 선택 |
@@ -75,7 +77,7 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 }
 ```
 
-- `compatibleRoomIds` 생략 = 모든 방 허용.
+- `compatibleRoomIds` 생략 = 모든 방 허용. 응답에서 null 이면 키를 뺀다.
 - `kind: wall` 면에는 `walls`, `kind: floor` 면에는 `floors` 스킨만 들어간다.
 
 ## GET /api/housing/me
@@ -124,7 +126,7 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 
 - 모든 에셋은 보유 = 무제한 사용. 가구도 같은 종을 여러 슬롯에 놓을 수 있다.
 - `owned.furniture` 의 `category` 는 카탈로그 값을 복사한 것. 인벤토리 UI 가 카테고리별로 묶을 때 카탈로그 조회 없이 쓴다.
-- `layouts` 는 보유한 방마다 하나. 방을 구매하면 기본 스킨·빈 배치로 생성한다.
+- `layouts` 는 보유한 방마다 하나. 방을 구매하면 `is_default` 배경·아바타·벽·바닥으로 빈 배치를 만든다.
 - `activeRoomId` 가 홈 화면에 보여줄 방.
 
 ## PUT /api/housing/me/rooms/{roomId}/layout
@@ -152,10 +154,10 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 5. `furniture.category ∈ slot.allowedCategories`.
 6. `furniture.compatibleRoomIds` 가 없거나 `roomId` 포함.
 
-실패 시 400:
+실패 시 400. 에러 본문은 모든 API 공통으로 `{ code, message, details }`.
 
 ```json
-{ "code": "SLOT_CATEGORY_MISMATCH", "slotId": "s_floor_1", "furnitureId": "fn_frame_sun" }
+{ "code": "SLOT_CATEGORY_MISMATCH", "message": "슬롯에 놓을 수 없는 가구입니다.", "details": { "slotId": "s_floor_1", "furnitureId": "fn_frame_sun" } }
 ```
 
 | code | 의미 |
@@ -190,7 +192,7 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 
 - `type`: `background | wall | floor | room | avatar | furniture`. 이름·카테고리는 카탈로그에서 `targetId` 로 찾는다.
 - `owned`: 보유 시 `true`. 모든 타입은 1회만 구매한다.
-- 기본 지급 에셋은 상점에 없다. 가입 시 `owned` 에 넣는다.
+- 기본 지급 에셋은 카탈로그 테이블의 `is_default` 로 표시한다. 가입 시 `owned` 에 넣는다. 상점에는 올리지 않는다.
 
 ## POST /api/housing/shop/purchase
 
@@ -208,12 +210,14 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 }
 ```
 
-실패 시 400:
+실패:
 
-| code | 의미 |
-|---|---|
-| `INSUFFICIENT_COIN` | 재화 부족 |
-| `ALREADY_OWNED` | 재구매 |
+| code | HTTP | 의미 |
+|---|---|---|
+| `UNKNOWN_ID` | 400 | 없는 상품 |
+| `INSUFFICIENT_COIN` | 400 | 재화 부족 |
+| `ALREADY_OWNED` | 409 | 재구매 |
+| `CATALOG_DEFAULT_MISSING` | 409 | 방 구매 시 `is_default` 배경·아바타·벽·바닥 중 하나가 없음 |
 
 ## 앱 에셋 정의
 
@@ -255,7 +259,10 @@ export const furniture = {
 
 렌더 순서: background → room base → surfaces(z) → slots(z) → avatar.
 
+## 코드
+
+`backend/core/src/main/kotlin/com/bawibase/chorong/domain/housing/`. 카탈로그·상점 데이터는 DB 테이블이다(`V3__housing.sql`, `V4__housing_default_flag.sql`). 시드 SQL 은 아직 없다.
+
 ## 미결
 
-- 카탈로그·상점 데이터를 DB 로 관리할지 서버 리소스 JSON 으로 배포할지. 초기엔 JSON + `version` 이 관리가 쉽다.
-- 인증이 없는 샘플 서비스라 `me` 의 유저 식별 방식.
+- 카탈로그·상점 시드 데이터 투입 방법 (마이그레이션 vs 관리 API).

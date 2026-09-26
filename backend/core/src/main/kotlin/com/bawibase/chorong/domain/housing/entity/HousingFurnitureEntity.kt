@@ -27,6 +27,9 @@ class HousingFurnitureEntity(
 
     @Column(name = "is_active", nullable = false)
     var isActive: Boolean = true,
+
+    @Column(name = "is_default", nullable = false)
+    var isDefault: Boolean = false,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
