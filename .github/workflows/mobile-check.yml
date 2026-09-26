@@ -1,0 +1,47 @@
+name: 모바일 검사
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/mobile-check.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/mobile-check.yml'
+
+jobs:
+  check:
+    name: prettier + tsc
+    if: github.repository == 'bawibase/bawibase-chorong'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v6
+
+      - name: pnpm 설치
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      - name: 의존성 설치
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: 포맷 검사
+        working-directory: mobile
+        run: pnpm format:check
+
+      - name: 타입 검사
+        working-directory: mobile
+        run: pnpm typecheck

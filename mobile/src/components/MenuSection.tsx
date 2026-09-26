@@ -1,8 +1,8 @@
-import { Ionicons } from '@expo/vector-icons'
-import { Link, type Href } from 'expo-router'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons';
+import { Link, type Href } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-export type MenuItem = { label: string; href: Href }
+export type MenuItem = { label: string; href: Href };
 
 export function MenuSection({ title, items }: { title?: string; items: MenuItem[] }) {
   return (
@@ -17,7 +17,7 @@ export function MenuSection({ title, items }: { title?: string; items: MenuItem[
         </Link>
       ))}
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -38,4 +38,4 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f3f4f6',
   },
   label: { fontSize: 15, color: '#1f2937' },
-})
+});

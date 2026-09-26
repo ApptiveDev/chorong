@@ -15,13 +15,14 @@ class NoteService(
     fun list(): List<NoteEntity> = notes.findAllByOrderByIdDesc()
 
     @Transactional(readOnly = true)
-    fun get(id: Long): NoteEntity =
-        notes.findById(id).orElseThrow { NoSuchElementException("note $id not found") }
+    fun get(id: Long): NoteEntity = notes.findById(id).orElseThrow { NoSuchElementException("note $id not found") }
 
-    fun create(request: NoteRequest): NoteEntity =
-        notes.save(NoteEntity(title = request.title, body = request.body))
+    fun create(request: NoteRequest): NoteEntity = notes.save(NoteEntity(title = request.title, body = request.body))
 
-    fun update(id: Long, request: NoteRequest): NoteEntity {
+    fun update(
+        id: Long,
+        request: NoteRequest,
+    ): NoteEntity {
         val note = get(id)
         note.title = request.title
         note.body = request.body

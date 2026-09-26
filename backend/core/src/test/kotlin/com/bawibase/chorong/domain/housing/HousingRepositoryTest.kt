@@ -46,19 +46,33 @@ import kotlin.test.assertTrue
 @Import(TestcontainersConfig::class)
 class HousingRepositoryTest {
     @Autowired lateinit var users: UserRepository
+
     @Autowired lateinit var backgrounds: HousingBackgroundRepository
+
     @Autowired lateinit var walls: HousingWallRepository
+
     @Autowired lateinit var floors: HousingFloorRepository
+
     @Autowired lateinit var avatars: HousingAvatarRepository
+
     @Autowired lateinit var furniture: HousingFurnitureRepository
+
     @Autowired lateinit var rooms: HousingRoomRepository
+
     @Autowired lateinit var surfaces: HousingRoomSurfaceRepository
+
     @Autowired lateinit var slots: HousingRoomSlotRepository
+
     @Autowired lateinit var slotCategories: HousingRoomSlotCategoryRepository
+
     @Autowired lateinit var profiles: HousingProfileRepository
+
     @Autowired lateinit var ownedItems: HousingOwnedItemRepository
+
     @Autowired lateinit var layouts: HousingRoomLayoutRepository
+
     @Autowired lateinit var surfaceSkins: HousingLayoutSurfaceSkinRepository
+
     @Autowired lateinit var placements: HousingLayoutPlacementRepository
 
     @Test
@@ -79,15 +93,30 @@ class HousingRepositoryTest {
 
         val user = users.save(UserEntity(deviceUuid = UUID.randomUUID().toString()))
         val userId = checkNotNull(user.id)
-        profiles.save(HousingProfileEntity(userId = userId, coin = 100, activeRoomId = roomId))
+        profiles.save(HousingProfileEntity(userId = userId, activeRoomId = roomId))
         ownedItems.save(HousingOwnedItemEntity(userId = userId, itemType = HousingItemType.ROOM, itemId = roomId))
 
-        val layout = layouts.save(
-            HousingRoomLayoutEntity(userId = userId, roomId = roomId, backgroundId = checkNotNull(bg.id), avatarId = checkNotNull(avatar.id)),
-        )
+        val layout =
+            layouts.save(
+                HousingRoomLayoutEntity(
+                    userId = userId,
+                    roomId = roomId,
+                    backgroundId = checkNotNull(bg.id),
+                    avatarId = checkNotNull(avatar.id),
+                ),
+            )
         val layoutId = checkNotNull(layout.id)
-        surfaceSkins.save(HousingLayoutSurfaceSkinEntity(layoutId = layoutId, surfaceId = checkNotNull(wallLeft.id), skinType = SurfaceKind.WALL, skinId = checkNotNull(wall.id)))
-        placements.save(HousingLayoutPlacementEntity(layoutId = layoutId, slotId = checkNotNull(slot.id), furnitureId = checkNotNull(chair.id)))
+        surfaceSkins.save(
+            HousingLayoutSurfaceSkinEntity(
+                layoutId = layoutId,
+                surfaceId = checkNotNull(wallLeft.id),
+                skinType = SurfaceKind.WALL,
+                skinId = checkNotNull(wall.id),
+            ),
+        )
+        placements.save(
+            HousingLayoutPlacementEntity(layoutId = layoutId, slotId = checkNotNull(slot.id), furnitureId = checkNotNull(chair.id)),
+        )
 
         assertEquals(2, surfaces.findAllByRoomIdInOrderBySortOrderAsc(listOf(roomId)).size)
         assertEquals(listOf("chair"), slotCategories.findAllBySlotIdIn(listOf(checkNotNull(slot.id))).map { it.category })
@@ -100,7 +129,14 @@ class HousingRepositoryTest {
         assertEquals(floor.code, floors.findByCode(floor.code)?.code)
 
         assertThrows<DataIntegrityViolationException> {
-            layouts.save(HousingRoomLayoutEntity(userId = userId, roomId = roomId, backgroundId = checkNotNull(bg.id), avatarId = checkNotNull(avatar.id)))
+            layouts.save(
+                HousingRoomLayoutEntity(
+                    userId = userId,
+                    roomId = roomId,
+                    backgroundId = checkNotNull(bg.id),
+                    avatarId = checkNotNull(avatar.id),
+                ),
+            )
         }
     }
 }

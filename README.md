@@ -1,6 +1,6 @@
 # bawibase-chorong
 
-바위베이스 샘플 서비스 **chorong**. React Native(Expo) 앱 + Spring Boot Kotlin API 조합의 팀 표준 템플릿.
+샘플 서비스 **chorong**. React Native(Expo) 앱 + Spring Boot Kotlin API 조합의 팀 표준 템플릿.
 
 | 구성 | 경로 | 스택 |
 |---|---|---|

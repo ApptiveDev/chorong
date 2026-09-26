@@ -9,23 +9,20 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
-import java.time.OffsetDateTime
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
+import java.time.OffsetDateTime
 
 @Entity
 @Table(name = "housing_layout_surface_skin")
 class HousingLayoutSurfaceSkinEntity(
     @Column(name = "layout_id", nullable = false)
     var layoutId: Long,
-
     @Column(name = "surface_id", nullable = false)
     var surfaceId: Long,
-
     @Enumerated(EnumType.STRING)
     @Column(name = "skin_type", nullable = false, length = 10)
     var skinType: SurfaceKind,
-
     @Column(name = "skin_id", nullable = false)
     var skinId: Long,
 ) {

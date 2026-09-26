@@ -1,8 +1,8 @@
-import { Ionicons } from '@expo/vector-icons'
-import { Tabs } from 'expo-router'
-import type { ComponentProps } from 'react'
+import { Ionicons } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
+import type { ComponentProps } from 'react';
 
-type IconName = ComponentProps<typeof Ionicons>['name']
+type IconName = ComponentProps<typeof Ionicons>['name'];
 
 /** 하단 독 항목. 라벨·아이콘을 한 곳에서 관리한다 (jimba-service dock-items 패턴). */
 const dockItems: { name: string; label: string; icon: IconName; iconActive: IconName }[] = [
@@ -10,7 +10,7 @@ const dockItems: { name: string; label: string; icon: IconName; iconActive: Icon
   { name: 'quiz', label: '퀴즈', icon: 'help-circle-outline', iconActive: 'help-circle' },
   { name: 'social', label: '소셜', icon: 'people-outline', iconActive: 'people' },
   { name: 'more', label: '더보기', icon: 'menu-outline', iconActive: 'menu' },
-]
+];
 
 export default function TabsLayout() {
   return (
@@ -36,5 +36,5 @@ export default function TabsLayout() {
         />
       ))}
     </Tabs>
-  )
+  );
 }

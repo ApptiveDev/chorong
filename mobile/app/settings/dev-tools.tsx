@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -7,53 +7,53 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native'
-import { healthApi, notesApi, type Note } from '../../src/lib/api'
+} from 'react-native';
+import { healthApi, notesApi, type Note } from '../../src/lib/api';
 
 export default function DevTools() {
-  const [health, setHealth] = useState<'loading' | 'ok' | 'error'>('loading')
-  const [notes, setNotes] = useState<Note[]>([])
-  const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [health, setHealth] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setNotes(await notesApi.list())
-      setError(null)
+      setNotes(await notesApi.list());
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
     healthApi
       .check()
       .then((s) => setHealth(s === 'ok' ? 'ok' : 'error'))
-      .catch(() => setHealth('error'))
-    load()
-  }, [load])
+      .catch(() => setHealth('error'));
+    load();
+  }, [load]);
 
   const submit = async () => {
-    if (!title.trim() || busy) return
-    setBusy(true)
+    if (!title.trim() || busy) return;
+    setBusy(true);
     try {
-      await notesApi.create(title.trim(), body.trim() || undefined)
-      setTitle('')
-      setBody('')
-      await load()
+      await notesApi.create(title.trim(), body.trim() || undefined);
+      setTitle('');
+      setBody('');
+      await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   const remove = async (id: number) => {
-    await notesApi.remove(id)
-    await load()
-  }
+    await notesApi.remove(id);
+    await load();
+  };
 
   return (
     <View style={styles.container}>
@@ -107,14 +107,20 @@ export default function DevTools() {
         )}
       />
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, gap: 12, backgroundColor: '#fff' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   label: { fontSize: 14, color: '#6b7280' },
-  badge: { fontSize: 12, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, overflow: 'hidden' },
+  badge: {
+    fontSize: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
   ok: { backgroundColor: '#dcfce7', color: '#166534' },
   bad: { backgroundColor: '#fee2e2', color: '#991b1b' },
   form: { gap: 8 },
@@ -139,4 +145,4 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '600' },
   cardText: { fontSize: 14, color: '#4b5563' },
   delete: { color: '#b91c1c', fontSize: 13 },
-})
+});

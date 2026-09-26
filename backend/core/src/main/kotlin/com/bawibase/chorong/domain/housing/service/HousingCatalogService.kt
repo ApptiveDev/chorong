@@ -58,25 +58,30 @@ class CatalogSnapshot(
     val surfaceById = surfacesByRoom.values.flatten().associateBy { checkNotNull(it.id) }
     val slotById = slotsByRoom.values.flatten().associateBy { checkNotNull(it.id) }
 
-    fun codeOf(type: HousingItemType, id: Long): String? = when (type) {
-        HousingItemType.BACKGROUND -> backgroundById[id]?.code
-        HousingItemType.WALL -> wallById[id]?.code
-        HousingItemType.FLOOR -> floorById[id]?.code
-        HousingItemType.AVATAR -> avatarById[id]?.code
-        HousingItemType.FURNITURE -> furnitureById[id]?.code
-        HousingItemType.ROOM -> roomById[id]?.code
-    }
+    fun codeOf(
+        type: HousingItemType,
+        id: Long,
+    ): String? =
+        when (type) {
+            HousingItemType.BACKGROUND -> backgroundById[id]?.code
+            HousingItemType.WALL -> wallById[id]?.code
+            HousingItemType.FLOOR -> floorById[id]?.code
+            HousingItemType.AVATAR -> avatarById[id]?.code
+            HousingItemType.FURNITURE -> furnitureById[id]?.code
+            HousingItemType.ROOM -> roomById[id]?.code
+        }
 
-    val version: Long = listOf(
-        backgrounds.map { it.modifiedAt },
-        walls.map { it.modifiedAt },
-        floors.map { it.modifiedAt },
-        avatars.map { it.modifiedAt },
-        furniture.map { it.modifiedAt },
-        rooms.map { it.modifiedAt },
-        surfacesByRoom.values.flatten().map { it.modifiedAt },
-        slotsByRoom.values.flatten().map { it.modifiedAt },
-    ).flatten().filterNotNull().maxOfOrNull(OffsetDateTime::toEpochSecond) ?: 0
+    val version: Long =
+        listOf(
+            backgrounds.map { it.modifiedAt },
+            walls.map { it.modifiedAt },
+            floors.map { it.modifiedAt },
+            avatars.map { it.modifiedAt },
+            furniture.map { it.modifiedAt },
+            rooms.map { it.modifiedAt },
+            surfacesByRoom.values.flatten().map { it.modifiedAt },
+            slotsByRoom.values.flatten().map { it.modifiedAt },
+        ).flatten().filterNotNull().maxOfOrNull(OffsetDateTime::toEpochSecond) ?: 0
 }
 
 @Service
@@ -107,37 +112,44 @@ class HousingCatalogService(
             rooms = roomList,
             surfacesByRoom = surfaces.findAllByRoomIdInOrderBySortOrderAsc(roomIds).groupBy { it.roomId },
             slotsByRoom = slotList.groupBy { it.roomId },
-            categoriesBySlot = slotCategories.findAllBySlotIdIn(slotList.map { checkNotNull(it.id) })
-                .groupBy({ it.slotId }, { it.category }),
-            roomIdsByFurniture = furnitureRooms.findAllByFurnitureIdIn(furnitureList.map { checkNotNull(it.id) })
-                .groupBy({ it.furnitureId }, { it.roomId }),
+            categoriesBySlot =
+                slotCategories
+                    .findAllBySlotIdIn(slotList.map { checkNotNull(it.id) })
+                    .groupBy({ it.slotId }, { it.category }),
+            roomIdsByFurniture =
+                furnitureRooms
+                    .findAllByFurnitureIdIn(furnitureList.map { checkNotNull(it.id) })
+                    .groupBy({ it.furnitureId }, { it.roomId }),
         )
     }
 
     fun catalog(): CatalogResponse = snapshot().toResponse()
 
-    private fun CatalogSnapshot.toResponse() = CatalogResponse(
-        version = version,
-        backgrounds = backgrounds.map { CatalogItemResponse(it.code, it.name) },
-        walls = walls.map { CatalogItemResponse(it.code, it.name) },
-        floors = floors.map { CatalogItemResponse(it.code, it.name) },
-        avatars = avatars.map { CatalogItemResponse(it.code, it.name) },
-        furniture = furniture.map { f ->
-            FurnitureResponse(
-                id = f.code,
-                name = f.name,
-                category = f.category,
-                compatibleRoomIds = roomIdsByFurniture[f.id]?.mapNotNull { roomById[it]?.code },
-            )
-        },
-        rooms = rooms.map { r ->
-            val roomId = checkNotNull(r.id)
-            RoomResponse(
-                id = r.code,
-                name = r.name,
-                surfaces = surfacesByRoom[roomId].orEmpty().map { SurfaceResponse(it.code, it.kind.name.lowercase()) },
-                slots = slotsByRoom[roomId].orEmpty().map { SlotResponse(it.code, categoriesBySlot[it.id].orEmpty()) },
-            )
-        },
-    )
+    private fun CatalogSnapshot.toResponse() =
+        CatalogResponse(
+            version = version,
+            backgrounds = backgrounds.map { CatalogItemResponse(it.code, it.name) },
+            walls = walls.map { CatalogItemResponse(it.code, it.name) },
+            floors = floors.map { CatalogItemResponse(it.code, it.name) },
+            avatars = avatars.map { CatalogItemResponse(it.code, it.name) },
+            furniture =
+                furniture.map { f ->
+                    FurnitureResponse(
+                        id = f.code,
+                        name = f.name,
+                        category = f.category,
+                        compatibleRoomIds = roomIdsByFurniture[f.id]?.mapNotNull { roomById[it]?.code },
+                    )
+                },
+            rooms =
+                rooms.map { r ->
+                    val roomId = checkNotNull(r.id)
+                    RoomResponse(
+                        id = r.code,
+                        name = r.name,
+                        surfaces = surfacesByRoom[roomId].orEmpty().map { SurfaceResponse(it.code, it.kind.name.lowercase()) },
+                        slots = slotsByRoom[roomId].orEmpty().map { SlotResponse(it.code, categoriesBySlot[it.id].orEmpty()) },
+                    )
+                },
+        )
 }

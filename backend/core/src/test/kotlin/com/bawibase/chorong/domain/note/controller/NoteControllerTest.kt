@@ -42,13 +42,16 @@ class NoteControllerTest {
 
     @Test
     fun `create then list then delete`() {
-        val location = mockMvc.post("/api/notes") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"title":"첫 메모","body":"내용"}"""
-        }.andExpect {
-            status { isCreated() }
-            jsonPath("$.title") { value("첫 메모") }
-        }.andReturn().response.contentAsString
+        val location =
+            mockMvc
+                .post("/api/notes") {
+                    contentType = MediaType.APPLICATION_JSON
+                    content = """{"title":"첫 메모","body":"내용"}"""
+                }.andExpect {
+                    status { isCreated() }
+                    jsonPath("$.title") { value("첫 메모") }
+                }.andReturn()
+                .response.contentAsString
 
         val id = Regex("\"id\":(\\d+)").find(location)!!.groupValues[1]
 
@@ -63,12 +66,13 @@ class NoteControllerTest {
 
     @Test
     fun `blank title is rejected`() {
-        mockMvc.post("/api/notes") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"title":""}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.fields.title") { exists() }
-        }
+        mockMvc
+            .post("/api/notes") {
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"title":""}"""
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.fields.title") { exists() }
+            }
     }
 }

@@ -1,6 +1,6 @@
-import { Stack } from 'expo-router'
-import { StatusBar } from 'expo-status-bar'
-import { WebFrame } from '../src/components/WebFrame'
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { WebFrame } from '../src/components/WebFrame';
 
 export default function RootLayout() {
   return (
@@ -16,5 +16,5 @@ export default function RootLayout() {
       </Stack>
       <StatusBar style="auto" />
     </WebFrame>
-  )
+  );
 }

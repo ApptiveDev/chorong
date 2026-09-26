@@ -9,20 +9,18 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
-import java.time.OffsetDateTime
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
+import java.time.OffsetDateTime
 
 @Entity
 @Table(name = "housing_owned_item")
 class HousingOwnedItemEntity(
     @Column(name = "user_id", nullable = false)
     var userId: Long,
-
     @Enumerated(EnumType.STRING)
     @Column(name = "item_type", nullable = false, length = 20)
     var itemType: HousingItemType,
-
     @Column(name = "item_id", nullable = false)
     var itemId: Long,
 ) {

@@ -2,7 +2,10 @@ package com.bawibase.chorong.common
 
 enum class ErrorKind { VALIDATION, NOT_FOUND, CONFLICT }
 
-enum class ErrorCode(val kind: ErrorKind, val message: String) {
+enum class ErrorCode(
+    val kind: ErrorKind,
+    val message: String,
+) {
     DEVICE_ID_REQUIRED(ErrorKind.VALIDATION, "X-Device-Id 헤더가 필요합니다."),
     DEVICE_ID_INVALID(ErrorKind.VALIDATION, "X-Device-Id 값이 올바르지 않습니다."),
     UNKNOWN_ID(ErrorKind.VALIDATION, "카탈로그에 없는 ID 입니다."),

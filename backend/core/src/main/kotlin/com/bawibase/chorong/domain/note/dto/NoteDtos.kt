@@ -20,12 +20,13 @@ data class NoteResponse(
     val modifiedAt: OffsetDateTime?,
 ) {
     companion object {
-        fun from(note: NoteEntity) = NoteResponse(
-            id = checkNotNull(note.id),
-            title = note.title,
-            body = note.body,
-            createdAt = note.createdAt,
-            modifiedAt = note.modifiedAt,
-        )
+        fun from(note: NoteEntity) =
+            NoteResponse(
+                id = checkNotNull(note.id),
+                title = note.title,
+                body = note.body,
+                createdAt = note.createdAt,
+                modifiedAt = note.modifiedAt,
+            )
     }
 }

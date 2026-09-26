@@ -4,7 +4,8 @@
 
 | 파일 | 트리거 | 하는 일 |
 |---|---|---|
-| `backend-test.yml` | `develop`/`main` 푸시, PR (`backend/**`) | `./gradlew :core:test` (Testcontainers) |
+| `backend-test.yml` | `develop`/`main` 푸시, PR (`backend/**`) | `./gradlew spotlessCheck`, `./gradlew :core:test` (Testcontainers) |
+| `mobile-check.yml` | `develop`/`main` 푸시, PR (`mobile/**`) | `pnpm format:check`, `pnpm typecheck` |
 | `deploy-backend-dev.yml` | `develop` 푸시 (`backend/**`) | Docker 이미지 → ECR → ECS `bawibase-chorong-dev` 롤링 |
 | `deploy-backend-prod.yml` | `main` 푸시 (`backend/**`) | 위와 같음, prod |
 | `deploy-mobile-web-dev.yml` | `develop` 푸시 (`mobile/**`) | `expo export -p web` → S3 sync → CloudFront 무효화 |
@@ -33,7 +34,7 @@ GitHub environments `development`, `production` 을 만든다. prod 는 required
 ## 인프라 변경
 
 ```bash
-cd /Users/gilteunchoi/bawibase/bawi-cloud-core/infra/environments/apps/chorong
+cd ../bawi-cloud-core/infra/environments/apps/chorong   # 이 레포와 같은 상위 디렉토리에 clone 한 경우
 AWS_PROFILE=bawi terraform plan
 AWS_PROFILE=bawi terraform apply
 ```
