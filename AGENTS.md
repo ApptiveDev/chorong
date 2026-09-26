@@ -13,6 +13,7 @@
 - 로컬 개발은 `./scripts/dev-up.sh`. 자세히는 `docs/DEV_LOCAL.md`.
 - 백엔드 작업 시 스텝마다 dev 배포하지 않는다. 로컬 빌드·테스트만 (전체 종료 후 배포).
 - 백엔드 코드 포맷은 Spotless(ktlint) 가 정한다. 커밋 전에 `backend/` 에서 `./gradlew spotlessApply` 를 실행한다.
+- 앱 코드 포맷은 Prettier 가 정한다. 커밋 전에 `mobile/` 에서 `pnpm format` 을 실행한다.
 - 앱의 API 주소는 `EXPO_PUBLIC_API_URL` 하나로만 주입한다. 코드에 도메인을 하드코딩하지 않는다.
 - 새 외부 의존성은 사전 논의.
 
