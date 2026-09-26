@@ -1,6 +1,6 @@
 # bawibase-chorong
 
-바위베이스 샘플 서비스. React Native(Expo) 앱 + Spring Boot Kotlin API. 새 서비스를 만들 때 이 레포를 복제한다.
+샘플 서비스. React Native(Expo) 앱 + Spring Boot Kotlin API. 새 서비스를 만들 때 이 레포를 복제한다.
 
 - 설명: [`README.md`](README.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - 인프라: [`bawibase/bawi-cloud-core`](https://github.com/bawibase/bawi-cloud-core) `infra/environments/apps/chorong/`
