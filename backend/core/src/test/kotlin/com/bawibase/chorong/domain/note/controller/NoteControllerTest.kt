@@ -32,7 +32,7 @@ class NoteControllerTest {
         mockMvc.get("/api-docs").andExpect {
             status { isOk() }
             jsonPath("$.paths['/api/housing/me']") { exists() }
-            jsonPath("$.components.securitySchemes.deviceId.name") { value("X-Device-Id") }
+            jsonPath("$.components.securitySchemes.bearer.scheme") { value("bearer") }
         }
         mockMvc.get("/docs").andExpect {
             status { isOk() }

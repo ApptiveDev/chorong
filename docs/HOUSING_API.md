@@ -22,7 +22,7 @@ ID 가 유일한 연결고리다. 앱이 모르는 ID 는 무시하고 로그를
 
 ## 엔드포인트
 
-`/me`, `/shop` 는 `X-Device-Id` 헤더(기기별 UUID, 36자 이하)로 유저를 식별한다. 처음 보는 값이면 `app_user` 와 프로필을 만들고 카탈로그의 `is_default` 에셋을 지급한다. 헤더가 없으면 400 `HEADER_REQUIRED`.
+`/me`, `/shop` 는 `Authorization: Bearer <accessToken>` 으로 유저를 식별한다. 토큰은 [`AUTH_API.md`](AUTH_API.md) 의 로그인 엔드포인트로 받는다. 첫 `/me` 호출에서 프로필을 만들고 카탈로그의 `is_default` 에셋을 지급한다. 토큰이 없거나 틀리면 401 `UNAUTHORIZED`.
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|

@@ -29,7 +29,10 @@ import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotCategoryRep
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSurfaceRepository
 import com.bawibase.chorong.domain.housing.repository.HousingWallRepository
+import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
+import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserRepository
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -46,6 +49,8 @@ import kotlin.test.assertTrue
 @Import(TestcontainersConfig::class)
 class HousingRepositoryTest {
     @Autowired lateinit var users: UserRepository
+
+    @Autowired lateinit var auths: UserAuthRepository
 
     @Autowired lateinit var backgrounds: HousingBackgroundRepository
 
@@ -91,8 +96,9 @@ class HousingRepositoryTest {
         val slot = slots.save(HousingRoomSlotEntity(roomId = roomId, code = "s_floor_1"))
         slotCategories.save(HousingRoomSlotCategoryEntity(slotId = checkNotNull(slot.id), category = "chair"))
 
-        val user = users.save(UserEntity(deviceUuid = UUID.randomUUID().toString()))
+        val user = users.save(UserEntity())
         val userId = checkNotNull(user.id)
+        auths.save(UserAuthEntity(userId = userId, provider = AuthProvider.GUEST, providerUid = UUID.randomUUID().toString()))
         profiles.save(HousingProfileEntity(userId = userId, activeRoomId = roomId))
         ownedItems.save(HousingOwnedItemEntity(userId = userId, itemType = HousingItemType.ROOM, itemId = roomId))
 
@@ -121,7 +127,7 @@ class HousingRepositoryTest {
         assertEquals(2, surfaces.findAllByRoomIdInOrderBySortOrderAsc(listOf(roomId)).size)
         assertEquals(listOf("chair"), slotCategories.findAllBySlotIdIn(listOf(checkNotNull(slot.id))).map { it.category })
         assertTrue(ownedItems.existsByUserIdAndItemTypeAndItemId(userId, HousingItemType.ROOM, roomId))
-        assertNotNull(users.findByDeviceUuid(user.deviceUuid))
+        assertEquals(listOf(AuthProvider.GUEST), auths.findAllByUserId(userId).map { it.provider })
         assertNotNull(profiles.findById(userId).orElse(null))
         assertEquals(layoutId, layouts.findByUserIdAndRoomId(userId, roomId)?.id)
         assertEquals(1, surfaceSkins.findAllByLayoutIdIn(listOf(layoutId)).size)

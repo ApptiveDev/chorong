@@ -15,16 +15,16 @@ class OpenApiConfig {
             .info(Info().title("chorong API").version("v1"))
             .components(
                 Components().addSecuritySchemes(
-                    DEVICE_ID,
+                    BEARER,
                     SecurityScheme()
-                        .type(SecurityScheme.Type.APIKEY)
-                        .`in`(SecurityScheme.In.HEADER)
-                        .name("X-Device-Id")
-                        .description("기기별 UUID. 처음 보는 값이면 유저를 만든다."),
+                        .type(SecurityScheme.Type.HTTP)
+                        .scheme("bearer")
+                        .bearerFormat("JWT")
+                        .description("/api/auth/* 로 받은 accessToken."),
                 ),
             )
 
     companion object {
-        const val DEVICE_ID = "deviceId"
+        const val BEARER = "bearer"
     }
 }

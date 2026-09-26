@@ -1,13 +1,20 @@
 package com.bawibase.chorong.common
 
-enum class ErrorKind { VALIDATION, NOT_FOUND, CONFLICT }
+enum class ErrorKind { VALIDATION, UNAUTHORIZED, NOT_FOUND, CONFLICT }
 
 enum class ErrorCode(
     val kind: ErrorKind,
     val message: String,
 ) {
-    DEVICE_ID_REQUIRED(ErrorKind.VALIDATION, "X-Device-Id 헤더가 필요합니다."),
-    DEVICE_ID_INVALID(ErrorKind.VALIDATION, "X-Device-Id 값이 올바르지 않습니다."),
+    UNAUTHORIZED(ErrorKind.UNAUTHORIZED, "인증이 필요합니다."),
+    LOGIN_FAILED(ErrorKind.UNAUTHORIZED, "이메일 또는 비밀번호가 맞지 않습니다."),
+    ACCOUNT_LOCKED(ErrorKind.UNAUTHORIZED, "로그인 실패가 반복되어 잠겼습니다. 잠시 후 다시 시도하세요."),
+    REFRESH_TOKEN_INVALID(ErrorKind.UNAUTHORIZED, "리프레시 토큰이 만료되었거나 폐기되었습니다."),
+    GUEST_NOT_FOUND(ErrorKind.UNAUTHORIZED, "등록되지 않은 기기입니다."),
+    USER_WITHDRAWN(ErrorKind.UNAUTHORIZED, "탈퇴한 계정입니다."),
+    EMAIL_ALREADY_USED(ErrorKind.CONFLICT, "이미 가입된 이메일입니다."),
+    DEVICE_ALREADY_REGISTERED(ErrorKind.CONFLICT, "이미 등록된 기기입니다."),
+    SOCIAL_ALREADY_LINKED(ErrorKind.CONFLICT, "다른 계정에 이미 연결된 소셜 계정입니다."),
     UNKNOWN_ID(ErrorKind.VALIDATION, "카탈로그에 없는 ID 입니다."),
     NOT_OWNED(ErrorKind.VALIDATION, "보유하지 않은 에셋입니다."),
     SURFACE_MISMATCH(ErrorKind.VALIDATION, "방의 면 구성과 맞지 않습니다."),

@@ -1,6 +1,6 @@
 package com.bawibase.chorong.domain.user.entity
 
-import com.bawibase.chorong.domain.user.UserStatus
+import com.bawibase.chorong.domain.user.AuthProvider
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -14,24 +14,20 @@ import org.hibernate.annotations.UpdateTimestamp
 import java.time.OffsetDateTime
 
 @Entity
-@Table(name = "app_user")
-class UserEntity(
-    @Column(length = 40)
-    var nickname: String? = null,
-    @Column(length = 255)
-    var email: String? = null,
+@Table(name = "user_auth")
+class UserAuthEntity(
+    @Column(name = "user_id", nullable = false)
+    var userId: Long,
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    var provider: AuthProvider,
+    @Column(name = "provider_uid", nullable = false, length = 255)
+    var providerUid: String,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "user_id")
+    @Column(name = "auth_id")
     var id: Long? = null
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    var status: UserStatus = UserStatus.ACTIVE
-
-    @Column(name = "withdrawn_at")
-    var withdrawnAt: OffsetDateTime? = null
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

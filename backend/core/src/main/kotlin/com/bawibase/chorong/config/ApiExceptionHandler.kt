@@ -34,6 +34,12 @@ class ApiExceptionHandler {
             .status(e.code.kind.toHttpStatus())
             .body(mapOf("code" to e.code.name, "message" to e.code.message, "details" to e.details))
 
+    @ExceptionHandler(UnauthorizedException::class)
+    fun handleUnauthorized(e: UnauthorizedException): ResponseEntity<Map<String, Any>> =
+        ResponseEntity
+            .status(HttpStatus.UNAUTHORIZED)
+            .body(mapOf("code" to "UNAUTHORIZED", "message" to "인증이 필요합니다."))
+
     @ExceptionHandler(NoSuchElementException::class)
     fun handleNotFound(e: NoSuchElementException): ResponseEntity<Map<String, Any>> =
         ResponseEntity
@@ -43,6 +49,7 @@ class ApiExceptionHandler {
     private fun ErrorKind.toHttpStatus(): HttpStatus =
         when (this) {
             ErrorKind.VALIDATION -> HttpStatus.BAD_REQUEST
+            ErrorKind.UNAUTHORIZED -> HttpStatus.UNAUTHORIZED
             ErrorKind.NOT_FOUND -> HttpStatus.NOT_FOUND
             ErrorKind.CONFLICT -> HttpStatus.CONFLICT
         }

@@ -23,8 +23,10 @@ import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSurfaceRepository
 import com.bawibase.chorong.domain.housing.repository.HousingShopItemRepository
 import com.bawibase.chorong.domain.housing.repository.HousingWallRepository
-import com.bawibase.chorong.domain.user.repository.UserRepository
+import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserWalletRepository
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -32,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
@@ -70,9 +73,24 @@ class HousingApiTest {
 
     @Autowired lateinit var wallets: UserWalletRepository
 
-    @Autowired lateinit var users: UserRepository
+    @Autowired lateinit var auths: UserAuthRepository
 
-    private val header = "X-Device-Id"
+    @Autowired lateinit var objectMapper: ObjectMapper
+
+    private val header = HttpHeaders.AUTHORIZATION
+
+    /** 이메일·비밀번호 가입으로 Bearer 헤더 값을 받는다. */
+    private fun login(email: String): String {
+        val body =
+            mockMvc
+                .post("/api/auth/password/signup") {
+                    contentType = MediaType.APPLICATION_JSON
+                    content = """{"email":"$email","password":"password123"}"""
+                }.andExpect { status { isCreated() } }
+                .andReturn()
+                .response.contentAsString
+        return "Bearer " + objectMapper.readTree(body)["accessToken"].asText()
+    }
 
     @BeforeAll
     fun seed() {
@@ -131,16 +149,16 @@ class HousingApiTest {
     }
 
     @Test
-    fun `me without header is rejected`() {
+    fun `me without token is rejected`() {
         mockMvc.get("/api/housing/me").andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("HEADER_REQUIRED") }
+            status { isUnauthorized() }
+            jsonPath("$.code") { value("UNAUTHORIZED") }
         }
     }
 
     @Test
     fun `first me call creates user with defaults and layout`() {
-        val device = UUID.randomUUID().toString()
+        val device = login("h-${UUID.randomUUID()}@test.local")
         mockMvc.get("/api/housing/me") { header(header, device) }.andExpect {
             status { isOk() }
             jsonPath("$.wallet.coin") { value(0) }
@@ -156,7 +174,7 @@ class HousingApiTest {
 
     @Test
     fun `layout save validates and persists`() {
-        val device = UUID.randomUUID().toString()
+        val device = login("h-${UUID.randomUUID()}@test.local")
         mockMvc.get("/api/housing/me") { header(header, device) }.andExpect { status { isOk() } }
 
         mockMvc
@@ -240,7 +258,8 @@ class HousingApiTest {
 
     @Test
     fun `shop purchase deducts coin and unlocks room`() {
-        val device = UUID.randomUUID().toString()
+        val email = "h-${UUID.randomUUID()}@test.local"
+        val device = login(email)
         mockMvc.get("/api/housing/me") { header(header, device) }.andExpect { status { isOk() } }
 
         mockMvc.get("/api/housing/shop") { header(header, device) }.andExpect {
@@ -259,7 +278,7 @@ class HousingApiTest {
                 jsonPath("$.code") { value("INSUFFICIENT_COIN") }
             }
 
-        val userId = checkNotNull(checkNotNull(users.findByDeviceUuid(device)).id)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
         val wallet = wallets.findById(userId).orElseThrow()
         wallet.coin = 1500
         wallets.save(wallet)
