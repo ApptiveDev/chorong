@@ -17,7 +17,7 @@ import com.bawibase.chorong.domain.housing.repository.HousingBackgroundRepositor
 import com.bawibase.chorong.domain.housing.repository.HousingFloorRepository
 import com.bawibase.chorong.domain.housing.repository.HousingFurnitureRepository
 import com.bawibase.chorong.domain.housing.repository.HousingFurnitureRoomRepository
-import com.bawibase.chorong.domain.housing.repository.HousingProfileRepository
+
 import com.bawibase.chorong.domain.housing.repository.HousingRoomRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotCategoryRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotRepository
@@ -25,6 +25,7 @@ import com.bawibase.chorong.domain.housing.repository.HousingRoomSurfaceReposito
 import com.bawibase.chorong.domain.housing.repository.HousingShopItemRepository
 import com.bawibase.chorong.domain.housing.repository.HousingWallRepository
 import com.bawibase.chorong.domain.user.repository.UserRepository
+import com.bawibase.chorong.domain.user.repository.UserWalletRepository
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -56,7 +57,7 @@ class HousingApiTest {
     @Autowired lateinit var slots: HousingRoomSlotRepository
     @Autowired lateinit var slotCategories: HousingRoomSlotCategoryRepository
     @Autowired lateinit var shopItems: HousingShopItemRepository
-    @Autowired lateinit var profiles: HousingProfileRepository
+    @Autowired lateinit var wallets: UserWalletRepository
     @Autowired lateinit var users: UserRepository
 
     private val header = "X-Device-Id"
@@ -224,9 +225,9 @@ class HousingApiTest {
         }
 
         val userId = checkNotNull(checkNotNull(users.findByDeviceUuid(device)).id)
-        val profile = profiles.findById(userId).orElseThrow()
-        profile.coin = 1500
-        profiles.save(profile)
+        val wallet = wallets.findById(userId).orElseThrow()
+        wallet.coin = 1500
+        wallets.save(wallet)
 
         mockMvc.post("/api/housing/shop/purchase") {
             header(header, device)

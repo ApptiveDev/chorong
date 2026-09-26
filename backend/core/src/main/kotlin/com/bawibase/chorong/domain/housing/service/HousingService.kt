@@ -21,6 +21,7 @@ import com.bawibase.chorong.domain.housing.repository.HousingLayoutSurfaceSkinRe
 import com.bawibase.chorong.domain.housing.repository.HousingOwnedItemRepository
 import com.bawibase.chorong.domain.housing.repository.HousingProfileRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomLayoutRepository
+import com.bawibase.chorong.domain.user.service.UserWalletService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -35,13 +36,14 @@ class HousingService(
     private val layouts: HousingRoomLayoutRepository,
     private val surfaceSkins: HousingLayoutSurfaceSkinRepository,
     private val placements: HousingLayoutPlacementRepository,
+    private val walletService: UserWalletService,
     private val clock: Clock,
 ) {
     fun me(userId: Long): MeResponse {
         val catalog = catalogService.snapshot()
         val profile = ensureProfile(userId, catalog)
         return MeResponse(
-            wallet = WalletResponse(profile.coin),
+            wallet = WalletResponse(walletService.ensureWallet(userId).coin),
             owned = ownedResponse(userId, catalog),
             activeRoomId = profile.activeRoomId?.let { catalog.roomById[it]?.code },
             layouts = layoutsResponse(userId, catalog),

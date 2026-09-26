@@ -11,6 +11,7 @@ import com.bawibase.chorong.domain.housing.dto.WalletResponse
 import com.bawibase.chorong.domain.housing.entity.HousingOwnedItemEntity
 import com.bawibase.chorong.domain.housing.repository.HousingOwnedItemRepository
 import com.bawibase.chorong.domain.housing.repository.HousingShopItemRepository
+import com.bawibase.chorong.domain.user.service.UserWalletService
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -21,6 +22,7 @@ class HousingShopService(
     private val housingService: HousingService,
     private val shopItems: HousingShopItemRepository,
     private val ownedItems: HousingOwnedItemRepository,
+    private val walletService: UserWalletService,
 ) {
     fun list(userId: Long): ShopResponse {
         val catalog = catalogService.snapshot()
@@ -50,17 +52,14 @@ class HousingShopService(
         if (ownedItems.existsByUserIdAndItemTypeAndItemId(userId, item.itemType, item.itemId)) {
             throw ApiException(ErrorCode.ALREADY_OWNED, mapOf("itemId" to itemCode))
         }
-        if (profile.coin < item.priceCoin) {
-            throw ApiException(ErrorCode.INSUFFICIENT_COIN, mapOf("required" to item.priceCoin, "coin" to profile.coin))
-        }
-        profile.coin -= item.priceCoin
+        val wallet = walletService.deduct(userId, item.priceCoin)
         ownedItems.save(HousingOwnedItemEntity(userId = userId, itemType = item.itemType, itemId = item.itemId))
         if (item.itemType == HousingItemType.ROOM) {
             housingService.createDefaultLayout(userId, item.itemId, catalog)
             if (profile.activeRoomId == null) profile.activeRoomId = item.itemId
         }
         return PurchaseResponse(
-            wallet = WalletResponse(profile.coin),
+            wallet = WalletResponse(wallet.coin),
             owned = housingService.ownedResponse(userId, catalog),
             layouts = housingService.layoutsResponse(userId, catalog),
         )

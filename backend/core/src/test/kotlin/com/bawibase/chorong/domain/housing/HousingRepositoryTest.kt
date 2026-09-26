@@ -79,7 +79,7 @@ class HousingRepositoryTest {
 
         val user = users.save(UserEntity(deviceUuid = UUID.randomUUID().toString()))
         val userId = checkNotNull(user.id)
-        profiles.save(HousingProfileEntity(userId = userId, coin = 100, activeRoomId = roomId))
+        profiles.save(HousingProfileEntity(userId = userId, activeRoomId = roomId))
         ownedItems.save(HousingOwnedItemEntity(userId = userId, itemType = HousingItemType.ROOM, itemId = roomId))
 
         val layout = layouts.save(
