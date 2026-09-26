@@ -8,9 +8,9 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { healthApi, notesApi, type Note } from '../src/lib/api'
+import { healthApi, notesApi, type Note } from '../../src/lib/api'
 
-export default function Home() {
+export default function DevTools() {
   const [health, setHealth] = useState<'loading' | 'ok' | 'error'>('loading')
   const [notes, setNotes] = useState<Note[]>([])
   const [title, setTitle] = useState('')

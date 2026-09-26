@@ -1,4 +1,4 @@
-package com.bawibase.chorong.note
+package com.bawibase.chorong.domain.note.controller
 
 import com.bawibase.chorong.TestcontainersConfig
 import org.junit.jupiter.api.Test
@@ -24,6 +24,19 @@ class NoteControllerTest {
         mockMvc.get("/api/health").andExpect {
             status { isOk() }
             jsonPath("$.status") { value("ok") }
+        }
+    }
+
+    @Test
+    fun `api docs and scalar page are served`() {
+        mockMvc.get("/api-docs").andExpect {
+            status { isOk() }
+            jsonPath("$.paths['/api/housing/me']") { exists() }
+            jsonPath("$.components.securitySchemes.deviceId.name") { value("X-Device-Id") }
+        }
+        mockMvc.get("/docs").andExpect {
+            status { isOk() }
+            content { string(org.hamcrest.Matchers.containsString("createApiReference")) }
         }
     }
 

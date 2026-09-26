@@ -32,6 +32,8 @@ pnpm android   # Android 에뮬레이터
 pnpm start     # QR 코드 → Expo Go
 ```
 
+`mobile/.npmrc` 의 `node-linker=hoisted` 는 지우지 않는다. pnpm 기본 레이아웃이면 웹 에셋 경로에 `.pnpm/@expo+vector-icons@...` 가 들어가고, S3 가 `+` 를 공백으로 읽어 아이콘 폰트가 404 난다.
+
 API 주소는 `EXPO_PUBLIC_API_URL`. 기본값 `http://localhost:8080`.
 실기기에서 로컬 API 를 부르려면 `mobile/.env` 에 PC 의 LAN IP 를 넣는다 (`.env.example` 참고). 백엔드 `CORS_ORIGINS` 는 웹에서만 의미가 있다.
 

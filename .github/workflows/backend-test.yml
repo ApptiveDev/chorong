@@ -14,6 +14,7 @@ on:
 jobs:
   test:
     name: gradle test (Testcontainers)
+    if: github.repository == 'bawibase/bawibase-chorong'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

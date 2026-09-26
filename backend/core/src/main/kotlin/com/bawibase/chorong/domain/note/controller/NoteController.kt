@@ -1,5 +1,9 @@
-package com.bawibase.chorong.note
+package com.bawibase.chorong.domain.note.controller
 
+import com.bawibase.chorong.domain.note.dto.NoteRequest
+import com.bawibase.chorong.domain.note.dto.NoteResponse
+import com.bawibase.chorong.domain.note.service.NoteService
+import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -13,6 +17,7 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
+@Tag(name = "메모 (샘플)")
 @RequestMapping("/api/notes")
 class NoteController(
     private val service: NoteService,
