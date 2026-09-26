@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
-@Tag(name = "메모 (샘플)")
+@Tag(name = "메모 (데이터베이스 연동 테스트용 샘플)")
 @RequestMapping("/api/notes")
 class NoteController(
     private val service: NoteService,
