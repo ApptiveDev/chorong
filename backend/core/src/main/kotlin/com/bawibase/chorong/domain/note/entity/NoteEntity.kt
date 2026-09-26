@@ -1,4 +1,4 @@
-package com.bawibase.chorong.note
+package com.bawibase.chorong.domain.note.entity
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -7,11 +7,12 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.hibernate.annotations.CreationTimestamp
-import java.time.Instant
+import org.hibernate.annotations.UpdateTimestamp
+import java.time.OffsetDateTime
 
 @Entity
 @Table(name = "notes")
-class Note(
+class NoteEntity(
     @Column(nullable = false, length = 200)
     var title: String,
 
@@ -20,9 +21,14 @@ class Note(
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id: Long = 0
+    @Column(name = "note_id")
+    var id: Long? = null
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    val createdAt: Instant? = null
+    var createdAt: OffsetDateTime? = null
+
+    @UpdateTimestamp
+    @Column(name = "modified_at", nullable = false)
+    var modifiedAt: OffsetDateTime? = null
 }

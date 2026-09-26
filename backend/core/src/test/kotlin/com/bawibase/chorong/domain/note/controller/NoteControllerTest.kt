@@ -1,4 +1,4 @@
-package com.bawibase.chorong.note
+package com.bawibase.chorong.domain.note.controller
 
 import com.bawibase.chorong.TestcontainersConfig
 import org.junit.jupiter.api.Test
