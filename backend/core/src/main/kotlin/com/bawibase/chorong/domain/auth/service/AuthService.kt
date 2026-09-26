@@ -14,6 +14,7 @@ import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserOauthRepository
 import com.bawibase.chorong.domain.user.repository.UserPasswordRepository
 import com.bawibase.chorong.domain.user.repository.UserRepository
+import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
@@ -49,6 +50,8 @@ class AuthService(
     private val tokenService: TokenService,
     private val clock: Clock,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
     /** 비회원 가입. 기기 UUID 를 GUEST 인증 수단으로 등록한다. 이미 등록된 UUID 면 409. */
     fun guestSignUp(deviceUuid: String): TokenResponse {
         val uuid = deviceUuid.trim()
@@ -61,6 +64,7 @@ class AuthService(
             } catch (e: DataIntegrityViolationException) {
                 throw ApiException(ErrorCode.DEVICE_ALREADY_REGISTERED)
             }
+        log.info("user.created userId={} provider={}", auth.userId, AuthProvider.GUEST)
         return tokenService.issue(auth.userId, uuid, created = true)
     }
 
@@ -95,6 +99,7 @@ class AuthService(
                 passwordChangedAt = OffsetDateTime.now(clock),
             ),
         )
+        log.info("user.created userId={} provider={}", auth.userId, AuthProvider.PASSWORD)
         return tokenService.issue(auth.userId, deviceUuid, created = true)
     }
 
@@ -115,7 +120,9 @@ class AuthService(
             if (credential.failedCount >= MAX_FAILED) {
                 credential.lockedUntil = now.plusMinutes(LOCK_MINUTES)
                 credential.failedCount = 0
+                log.warn("auth.locked userId={} until={}", auth.userId, credential.lockedUntil)
             }
+            log.debug("auth.login_failed provider={}", AuthProvider.PASSWORD)
             throw ApiException(ErrorCode.LOGIN_FAILED)
         }
         credential.failedCount = 0
@@ -148,6 +155,11 @@ class AuthService(
                 createUserWithAuth(identity.provider, identity.providerUid, email = identity.email, nickname = identity.displayName)
             }
         oauths.save(UserOauthEntity(authId = checkNotNull(auth.id)).also { it.applyIdentity(identity) })
+        if (currentUserId != null) {
+            log.info("auth.linked userId={} provider={}", auth.userId, identity.provider)
+        } else {
+            log.info("user.created userId={} provider={}", auth.userId, identity.provider)
+        }
         return tokenService.issue(auth.userId, deviceUuid, created = currentUserId == null)
     }
 

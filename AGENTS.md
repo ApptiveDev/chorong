@@ -17,6 +17,24 @@ React Native(Expo) 앱 + Spring Boot Kotlin API.
 - 앱의 API 주소는 `EXPO_PUBLIC_API_URL` 하나로만 주입한다. 코드에 도메인을 하드코딩하지 않는다.
 - 새 외부 의존성은 사전 논의.
 
+# 로깅 규칙
+
+기준: 이 로그가 없으면 장애를 못 추적하는가. 아니면 남기지 않는다. 정상 요청 하나에 로그 0~1줄.
+
+| 레벨 | 남기는 것 |
+|---|---|
+| ERROR | 예상 못 한 예외. 5xx. 스택트레이스 포함. 알람 대상 |
+| WARN | 예상했지만 비정상. 계정 잠금, 폐기된 리프레시 토큰 재사용, 외부 API 실패, 유니크 충돌 재시도 |
+| INFO | 되돌릴 수 없거나 돈·계정이 바뀌는 사건. 유저 생성, 인증 수단 연동·해제, 탈퇴, 구매, 전체 로그아웃 |
+| DEBUG | 로컬 전용. 로그인 실패(비밀번호 틀림) 포함 |
+
+- 형식: `도메인.사건 key=value key=value`. 한 줄. 문장 금지. 예: `user.created userId=42 provider=GUEST`.
+- 위치: 서비스 계층. 컨트롤러·레포지토리·반복문 안에는 남기지 않는다. 4xx·5xx 는 `ApiExceptionHandler` 한 곳에서만.
+- 금지: 비밀번호, 토큰 원문·해시, 이메일, 기기 UUID, 요청 본문 덤프, `printStackTrace`, 예외를 잡고 로그만 남기고 삼키기.
+- 식별자는 `userId` 만. `traceId`·`spanId` 는 Micrometer 가, `requestId` 는 `RequestIdFilter` 가 MDC 에 넣는다. 코드에서 직접 쓰지 않는다.
+- 도구: SLF4J `LoggerFactory.getLogger(javaClass)`. 출력은 ECS JSON 한 가지. 프로파일로 양식을 바꾸지 않는다.
+- 장애 신고는 응답 헤더 `X-Request-Id` 값으로 받는다.
+
 # 글쓰기 규칙 (문서·주석·커밋·PR·UI 카피 공통)
 
 목적: 독자가 처음 읽고 바로 실행하게 쓴다. 감명 주려 쓰지 않는다.

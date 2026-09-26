@@ -22,6 +22,7 @@ import com.bawibase.chorong.domain.housing.repository.HousingOwnedItemRepository
 import com.bawibase.chorong.domain.housing.repository.HousingProfileRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomLayoutRepository
 import com.bawibase.chorong.domain.user.service.UserWalletService
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -39,6 +40,8 @@ class HousingService(
     private val walletService: UserWalletService,
     private val clock: Clock,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
     fun me(userId: Long): MeResponse {
         val catalog = catalogService.snapshot()
         val profile = ensureProfile(userId, catalog)
@@ -155,6 +158,7 @@ class HousingService(
         grantDefaults(userId, catalog)
         catalog.rooms.filter { it.isDefault }.forEach { createDefaultLayout(userId, checkNotNull(it.id), catalog) }
         profile.activeRoomId = catalog.rooms.firstOrNull { it.isDefault }?.id
+        log.info("housing.profile_created userId={}", userId)
         return profile
     }
 

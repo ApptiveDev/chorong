@@ -22,6 +22,49 @@ spring:
     baseline-version: 0
     locations: classpath:db/migration
 
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        name: chorong-api
+        environment: ${APP_ENV:local}
+  level:
+    root: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        exclude: "*"
+  opentelemetry:
+    resource-attributes:
+      service.name: chorong-api
+      deployment.environment: ${APP_ENV:local}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+      headers:
+        X-Scope-OrgID: ${OTEL_TENANT:chorong}
+      export:
+        enabled: ${OTEL_ENABLED:false}
+    logging:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+      headers:
+        X-Scope-OrgID: ${OTEL_TENANT:chorong}
+      export:
+        enabled: ${OTEL_ENABLED:false}
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        enabled: ${OTEL_ENABLED:false}
+        step: 30s
+        base-time-unit: seconds
+
 springdoc:
   api-docs:
     path: /api-docs

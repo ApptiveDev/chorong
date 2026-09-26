@@ -6,6 +6,7 @@ import com.bawibase.chorong.domain.auth.config.JwtProperties
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.entity.UserRefreshTokenEntity
 import com.bawibase.chorong.domain.user.repository.UserRefreshTokenRepository
+import org.slf4j.LoggerFactory
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm
 import org.springframework.security.oauth2.jwt.JwsHeader
 import org.springframework.security.oauth2.jwt.JwtClaimsSet
@@ -27,6 +28,7 @@ class TokenService(
     private val refreshTokens: UserRefreshTokenRepository,
     private val clock: Clock,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
     private val random = SecureRandom()
 
     fun issue(
@@ -61,7 +63,10 @@ class TokenService(
     fun rotate(rawRefreshToken: String): TokenResponse {
         val now = OffsetDateTime.now(clock)
         val token = refreshTokens.findByTokenHash(hash(rawRefreshToken)) ?: throw ApiException(ErrorCode.REFRESH_TOKEN_INVALID)
-        if (!token.isUsable(now)) throw ApiException(ErrorCode.REFRESH_TOKEN_INVALID)
+        if (!token.isUsable(now)) {
+            log.warn("auth.refresh_rejected userId={}", token.userId)
+            throw ApiException(ErrorCode.REFRESH_TOKEN_INVALID)
+        }
         token.revokedAt = now
         return issue(token.userId, token.deviceUuid)
     }
@@ -72,7 +77,8 @@ class TokenService(
     ) {
         val now = OffsetDateTime.now(clock)
         if (rawRefreshToken == null) {
-            refreshTokens.revokeAllByUserId(userId, now)
+            val count = refreshTokens.revokeAllByUserId(userId, now)
+            log.info("auth.logout_all userId={} count={}", userId, count)
             return
         }
         val token = refreshTokens.findByTokenHash(hash(rawRefreshToken)) ?: return

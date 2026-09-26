@@ -1,5 +1,6 @@
 package com.bawibase.chorong.config
 
+import org.slf4j.MDC
 import org.springframework.core.MethodParameter
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.oauth2.jwt.Jwt
@@ -28,7 +29,9 @@ class CurrentUserIdResolver :
         binderFactory: WebDataBinderFactory?,
     ): Long {
         val jwt = SecurityContextHolder.getContext().authentication?.principal as? Jwt
-        return jwt?.subject?.toLongOrNull() ?: throw UnauthorizedException()
+        val userId = jwt?.subject?.toLongOrNull() ?: throw UnauthorizedException()
+        MDC.put(RequestIdFilter.MDC_USER_ID, userId.toString())
+        return userId
     }
 
     override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {

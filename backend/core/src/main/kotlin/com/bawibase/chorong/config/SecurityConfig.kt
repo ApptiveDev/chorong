@@ -60,6 +60,7 @@ class SecurityConfig(
                 allowedOrigins = corsOrigins.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                 allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 allowedHeaders = listOf("*")
+                exposedHeaders = listOf(RequestIdFilter.HEADER)
                 allowCredentials = true
             }
         return UrlBasedCorsConfigurationSource().apply {

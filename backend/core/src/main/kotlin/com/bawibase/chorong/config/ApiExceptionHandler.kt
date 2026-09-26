@@ -2,8 +2,11 @@ package com.bawibase.chorong.config
 
 import com.bawibase.chorong.common.ApiException
 import com.bawibase.chorong.common.ErrorKind
+import jakarta.servlet.http.HttpServletRequest
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.ErrorResponse
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingRequestHeaderException
 import org.springframework.web.bind.annotation.ExceptionHandler
@@ -11,6 +14,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 
 @RestControllerAdvice
 class ApiExceptionHandler {
+    private val log = LoggerFactory.getLogger(javaClass)
+
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun handleValidation(e: MethodArgumentNotValidException): ResponseEntity<Map<String, Any>> {
         val fields =
@@ -29,10 +34,19 @@ class ApiExceptionHandler {
             .body(mapOf("code" to "HEADER_REQUIRED", "message" to "${e.headerName} 헤더가 필요합니다."))
 
     @ExceptionHandler(ApiException::class)
-    fun handleApi(e: ApiException): ResponseEntity<Map<String, Any>> =
-        ResponseEntity
+    fun handleApi(
+        e: ApiException,
+        request: HttpServletRequest,
+    ): ResponseEntity<Map<String, Any>> {
+        if (e.code.kind == ErrorKind.UNAUTHORIZED) {
+            log.debug("api.rejected code={} path={}", e.code.name, request.requestURI)
+        } else {
+            log.warn("api.rejected code={} path={}", e.code.name, request.requestURI)
+        }
+        return ResponseEntity
             .status(e.code.kind.toHttpStatus())
             .body(mapOf("code" to e.code.name, "message" to e.code.message, "details" to e.details))
+    }
 
     @ExceptionHandler(UnauthorizedException::class)
     fun handleUnauthorized(e: UnauthorizedException): ResponseEntity<Map<String, Any>> =
@@ -45,6 +59,24 @@ class ApiExceptionHandler {
         ResponseEntity
             .status(HttpStatus.NOT_FOUND)
             .body(mapOf("code" to "NOT_FOUND", "message" to (e.message ?: "not found")))
+
+    /** Spring MVC 가 던지는 4xx (404, 405, 415 등) 는 상태 코드를 유지한다. 나머지는 500. */
+    @ExceptionHandler(Exception::class)
+    fun handleUnexpected(
+        e: Exception,
+        request: HttpServletRequest,
+    ): ResponseEntity<Map<String, Any>> {
+        if (e is ErrorResponse && e.statusCode.is4xxClientError) {
+            log.debug("api.rejected code={} path={}", e.statusCode.value(), request.requestURI)
+            return ResponseEntity
+                .status(e.statusCode)
+                .body(mapOf("code" to "REQUEST_ERROR", "message" to "요청을 처리할 수 없습니다."))
+        }
+        log.error("api.failed path={}", request.requestURI, e)
+        return ResponseEntity
+            .status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(mapOf("code" to "INTERNAL", "message" to "서버 오류가 발생했습니다."))
+    }
 
     private fun ErrorKind.toHttpStatus(): HttpStatus =
         when (this) {
