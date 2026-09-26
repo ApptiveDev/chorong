@@ -4,6 +4,7 @@
 # 사용법:
 #   ./scripts/dev-up.sh          # Postgres + core 컨테이너
 #   ./scripts/dev-up.sh --bare   # Postgres 만. core 는 `./backend/gradlew -p backend :core:bootRun`
+#   ./scripts/dev-up.sh --obs    # + Grafana/Loki/Tempo (otel-lgtm). 로그·트레이스를 http://localhost:3000 에서 본다
 #   ./scripts/dev-up.sh --down   # 전부 내린다
 
 set -euo pipefail
@@ -12,9 +13,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 MODE="stack"
+OBS="false"
 for arg in "$@"; do
   case "$arg" in
     --bare) MODE="bare" ;;
+    --obs) OBS="true" ;;
     --down) MODE="down" ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -20
@@ -25,7 +28,7 @@ done
 
 if [[ "$MODE" == "down" ]]; then
   echo "▸ 스택 종료"
-  docker compose --profile stack down
+  docker compose --profile stack --profile obs down
   exit 0
 fi
 
@@ -40,8 +43,13 @@ if [[ "$MODE" == "bare" ]]; then
   exit 0
 fi
 
-echo "▸ 빌드 + 기동 (postgres + core)"
-docker compose --profile stack up -d --build
+if [[ "$OBS" == "true" ]]; then
+  echo "▸ 빌드 + 기동 (postgres + core + lgtm)"
+  OTEL_ENABLED=true docker compose --profile stack --profile obs up -d --build
+else
+  echo "▸ 빌드 + 기동 (postgres + core)"
+  docker compose --profile stack up -d --build
+fi
 
 echo -n "▸ API 헬스 대기"
 for i in $(seq 1 40); do
@@ -65,6 +73,10 @@ echo " 로컬 스택 준비 완료"
 echo "──────────────────────────────────────────────────────────"
 echo " API      : http://localhost:8080"
 echo " Postgres : localhost:5432 (dev/dev/appdb, 스키마 chorong_dev)"
+if [[ "$OBS" == "true" ]]; then
+  echo " Grafana  : http://localhost:3000 (Loki·Tempo 데이터소스에 X-Scope-OrgID: chorong 헤더를 추가한다)"
+  echo " 로그     : ./scripts/logs.sh"
+fi
 echo
 echo " 앱 실행:"
 echo "   cd mobile && pnpm install"

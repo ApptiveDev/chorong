@@ -35,6 +35,10 @@ services:
       POSTGRES_PASSWORD: dev
       DB_SCHEMA: chorong_dev
       CORS_ORIGINS: "http://localhost:8081,http://localhost:19006"
+      APP_ENV: local
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+      OTEL_TENANT: chorong
     ports:
       - "8080:8080"
     healthcheck:
@@ -42,6 +46,52 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  # 로컬 관측 스택. 운영과 같은 이미지·같은 멀티테넌트 설정: `./scripts/dev-up.sh --obs`
+  lgtm:
+    image: grafana/otel-lgtm:0.34.0
+    container_name: bawibase-chorong-lgtm
+    profiles: ["obs"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      LOKI_EXTRA_ARGS: -auth.enabled=true
+      TEMPO_EXTRA_ARGS: -multitenancy.enabled=true
+      OTELCOL_EXTRA_ARGS: --config=env:LGTM_OTELCOL_OVERLAY
+      # 앱이 보낸 X-Scope-OrgID 를 Loki·Tempo 로 그대로 넘긴다
+      LGTM_OTELCOL_OVERLAY: |
+        extensions:
+          headers_setter:
+            headers:
+              - action: upsert
+                key: X-Scope-OrgID
+                from_context: X-Scope-OrgID
+                default_value: untagged
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                include_metadata: true
+              http:
+                include_metadata: true
+        processors:
+          batch:
+            metadata_keys: [X-Scope-OrgID]
+        exporters:
+          otlp_http/traces:
+            auth:
+              authenticator: headers_setter
+          otlp_http/logs:
+            auth:
+              authenticator: headers_setter
+        service:
+          extensions: [health_check, headers_setter]
+    ports:
+      - "3000:3000"   # Grafana
+      - "4318:4318"   # OTLP HTTP
+      - "3100:3100"   # Loki API (X-Scope-OrgID 헤더 필요)
+      - "3200:3200"   # Tempo API (X-Scope-OrgID 헤더 필요)
+      - "9090:9090"   # Prometheus
 
 volumes:
   bawibase_chorong_pg_data:

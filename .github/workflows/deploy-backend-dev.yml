@@ -72,7 +72,7 @@ jobs:
           container-name: bawibase-chorong-dev
           image: ${{ needs.build.outputs.image }}
           environment-variables: |
-            SPRING_PROFILES_ACTIVE=prod
+            APP_ENV=dev
             POSTGRES_HOST=${{ secrets.DB_HOST }}
             POSTGRES_PORT=5432
             POSTGRES_DB=appdb
@@ -80,6 +80,10 @@ jobs:
             POSTGRES_PASSWORD=${{ secrets.DEV_DB_PASSWORD }}
             DB_SCHEMA=chorong_dev
             CORS_ORIGINS=${{ secrets.DEV_CORS_ORIGINS }}
+            JWT_SECRET=${{ secrets.DEV_JWT_SECRET }}
+            OTEL_ENABLED=true
+            OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm.bawi-observability.local:4318
+            OTEL_TENANT=chorong
 
       - name: ECS 서비스 배포
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
