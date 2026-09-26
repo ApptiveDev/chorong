@@ -32,6 +32,12 @@ pnpm start                 # QR → Expo Go
 dev 는 `develop` 푸시, prod 는 `main` 푸시. 워크플로우와 시크릿은 [docs/DEPLOY.md](docs/DEPLOY.md).
 인프라는 [`bawibase/bawi-cloud-core`](https://github.com/bawibase/bawi-cloud-core) `infra/environments/apps/chorong/`.
 
+## 화면 구조
+
+- 하단 독 4개: 홈(메모 CRUD 샘플), 퀴즈, 소셜, 더보기
+- 더보기 → 설정 메뉴 4개: 프로필, 내 정보, 고객 문의, 앱 정보 (`app/settings/`)
+- 웹은 480px 모바일 컬럼으로 중앙 정렬 (`src/components/WebFrame.tsx`)
+
 ## 샘플 API
 
 | 메서드 | 경로 | 설명 |

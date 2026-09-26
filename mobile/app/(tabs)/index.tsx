@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { healthApi, notesApi, type Note } from '../src/lib/api'
+import { healthApi, notesApi, type Note } from '../../src/lib/api'
 
 export default function Home() {
   const [health, setHealth] = useState<'loading' | 'ok' | 'error'>('loading')
