@@ -11,6 +11,7 @@
 | `deploy-mobile-web-prod.yml` | `main` 푸시 (`mobile/**`) | 위와 같음, prod |
 
 모두 `workflow_dispatch` 로 수동 실행 가능.
+모든 job 은 `if: github.repository == 'bawibase/bawibase-chorong'` 로 막혀 있다. 미러 레포(`ApptiveDev/chorong`)에서는 워크플로우가 실행되지 않는다.
 
 ## GitHub Secrets
 

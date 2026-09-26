@@ -6,12 +6,13 @@ const settingsItems: MenuItem[] = [
   { label: '내 정보', href: '/settings/my-info' },
   { label: '고객 문의', href: '/settings/contact' },
   { label: '앱 정보', href: '/settings/app-info' },
+  { label: '개발자 도구', href: '/settings/dev-tools' },
 ]
 
 export default function More() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <MenuSection title="설정" items={settingsItems} />
+      <MenuSection items={settingsItems} />
     </ScrollView>
   )
 }
