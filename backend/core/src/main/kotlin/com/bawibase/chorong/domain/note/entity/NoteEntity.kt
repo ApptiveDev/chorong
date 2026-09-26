@@ -15,7 +15,6 @@ import java.time.OffsetDateTime
 class NoteEntity(
     @Column(nullable = false, length = 200)
     var title: String,
-
     @Column(columnDefinition = "text")
     var body: String? = null,
 ) {

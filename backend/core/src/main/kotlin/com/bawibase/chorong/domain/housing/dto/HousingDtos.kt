@@ -15,7 +15,10 @@ data class CatalogResponse(
     val rooms: List<RoomResponse>,
 )
 
-data class CatalogItemResponse(val id: String, val name: String)
+data class CatalogItemResponse(
+    val id: String,
+    val name: String,
+)
 
 data class FurnitureResponse(
     val id: String,
@@ -32,11 +35,19 @@ data class RoomResponse(
     val slots: List<SlotResponse>,
 )
 
-data class SurfaceResponse(val id: String, val kind: String)
+data class SurfaceResponse(
+    val id: String,
+    val kind: String,
+)
 
-data class SlotResponse(val id: String, val allowedCategories: List<String>)
+data class SlotResponse(
+    val id: String,
+    val allowedCategories: List<String>,
+)
 
-data class WalletResponse(val coin: Long)
+data class WalletResponse(
+    val coin: Long,
+)
 
 data class OwnedResponse(
     val backgroundIds: List<String>,
@@ -47,9 +58,15 @@ data class OwnedResponse(
     val furniture: List<OwnedFurnitureResponse>,
 )
 
-data class OwnedFurnitureResponse(val furnitureId: String, val category: String)
+data class OwnedFurnitureResponse(
+    val furnitureId: String,
+    val category: String,
+)
 
-data class PlacementResponse(val slotId: String, val furnitureId: String)
+data class PlacementResponse(
+    val slotId: String,
+    val furnitureId: String,
+)
 
 data class LayoutResponse(
     val backgroundId: String,
@@ -78,11 +95,17 @@ data class LayoutRequest(
     @field:Valid val placements: List<PlacementRequest> = emptyList(),
 )
 
-data class ActiveRoomRequest(@field:NotBlank val roomId: String)
+data class ActiveRoomRequest(
+    @field:NotBlank val roomId: String,
+)
 
-data class ActiveRoomResponse(val activeRoomId: String)
+data class ActiveRoomResponse(
+    val activeRoomId: String,
+)
 
-data class PriceResponse(val coin: Long)
+data class PriceResponse(
+    val coin: Long,
+)
 
 data class ShopItemResponse(
     val id: String,
@@ -92,9 +115,13 @@ data class ShopItemResponse(
     val owned: Boolean,
 )
 
-data class ShopResponse(val items: List<ShopItemResponse>)
+data class ShopResponse(
+    val items: List<ShopItemResponse>,
+)
 
-data class PurchaseRequest(@field:NotBlank val itemId: String)
+data class PurchaseRequest(
+    @field:NotBlank val itemId: String,
+)
 
 data class PurchaseResponse(
     val wallet: WalletResponse,

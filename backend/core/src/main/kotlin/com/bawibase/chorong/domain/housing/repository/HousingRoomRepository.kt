@@ -5,5 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository
 
 interface HousingRoomRepository : JpaRepository<HousingRoomEntity, Long> {
     fun findAllByIsActiveTrueOrderBySortOrderAsc(): List<HousingRoomEntity>
+
     fun findByCode(code: String): HousingRoomEntity?
 }

@@ -30,8 +30,9 @@ class HousingMeController(
 ) {
     @Operation(description = "내가 소유한 방과 가구, 방의 배열, 내 아바타 정보, 내 지갑 정보를 함께 조회합니다.")
     @GetMapping
-    fun me(@Parameter(hidden = true) @RequestHeader(DEVICE_HEADER) deviceId: String): MeResponse =
-        housingService.me(userId(deviceId))
+    fun me(
+        @Parameter(hidden = true) @RequestHeader(DEVICE_HEADER) deviceId: String,
+    ): MeResponse = housingService.me(userId(deviceId))
 
     @Operation(description = "내 방의 레이아웃을 저장합니다.")
     @PutMapping("/rooms/{roomId}/layout")

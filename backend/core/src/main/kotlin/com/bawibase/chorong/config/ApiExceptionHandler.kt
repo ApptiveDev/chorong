@@ -13,9 +13,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 class ApiExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun handleValidation(e: MethodArgumentNotValidException): ResponseEntity<Map<String, Any>> {
-        val fields = e.bindingResult.fieldErrors.associate {
-            it.field to (it.defaultMessage ?: "invalid")
-        }
+        val fields =
+            e.bindingResult.fieldErrors.associate {
+                it.field to (it.defaultMessage ?: "invalid")
+            }
         return ResponseEntity
             .status(HttpStatus.BAD_REQUEST)
             .body(mapOf("code" to "VALIDATION", "message" to "요청 값이 올바르지 않습니다.", "fields" to fields))
@@ -39,9 +40,10 @@ class ApiExceptionHandler {
             .status(HttpStatus.NOT_FOUND)
             .body(mapOf("code" to "NOT_FOUND", "message" to (e.message ?: "not found")))
 
-    private fun ErrorKind.toHttpStatus(): HttpStatus = when (this) {
-        ErrorKind.VALIDATION -> HttpStatus.BAD_REQUEST
-        ErrorKind.NOT_FOUND -> HttpStatus.NOT_FOUND
-        ErrorKind.CONFLICT -> HttpStatus.CONFLICT
-    }
+    private fun ErrorKind.toHttpStatus(): HttpStatus =
+        when (this) {
+            ErrorKind.VALIDATION -> HttpStatus.BAD_REQUEST
+            ErrorKind.NOT_FOUND -> HttpStatus.NOT_FOUND
+            ErrorKind.CONFLICT -> HttpStatus.CONFLICT
+        }
 }

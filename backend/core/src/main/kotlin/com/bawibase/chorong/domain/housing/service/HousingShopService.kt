@@ -28,24 +28,29 @@ class HousingShopService(
         val catalog = catalogService.snapshot()
         housingService.ensureProfile(userId, catalog)
         val owned = housingService.ownedSet(userId)
-        val items = shopItems.findAllByIsActiveTrueOrderBySortOrderAsc().mapNotNull { item ->
-            val targetCode = catalog.codeOf(item.itemType, item.itemId) ?: return@mapNotNull null
-            ShopItemResponse(
-                id = item.code,
-                type = item.itemType.name.lowercase(),
-                targetId = targetCode,
-                price = PriceResponse(item.priceCoin),
-                owned = (item.itemType to item.itemId) in owned,
-            )
-        }
+        val items =
+            shopItems.findAllByIsActiveTrueOrderBySortOrderAsc().mapNotNull { item ->
+                val targetCode = catalog.codeOf(item.itemType, item.itemId) ?: return@mapNotNull null
+                ShopItemResponse(
+                    id = item.code,
+                    type = item.itemType.name.lowercase(),
+                    targetId = targetCode,
+                    price = PriceResponse(item.priceCoin),
+                    owned = (item.itemType to item.itemId) in owned,
+                )
+            }
         return ShopResponse(items)
     }
 
-    fun purchase(userId: Long, itemCode: String): PurchaseResponse {
+    fun purchase(
+        userId: Long,
+        itemCode: String,
+    ): PurchaseResponse {
         val catalog = catalogService.snapshot()
         val profile = housingService.ensureProfile(userId, catalog)
-        val item = shopItems.findByCode(itemCode)?.takeIf { it.isActive }
-            ?: throw ApiException(ErrorCode.UNKNOWN_ID, mapOf("itemId" to itemCode))
+        val item =
+            shopItems.findByCode(itemCode)?.takeIf { it.isActive }
+                ?: throw ApiException(ErrorCode.UNKNOWN_ID, mapOf("itemId" to itemCode))
         if (catalog.codeOf(item.itemType, item.itemId) == null) {
             throw ApiException(ErrorCode.UNKNOWN_ID, mapOf("itemId" to itemCode))
         }

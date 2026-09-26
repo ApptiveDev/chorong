@@ -14,7 +14,6 @@ class UserWalletEntity(
     @Id
     @Column(name = "user_id")
     var userId: Long,
-
     @Column(nullable = false)
     var coin: Long = 0,
 ) {

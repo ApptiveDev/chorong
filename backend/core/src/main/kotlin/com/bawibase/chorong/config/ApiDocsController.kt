@@ -9,7 +9,8 @@ import org.springframework.web.bind.annotation.RestController
 @Hidden
 class ApiDocsController {
     @GetMapping("/docs", produces = [MediaType.TEXT_HTML_VALUE])
-    fun docs(): String = """
+    fun docs(): String =
+        """
         <!doctype html>
         <html lang="ko">
         <head>
@@ -25,5 +26,5 @@ class ApiDocsController {
           </script>
         </body>
         </html>
-    """.trimIndent()
+        """.trimIndent()
 }

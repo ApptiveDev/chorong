@@ -26,18 +26,25 @@ class NoteController(
     fun list(): List<NoteResponse> = service.list().map(NoteResponse::from)
 
     @GetMapping("/{id}")
-    fun get(@PathVariable id: Long): NoteResponse = NoteResponse.from(service.get(id))
+    fun get(
+        @PathVariable id: Long,
+    ): NoteResponse = NoteResponse.from(service.get(id))
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    fun create(@Valid @RequestBody request: NoteRequest): NoteResponse =
-        NoteResponse.from(service.create(request))
+    fun create(
+        @Valid @RequestBody request: NoteRequest,
+    ): NoteResponse = NoteResponse.from(service.create(request))
 
     @PutMapping("/{id}")
-    fun update(@PathVariable id: Long, @Valid @RequestBody request: NoteRequest): NoteResponse =
-        NoteResponse.from(service.update(id, request))
+    fun update(
+        @PathVariable id: Long,
+        @Valid @RequestBody request: NoteRequest,
+    ): NoteResponse = NoteResponse.from(service.update(id, request))
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    fun delete(@PathVariable id: Long) = service.delete(id)
+    fun delete(
+        @PathVariable id: Long,
+    ) = service.delete(id)
 }

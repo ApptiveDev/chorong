@@ -4,6 +4,7 @@ plugins {
     kotlin("plugin.jpa") version "2.4.0"
     id("org.springframework.boot") version "3.4.4"
     id("io.spring.dependency-management") version "1.1.7"
+    id("com.diffplug.spotless") version "8.10.3"
 }
 
 group = "com.bawibase.chorong"
@@ -36,6 +37,15 @@ dependencies {
     testImplementation("org.testcontainers:junit-jupiter:1.20.4")
     testImplementation("org.testcontainers:postgresql:1.20.4")
     testImplementation("org.springframework.security:spring-security-test")
+}
+
+spotless {
+    kotlin {
+        ktlint("1.8.0")
+    }
+    kotlinGradle {
+        ktlint("1.8.0")
+    }
 }
 
 kotlin {

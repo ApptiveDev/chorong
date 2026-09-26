@@ -17,7 +17,6 @@ import com.bawibase.chorong.domain.housing.repository.HousingBackgroundRepositor
 import com.bawibase.chorong.domain.housing.repository.HousingFloorRepository
 import com.bawibase.chorong.domain.housing.repository.HousingFurnitureRepository
 import com.bawibase.chorong.domain.housing.repository.HousingFurnitureRoomRepository
-
 import com.bawibase.chorong.domain.housing.repository.HousingRoomRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotCategoryRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomSlotRepository
@@ -46,18 +45,31 @@ import java.util.UUID
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class HousingApiTest {
     @Autowired lateinit var mockMvc: MockMvc
+
     @Autowired lateinit var backgrounds: HousingBackgroundRepository
+
     @Autowired lateinit var walls: HousingWallRepository
+
     @Autowired lateinit var floors: HousingFloorRepository
+
     @Autowired lateinit var avatars: HousingAvatarRepository
+
     @Autowired lateinit var furniture: HousingFurnitureRepository
+
     @Autowired lateinit var furnitureRooms: HousingFurnitureRoomRepository
+
     @Autowired lateinit var rooms: HousingRoomRepository
+
     @Autowired lateinit var surfaces: HousingRoomSurfaceRepository
+
     @Autowired lateinit var slots: HousingRoomSlotRepository
+
     @Autowired lateinit var slotCategories: HousingRoomSlotCategoryRepository
+
     @Autowired lateinit var shopItems: HousingShopItemRepository
+
     @Autowired lateinit var wallets: UserWalletRepository
+
     @Autowired lateinit var users: UserRepository
 
     private val header = "X-Device-Id"
@@ -87,8 +99,24 @@ class HousingApiTest {
             slotCategories.save(HousingRoomSlotCategoryEntity(slotId = checkNotNull(floorSlot.id), category = "lamp"))
             slotCategories.save(HousingRoomSlotCategoryEntity(slotId = checkNotNull(wallSlot.id), category = "frame"))
         }
-        shopItems.save(HousingShopItemEntity(code = "shop_wall_paper_blue", itemType = HousingItemType.WALL, itemId = checkNotNull(bluePaper.id), priceCoin = 300, sortOrder = 0))
-        shopItems.save(HousingShopItemEntity(code = "shop_room_attic", itemType = HousingItemType.ROOM, itemId = checkNotNull(attic.id), priceCoin = 1000, sortOrder = 1))
+        shopItems.save(
+            HousingShopItemEntity(
+                code = "shop_wall_paper_blue",
+                itemType = HousingItemType.WALL,
+                itemId = checkNotNull(bluePaper.id),
+                priceCoin = 300,
+                sortOrder = 0,
+            ),
+        )
+        shopItems.save(
+            HousingShopItemEntity(
+                code = "shop_room_attic",
+                itemType = HousingItemType.ROOM,
+                itemId = checkNotNull(attic.id),
+                priceCoin = 1000,
+                sortOrder = 1,
+            ),
+        )
     }
 
     @Test
@@ -131,62 +159,67 @@ class HousingApiTest {
         val device = UUID.randomUUID().toString()
         mockMvc.get("/api/housing/me") { header(header, device) }.andExpect { status { isOk() } }
 
-        mockMvc.put("/api/housing/me/rooms/room_basic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
+        mockMvc
+            .put("/api/housing/me/rooms/room_basic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
                 "surfaceSkins":{"wall_left":"wall_brick","wall_right":"wall_brick","floor":"floor_wood"},
                 "placements":[{"slotId":"s_floor_1","furnitureId":"fn_frame_sun"}]}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("SLOT_CATEGORY_MISMATCH") }
-            jsonPath("$.details.slotId") { value("s_floor_1") }
-        }
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("SLOT_CATEGORY_MISMATCH") }
+                jsonPath("$.details.slotId") { value("s_floor_1") }
+            }
 
-        mockMvc.put("/api/housing/me/rooms/room_basic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
+        mockMvc
+            .put("/api/housing/me/rooms/room_basic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
                 "surfaceSkins":{"wall_left":"wall_brick","wall_right":"wall_brick","floor":"floor_wood"},
                 "placements":[{"slotId":"s_floor_1","furnitureId":"fn_lamp_attic"}]}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("ROOM_INCOMPATIBLE") }
-        }
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("ROOM_INCOMPATIBLE") }
+            }
 
-        mockMvc.put("/api/housing/me/rooms/room_basic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
+        mockMvc
+            .put("/api/housing/me/rooms/room_basic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
                 "surfaceSkins":{"wall_left":"wall_brick","floor":"floor_wood"},
                 "placements":[]}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("SURFACE_MISMATCH") }
-        }
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("SURFACE_MISMATCH") }
+            }
 
-        mockMvc.put("/api/housing/me/rooms/room_basic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
+        mockMvc
+            .put("/api/housing/me/rooms/room_basic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
                 "surfaceSkins":{"wall_left":"wall_paper_blue","wall_right":"wall_brick","floor":"floor_wood"},
                 "placements":[]}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("NOT_OWNED") }
-        }
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("NOT_OWNED") }
+            }
 
-        mockMvc.put("/api/housing/me/rooms/room_basic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
+        mockMvc
+            .put("/api/housing/me/rooms/room_basic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
                 "surfaceSkins":{"wall_left":"wall_brick","wall_right":"wall_brick","floor":"floor_wood"},
                 "placements":[{"slotId":"s_floor_1","furnitureId":"fn_chair_wood"},{"slotId":"s_wall_l1","furnitureId":"fn_frame_sun"}]}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.placements.length()") { value(2) }
-            jsonPath("$.updatedAt") { exists() }
-        }
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.placements.length()") { value(2) }
+                jsonPath("$.updatedAt") { exists() }
+            }
 
         mockMvc.get("/api/housing/me") { header(header, device) }.andExpect {
             status { isOk() }
@@ -194,14 +227,15 @@ class HousingApiTest {
             jsonPath("$.layouts.room_basic.placements[?(@.slotId=='s_wall_l1')].furnitureId") { value("fn_frame_sun") }
         }
 
-        mockMvc.put("/api/housing/me/rooms/room_attic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat","surfaceSkins":{},"placements":[]}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("NOT_OWNED") }
-        }
+        mockMvc
+            .put("/api/housing/me/rooms/room_attic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat","surfaceSkins":{},"placements":[]}"""
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("NOT_OWNED") }
+            }
     }
 
     @Test
@@ -215,58 +249,63 @@ class HousingApiTest {
             jsonPath("$.items[?(@.id=='shop_room_attic')].type") { value("room") }
         }
 
-        mockMvc.post("/api/housing/shop/purchase") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"itemId":"shop_room_attic"}"""
-        }.andExpect {
-            status { isBadRequest() }
-            jsonPath("$.code") { value("INSUFFICIENT_COIN") }
-        }
+        mockMvc
+            .post("/api/housing/shop/purchase") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"itemId":"shop_room_attic"}"""
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.code") { value("INSUFFICIENT_COIN") }
+            }
 
         val userId = checkNotNull(checkNotNull(users.findByDeviceUuid(device)).id)
         val wallet = wallets.findById(userId).orElseThrow()
         wallet.coin = 1500
         wallets.save(wallet)
 
-        mockMvc.post("/api/housing/shop/purchase") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"itemId":"shop_room_attic"}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.wallet.coin") { value(500) }
-            jsonPath("$.owned.roomIds.length()") { value(2) }
-            jsonPath("$.layouts.room_attic.surfaceSkins.wall_right") { value("wall_brick") }
-        }
+        mockMvc
+            .post("/api/housing/shop/purchase") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"itemId":"shop_room_attic"}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.wallet.coin") { value(500) }
+                jsonPath("$.owned.roomIds.length()") { value(2) }
+                jsonPath("$.layouts.room_attic.surfaceSkins.wall_right") { value("wall_brick") }
+            }
 
-        mockMvc.post("/api/housing/shop/purchase") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"itemId":"shop_room_attic"}"""
-        }.andExpect {
-            status { isConflict() }
-            jsonPath("$.code") { value("ALREADY_OWNED") }
-        }
+        mockMvc
+            .post("/api/housing/shop/purchase") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"itemId":"shop_room_attic"}"""
+            }.andExpect {
+                status { isConflict() }
+                jsonPath("$.code") { value("ALREADY_OWNED") }
+            }
 
-        mockMvc.put("/api/housing/me/active-room") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"roomId":"room_attic"}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.activeRoomId") { value("room_attic") }
-        }
+        mockMvc
+            .put("/api/housing/me/active-room") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"roomId":"room_attic"}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.activeRoomId") { value("room_attic") }
+            }
 
-        mockMvc.put("/api/housing/me/rooms/room_attic/layout") {
-            header(header, device)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
+        mockMvc
+            .put("/api/housing/me/rooms/room_attic/layout") {
+                header(header, device)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"backgroundId":"bg_forest","avatarId":"av_cat",
                 "surfaceSkins":{"wall_left":"wall_brick","wall_right":"wall_brick","floor":"floor_wood"},
                 "placements":[{"slotId":"s_floor_1","furnitureId":"fn_lamp_attic"}]}"""
-        }.andExpect {
-            status { isOk() }
-            jsonPath("$.placements[0].furnitureId") { value("fn_lamp_attic") }
-        }
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.placements[0].furnitureId") { value("fn_lamp_attic") }
+            }
     }
 }

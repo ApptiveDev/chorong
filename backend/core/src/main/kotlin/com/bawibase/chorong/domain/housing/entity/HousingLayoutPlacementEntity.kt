@@ -6,19 +6,17 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
-import java.time.OffsetDateTime
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
+import java.time.OffsetDateTime
 
 @Entity
 @Table(name = "housing_layout_placement")
 class HousingLayoutPlacementEntity(
     @Column(name = "layout_id", nullable = false)
     var layoutId: Long,
-
     @Column(name = "slot_id", nullable = false)
     var slotId: Long,
-
     @Column(name = "furniture_id", nullable = false)
     var furnitureId: Long,
 ) {

@@ -15,7 +15,10 @@ class UserWalletService(
     fun ensureWallet(userId: Long): UserWalletEntity =
         wallets.findById(userId).orElseGet { wallets.save(UserWalletEntity(userId = userId)) }
 
-    fun deduct(userId: Long, amount: Long): UserWalletEntity {
+    fun deduct(
+        userId: Long,
+        amount: Long,
+    ): UserWalletEntity {
         val wallet = ensureWallet(userId)
         if (wallet.coin < amount) {
             throw ApiException(ErrorCode.INSUFFICIENT_COIN, mapOf("required" to amount, "coin" to wallet.coin))
