@@ -24,10 +24,13 @@
 | `DB_HOST` | `core` 스택 output `db_host` |
 | `DEV_DB_USER`, `PROD_DB_USER` | `svc_chorong_dev`, `svc_chorong_prod` |
 | `DEV_DB_PASSWORD`, `PROD_DB_PASSWORD` | `core-db/terraform.tfvars` 에 넣은 값 |
+| `DEV_JWT_SECRET`, `PROD_JWT_SECRET` | `openssl rand -base64 48`. 32바이트 이상. 바꾸면 발급된 액세스 토큰이 전부 무효 |
 | `DEV_CORS_ORIGINS`, `PROD_CORS_ORIGINS` | `https://chorong-dev.bawibase.com` / `https://chorong.bawibase.com` |
 | `DEV_EXPO_PUBLIC_API_URL`, `PROD_EXPO_PUBLIC_API_URL` | `https://api-chorong-dev.bawibase.com` / `https://api-chorong.bawibase.com` |
 | `DEV_WEB_S3_BUCKET`, `PROD_WEB_S3_BUCKET` | output `frontend_web_{dev,prod}_bucket` |
 | `DEV_WEB_CF_DISTRIBUTION_ID`, `PROD_WEB_CF_DISTRIBUTION_ID` | output `frontend_web_{dev,prod}_cf_id` |
+
+워크플로우가 태스크 정의에 넣는 관측 환경변수는 Secrets 가 아니다: `APP_ENV`(dev/prod), `OTEL_ENABLED=true`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm.bawi-observability.local:4318`, `OTEL_TENANT=chorong`. 로그·트레이스는 Loki·Tempo 테넌트 `chorong` 으로 들어간다. 상세는 [`OBSERVABILITY.md`](OBSERVABILITY.md).
 
 GitHub environments `development`, `production` 을 만든다. prod 는 required reviewer 를 붙여도 된다.
 

@@ -19,6 +19,7 @@ Expo Go / 네이티브 앱 ─────────────────�
 - **mobile/** Expo 앱 한 벌로 iOS·Android·웹을 만든다. 웹에서는 `src/components/WebFrame.tsx` 가 화면을 480px 컬럼으로 중앙 정렬한다 (jimba-service `#root` 패턴). 하단 독은 `app/(tabs)/_layout.tsx` 의 `dockItems` 배열 (홈·퀴즈·소셜·더보기). 더보기 → `app/settings/*` 는 탭 밖 Stack 화면이라 독이 사라지고 뒤로가기 헤더가 붙는다. 웹 빌드는 `web.output: static` 이라 라우트별 HTML 이 나오고, CloudFront 가 403/404 를 `index.html` 로 돌려 클라이언트 라우팅을 받는다.
 - **backend/core/** Spring Boot API. 인증은 JWT Bearer (HS256, `JWT_SECRET`). 상세는 [`AUTH_API.md`](AUTH_API.md). CORS 허용 오리진은 `CORS_ORIGINS` 환경변수. API 문서는 `/docs` (Scalar UI, 스펙은 springdoc 이 `/api-docs` 로 생성).
 - **DB** 앱별 RDS 를 만들지 않는다. 공유 RDS 에 스키마·계정만 추가한다 (`bawi-cloud-core/infra/environments/core-db`).
+- **로그·트레이스·메트릭** stdout 은 ECS JSON 으로 CloudWatch `/ecs/bawibase-chorong-{dev,prod}`. 같은 로그와 트레이스·메트릭을 OTLP 로 공용 LGTM (`http://lgtm.bawi-observability.local:4318`, VPC 내부) 에 보낸다. 로그·트레이스는 테넌트 `chorong` (헤더 `X-Scope-OrgID`), 메트릭은 공유 Prometheus. 조회는 `https://grafana.bawibase.com`. 규칙은 [`OBSERVABILITY.md`](OBSERVABILITY.md).
 - **ALB·ECS 클러스터·VPC** 는 `bawi-cloud-core/infra/environments/core` 의 공유 자원을 쓴다. 앱별로는 타깃 그룹·리스너 룰·태스크 정의·서비스만 만든다.
 
 ## 환경 분리

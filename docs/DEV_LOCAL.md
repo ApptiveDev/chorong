@@ -12,8 +12,11 @@
 ```bash
 ./scripts/dev-up.sh          # Postgres + core 컨테이너. http://localhost:8080/api/health
 ./scripts/dev-up.sh --bare   # Postgres 만. 백엔드는 IDE 나 ./backend/gradlew -p backend :core:bootRun
+./scripts/dev-up.sh --obs    # + Grafana/Loki/Tempo/Prometheus (otel-lgtm). http://localhost:3000
 ./scripts/dev-up.sh --down
 ```
+
+`--obs` 는 운영과 같은 이미지·멀티테넌트 설정이다. Explore 전에 Grafana 의 Loki·Tempo 데이터소스에 Custom HTTP Header `X-Scope-OrgID: chorong` 을 추가한다 (익명 Admin 이라 바로 편집된다). 로그를 텍스트로 보려면 `./scripts/logs.sh`.
 
 테스트는 Docker 가 떠 있어야 한다 (Testcontainers):
 
@@ -50,3 +53,5 @@ pnpm build:web   # mobile/dist/
 | API | 8080 |
 | Postgres | 5432 |
 | Expo Metro / 웹 | 8081 |
+| Grafana (`--obs`) | 3000 |
+| OTLP HTTP / Loki / Tempo / Prometheus (`--obs`) | 4318 / 3100 / 3200 / 9090 |
