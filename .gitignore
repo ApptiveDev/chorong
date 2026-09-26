@@ -1,0 +1,41 @@
+# JVM / Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+hs_err_pid*
+.idea/
+*.iml
+out/
+
+# Node / pnpm
+node_modules/
+dist/
+.pnpm-store/
+*.log
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+
+# Local
+.aws-sam/
+.terraform/
+terraform.tfstate*
+
+# Playwright MCP 로컬 세션 아티팩트 (스냅샷 · 콘솔 로그 · 스크린샷)
+.playwright-mcp/
+
+# Expo
+.expo/
+expo-env.d.ts
+web-build/
+/mobile/ios
+/mobile/android

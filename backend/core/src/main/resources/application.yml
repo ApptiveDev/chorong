@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: bawibase-chorong
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:appdb}?currentSchema=${DB_SCHEMA:chorong_dev}
+    username: ${POSTGRES_USER:dev}
+    password: ${POSTGRES_PASSWORD:dev}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: ${DB_SCHEMA:chorong_dev}
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    schemas: ${DB_SCHEMA:chorong_dev}
+    default-schema: ${DB_SCHEMA:chorong_dev}
+    create-schemas: true
+    baseline-on-migrate: true
+    baseline-version: 0
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+
+app:
+  cors:
+    origins: ${CORS_ORIGINS:http://localhost:8081,http://localhost:19006}

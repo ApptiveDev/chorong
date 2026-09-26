@@ -1,0 +1,90 @@
+name: 백엔드 배포 (prod)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 빌드
+    if: github.repository == 'bawibase/bawibase-chorong'
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v6
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: ECR 로그인
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Docker 이미지 빌드 및 푸시
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: bawibase-chorong-backend-prod
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  deploy:
+    name: 배포
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    environment: production
+
+    steps:
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: 현재 ECS 태스크 정의 조회
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition bawibase-chorong-prod \
+            --query taskDefinition \
+            > task-def.json
+
+      - name: 태스크 정의 업데이트 (이미지 + 환경변수)
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: bawibase-chorong-prod
+          image: ${{ needs.build.outputs.image }}
+          environment-variables: |
+            SPRING_PROFILES_ACTIVE=prod
+            POSTGRES_HOST=${{ secrets.DB_HOST }}
+            POSTGRES_PORT=5432
+            POSTGRES_DB=appdb
+            POSTGRES_USER=${{ secrets.PROD_DB_USER }}
+            POSTGRES_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
+            DB_SCHEMA=chorong_prod
+            CORS_ORIGINS=${{ secrets.PROD_CORS_ORIGINS }}
+
+      - name: ECS 서비스 배포
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: bawibase-chorong-prod
+          cluster: bawi-sandbox
+          wait-for-service-stability: true

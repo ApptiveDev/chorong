@@ -1,0 +1,81 @@
+name: 모바일 웹 배포 (prod)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 빌드
+    if: github.repository == 'bawibase/bawibase-chorong'
+    runs-on: ubuntu-24.04
+    environment: production
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v6
+
+      - name: pnpm 설치
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: mobile/pnpm-lock.yaml
+
+      - name: 의존성 설치
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: 웹 빌드 (expo export)
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.PROD_EXPO_PUBLIC_API_URL }}
+        run: pnpm build:web
+
+      - name: 빌드 아티팩트 업로드
+        uses: actions/upload-artifact@v7
+        with:
+          name: mobile-web-dist-prod
+          path: mobile/dist/
+          retention-days: 1
+
+  deploy:
+    name: 배포
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: production
+
+    steps:
+      - name: 빌드 아티팩트 다운로드
+        uses: actions/download-artifact@v8
+        with:
+          name: mobile-web-dist-prod
+          path: dist/
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: S3 동기화
+        env:
+          S3_BUCKET: ${{ secrets.PROD_WEB_S3_BUCKET }}
+        run: aws s3 sync dist/ s3://$S3_BUCKET --delete
+
+      - name: CloudFront 캐시 무효화
+        env:
+          CF_DISTRIBUTION_ID: ${{ secrets.PROD_WEB_CF_DISTRIBUTION_ID }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id $CF_DISTRIBUTION_ID \
+            --paths "/*"
