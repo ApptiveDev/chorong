@@ -88,3 +88,20 @@ jobs:
           service: bawibase-chorong-dev
           cluster: bawi-sandbox
           wait-for-service-stability: true
+
+      - name: Discord 알림
+        if: success()
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          jq -n \
+            --arg title "백엔드 dev 배포 완료" \
+            --arg desc "$(printf '%s' "$MESSAGE" | head -n 1)" \
+            --arg url "$RUN_URL" \
+            --arg sha "${GITHUB_SHA::7}" \
+            --arg actor "$GITHUB_ACTOR" \
+            '{embeds: [{title: $title, description: $desc, url: $url, color: 5763719,
+               fields: [{name: "커밋", value: $sha, inline: true}, {name: "실행자", value: $actor, inline: true}]}]}' \
+          | curl -sS -f -H "Content-Type: application/json" -d @- \
+            https://discord.com/api/webhooks/1553364232811184171/Uinl1LWZgS_kzPWxuWKLWfxGXYYjaGyjBtP1Jso8m4NbJcaEcWSZqSf8PHxhlq9pAYMh
