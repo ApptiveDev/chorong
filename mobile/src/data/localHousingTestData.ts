@@ -1,19 +1,17 @@
-export type ShopCategory = 'wall' | 'bed' | 'floor' | 'light' | 'decoration' | 'other';
+export type LocalShopCategory = 'wall' | 'bed' | 'floor' | 'light' | 'decoration' | 'other';
 
-export type ShopSlot = ShopCategory;
-
-export type ShopItem = {
+export type LocalShopItem = {
   id: string;
   name: string;
-  category: ShopCategory;
-  slot: ShopSlot;
+  category: LocalShopCategory;
+  slot: LocalShopCategory;
   color: string;
   accentColor: string;
 };
 
-export type PlacedItems = Partial<Record<ShopSlot, ShopItem>>;
+export type LocalPlacedItems = Partial<Record<LocalShopCategory, LocalShopItem>>;
 
-export const shopCategories: { id: ShopCategory; label: string }[] = [
+export const localShopCategories: { id: LocalShopCategory; label: string }[] = [
   { id: 'wall', label: '벽' },
   { id: 'bed', label: '침대' },
   { id: 'floor', label: '바닥' },
@@ -22,7 +20,8 @@ export const shopCategories: { id: ShopCategory; label: string }[] = [
   { id: 'other', label: '기타' },
 ];
 
-export const mockShopItems: ShopItem[] = [
+// 로컬 UI 검증 전용 데이터다. housingApi 요청에는 전달하지 않는다.
+export const localShopItems: LocalShopItem[] = [
   {
     id: 'wall-1',
     name: '기본 벽',

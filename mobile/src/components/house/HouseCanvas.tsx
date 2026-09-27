@@ -1,6 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 import Svg, { Line, Polygon } from 'react-native-svg';
-import type { PlacedItems } from '../../data/mockShopItems';
+import type { CatalogResponse, Layout } from '../../lib/housingApi';
 import { PlacedFurniture } from './PlacedFurniture';
 
 const ROOM_COLORS = {
@@ -14,13 +14,17 @@ const ROOM_COLORS = {
 const STROKE_WIDTH = 2;
 
 type HouseCanvasProps = {
-  placedItems: PlacedItems;
+  layout: Layout | null;
+  catalog: CatalogResponse | null;
+  roomId?: string;
 };
 
-export function HouseCanvas({ placedItems }: HouseCanvasProps) {
-  const wallColor = placedItems.wall?.color ?? ROOM_COLORS.leftWall;
-  const rightWallColor = placedItems.wall?.accentColor ?? ROOM_COLORS.rightWall;
-  const floorColor = placedItems.floor?.color ?? ROOM_COLORS.floor;
+export function HouseCanvas({ layout, catalog, roomId }: HouseCanvasProps) {
+  const room = catalog?.rooms.find((candidate) => candidate.id === roomId);
+  const wallSurface = room?.surfaces.find((surface) => surface.kind.toLowerCase() === 'wall');
+  const floorSurface = room?.surfaces.find((surface) => surface.kind.toLowerCase() === 'floor');
+  const hasWallSkin = Boolean(wallSurface && layout?.surfaceSkins[wallSurface.id]);
+  const hasFloorSkin = Boolean(floorSurface && layout?.surfaceSkins[floorSurface.id]);
 
   return (
     <View style={styles.container} accessibilityLabel="빈 방 미리보기">
@@ -34,21 +38,21 @@ export function HouseCanvas({ placedItems }: HouseCanvasProps) {
         />
         <Polygon
           points="160,28 38,96 38,218 160,282"
-          fill={wallColor}
+          fill={hasWallSkin ? '#dbeafe' : ROOM_COLORS.leftWall}
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
           strokeLinejoin="round"
         />
         <Polygon
           points="160,28 282,96 282,218 160,282"
-          fill={rightWallColor}
+          fill={hasWallSkin ? '#bfdbfe' : ROOM_COLORS.rightWall}
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
           strokeLinejoin="round"
         />
         <Polygon
           points="38,218 160,154 282,218 160,282"
-          fill={floorColor}
+          fill={hasFloorSkin ? '#fde68a' : ROOM_COLORS.floor}
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
           strokeLinejoin="round"
@@ -77,7 +81,7 @@ export function HouseCanvas({ placedItems }: HouseCanvasProps) {
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
         />
-        <PlacedFurniture placedItems={placedItems} />
+        <PlacedFurniture placements={layout?.placements ?? []} catalog={catalog} />
       </Svg>
     </View>
   );
