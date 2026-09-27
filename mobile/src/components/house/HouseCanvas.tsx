@@ -1,5 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import Svg, { Line, Polygon } from 'react-native-svg';
+import type { PlacedItems } from '../../data/mockShopItems';
+import { PlacedFurniture } from './PlacedFurniture';
 
 const ROOM_COLORS = {
   outline: '#334155',
@@ -11,7 +13,15 @@ const ROOM_COLORS = {
 
 const STROKE_WIDTH = 2;
 
-export function HouseCanvas() {
+type HouseCanvasProps = {
+  placedItems: PlacedItems;
+};
+
+export function HouseCanvas({ placedItems }: HouseCanvasProps) {
+  const wallColor = placedItems.wall?.color ?? ROOM_COLORS.leftWall;
+  const rightWallColor = placedItems.wall?.accentColor ?? ROOM_COLORS.rightWall;
+  const floorColor = placedItems.floor?.color ?? ROOM_COLORS.floor;
+
   return (
     <View style={styles.container} accessibilityLabel="빈 방 미리보기">
       <Svg width="100%" height="100%" viewBox="0 0 320 300">
@@ -24,21 +34,21 @@ export function HouseCanvas() {
         />
         <Polygon
           points="160,28 38,96 38,218 160,282"
-          fill={ROOM_COLORS.leftWall}
+          fill={wallColor}
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
           strokeLinejoin="round"
         />
         <Polygon
           points="160,28 282,96 282,218 160,282"
-          fill={ROOM_COLORS.rightWall}
+          fill={rightWallColor}
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
           strokeLinejoin="round"
         />
         <Polygon
           points="38,218 160,154 282,218 160,282"
-          fill={ROOM_COLORS.floor}
+          fill={floorColor}
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
           strokeLinejoin="round"
@@ -67,6 +77,7 @@ export function HouseCanvas() {
           stroke={ROOM_COLORS.outline}
           strokeWidth={STROKE_WIDTH}
         />
+        <PlacedFurniture placedItems={placedItems} />
       </Svg>
     </View>
   );

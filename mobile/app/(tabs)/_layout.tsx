@@ -1,6 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import type { ComponentProps } from 'react';
+import {
+  HouseEditingProvider,
+  useHouseEditing,
+} from '../../src/components/house/HouseEditingContext';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -13,13 +17,27 @@ const dockItems: { name: string; label: string; icon: IconName; iconActive: Icon
 
 export default function TabsLayout() {
   return (
+    <HouseEditingProvider>
+      <TabNavigator />
+    </HouseEditingProvider>
+  );
+}
+
+function TabNavigator() {
+  const { isEditing } = useHouseEditing();
+
+  return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#0f172a',
         tabBarInactiveTintColor: '#64748b',
         tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
-        tabBarStyle: { borderTopColor: '#cbd5e1', backgroundColor: '#ffffff' },
+        tabBarStyle: {
+          display: isEditing ? 'none' : 'flex',
+          borderTopColor: '#cbd5e1',
+          backgroundColor: '#ffffff',
+        },
       }}
     >
       {dockItems.map((item) => (

@@ -1,14 +1,14 @@
-import { Alert, Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 
-export function RoomEditButton() {
-  const handlePress = () => {
-    Alert.alert('방 편집', '방 편집 기능은 준비 중입니다.');
-  };
+type RoomEditButtonProps = {
+  onPress: () => void;
+};
 
+export function RoomEditButton({ onPress }: RoomEditButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={handlePress}
+      onPress={onPress}
       style={({ pressed }) => [styles.button, pressed && styles.pressed]}
     >
       <Text style={styles.label}>방 편집</Text>
