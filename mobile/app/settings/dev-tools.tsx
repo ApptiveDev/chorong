@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { AuthTools } from '../../src/components/AuthTools';
 import { healthApi, notesApi, type Note } from '../../src/lib/api';
 
 export default function DevTools() {
@@ -51,67 +52,81 @@ export default function DevTools() {
   };
 
   const remove = async (id: number) => {
-    await notesApi.remove(id);
-    await load();
+    try {
+      await notesApi.remove(id);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.statusRow}>
-        <Text style={styles.label}>API</Text>
-        {health === 'loading' ? (
-          <ActivityIndicator size="small" />
-        ) : (
-          <Text style={[styles.badge, health === 'ok' ? styles.ok : styles.bad]}>
-            {health === 'ok' ? '연결됨' : '연결 실패'}
-          </Text>
-        )}
-      </View>
+    <FlatList
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={
+        <View style={styles.header}>
+          <View style={styles.statusRow}>
+            <Text style={styles.label}>API</Text>
+            {health === 'loading' ? (
+              <ActivityIndicator size="small" />
+            ) : (
+              <Text style={[styles.badge, health === 'ok' ? styles.ok : styles.bad]}>
+                {health === 'ok' ? '연결됨' : '연결 실패'}
+              </Text>
+            )}
+          </View>
 
-      <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          placeholder="제목"
-          value={title}
-          onChangeText={setTitle}
-          maxLength={200}
-        />
-        <TextInput
-          style={[styles.input, styles.multiline]}
-          placeholder="내용"
-          value={body}
-          onChangeText={setBody}
-          multiline
-        />
-        <Pressable style={[styles.button, busy && styles.buttonDisabled]} onPress={submit}>
-          <Text style={styles.buttonText}>추가</Text>
-        </Pressable>
-      </View>
+          <AuthTools />
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <FlatList
-        data={notes}
-        keyExtractor={(n) => String(n.id)}
-        ListEmptyComponent={<Text style={styles.empty}>메모가 없습니다.</Text>}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardBody}>
-              <Text style={styles.cardTitle}>{item.title}</Text>
-              {item.body ? <Text style={styles.cardText}>{item.body}</Text> : null}
-            </View>
-            <Pressable onPress={() => remove(item.id)} hitSlop={8}>
-              <Text style={styles.delete}>삭제</Text>
+          <Text style={styles.heading}>메모</Text>
+          <View style={styles.form}>
+            <TextInput
+              style={styles.input}
+              placeholder="제목"
+              value={title}
+              onChangeText={setTitle}
+              maxLength={200}
+            />
+            <TextInput
+              style={[styles.input, styles.multiline]}
+              placeholder="내용"
+              value={body}
+              onChangeText={setBody}
+              multiline
+            />
+            <Pressable style={[styles.button, busy && styles.buttonDisabled]} onPress={submit}>
+              <Text style={styles.buttonText}>추가</Text>
             </Pressable>
           </View>
-        )}
-      />
-    </View>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+        </View>
+      }
+      data={notes}
+      keyExtractor={(n) => String(n.id)}
+      ListEmptyComponent={<Text style={styles.empty}>메모가 없습니다.</Text>}
+      renderItem={({ item }) => (
+        <View style={styles.card}>
+          <View style={styles.cardBody}>
+            <Text style={styles.cardTitle}>{item.title}</Text>
+            {item.body ? <Text style={styles.cardText}>{item.body}</Text> : null}
+          </View>
+          <Pressable onPress={() => remove(item.id)} hitSlop={8}>
+            <Text style={styles.delete}>삭제</Text>
+          </Pressable>
+        </View>
+      )}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, gap: 12, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: '#fff' },
+  content: { padding: 16 },
+  header: { gap: 12, paddingBottom: 12 },
+  heading: { fontSize: 18, fontWeight: '600' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   label: { fontSize: 14, color: '#6b7280' },
   badge: {
