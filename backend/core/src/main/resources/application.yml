@@ -45,6 +45,8 @@ management:
     resource-attributes:
       service.name: chorong-api
       deployment.environment: ${APP_ENV:local}
+      # 태스크마다 시계열을 나눈다. 없으면 롤링 배포 중 두 태스크가 한 카운터에 섞여 rate() 가 튄다
+      service.instance.id: ${HOSTNAME:local}
   tracing:
     sampling:
       probability: 1.0
