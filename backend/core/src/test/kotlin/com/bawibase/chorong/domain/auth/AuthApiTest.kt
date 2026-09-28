@@ -1,6 +1,8 @@
 package com.bawibase.chorong.domain.auth
 
 import com.bawibase.chorong.TestcontainersConfig
+import com.bawibase.chorong.domain.user.entity.UserRefreshTokenEntity
+import com.bawibase.chorong.domain.user.repository.UserRefreshTokenRepository
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.Test
@@ -10,12 +12,17 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
+import org.springframework.security.oauth2.jwt.JwtDecoder
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -24,6 +31,12 @@ class AuthApiTest {
     @Autowired lateinit var mockMvc: MockMvc
 
     @Autowired lateinit var objectMapper: ObjectMapper
+
+    @Autowired lateinit var clock: Clock
+
+    @Autowired lateinit var jwtDecoder: JwtDecoder
+
+    @Autowired lateinit var refreshTokens: UserRefreshTokenRepository
 
     private fun post(
         path: String,
@@ -42,6 +55,38 @@ class AuthApiTest {
 
     private fun signUp(): JsonNode =
         post("/api/auth/password/signup", """{"email":"u-${UUID.randomUUID()}@test.local","password":"password123"}""", 201)
+
+    private fun assertDefaultTokenLifetimes(
+        tokens: JsonNode,
+        issuedAfter: Instant,
+        issuedBefore: Instant,
+    ): UserRefreshTokenEntity {
+        val access = jwtDecoder.decode(tokens["accessToken"].asText())
+        assertEquals(1800L, tokens["expiresIn"].asLong())
+        assertEquals(Duration.ofMinutes(30), Duration.between(access.issuedAt, access.expiresAt))
+
+        val refresh = refreshTokens.findAll().single { it.userId == access.subject.toLong() && it.revokedAt == null }
+        val expiresAt = refresh.expiresAt.toInstant()
+        val lifetime = Duration.ofDays(365)
+        assertTrue(!expiresAt.isBefore(issuedAfter.plus(lifetime)), "Refresh token expires before 365 days")
+        assertTrue(!expiresAt.isAfter(issuedBefore.plus(lifetime)), "Refresh token expires after the issuance window plus 365 days")
+        return refresh
+    }
+
+    @Test
+    fun `issued and rotated tokens use default lifetimes`() {
+        val issuedAfter = clock.instant()
+        val first = signUp()
+        val original = assertDefaultTokenLifetimes(first, issuedAfter, clock.instant())
+        val originalExpiry = original.expiresAt
+
+        val rotatedAfter = clock.instant()
+        val rotated = post("/api/auth/refresh", """{"refreshToken":"${first["refreshToken"].asText()}"}""")
+        assertDefaultTokenLifetimes(rotated, rotatedAfter, clock.instant())
+
+        val previous = refreshTokens.findById(checkNotNull(original.id)).orElseThrow()
+        assertEquals(originalExpiry, previous.expiresAt)
+    }
 
     @Test
     fun `guest signup then login and duplicate device conflicts`() {
