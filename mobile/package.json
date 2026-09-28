@@ -11,7 +11,8 @@
     "build:web": "expo export -p web",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:quiz": "tsc -p tests/tsconfig.quiz.json && node --test tests/quiz.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
