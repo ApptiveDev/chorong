@@ -1,4 +1,7 @@
 spring:
+  # SIGTERM 시 새 연결을 거부하고 진행 중 요청을 최대 8s 기다린 뒤 종료 (ECS stopTimeout 10s 안)
+  lifecycle:
+    timeout-per-shutdown-phase: 8s
   application:
     name: bawibase-chorong
   datasource:
@@ -45,6 +48,11 @@ management:
   tracing:
     sampling:
       probability: 1.0
+  metrics:
+    distribution:
+      # 지연 분위수(p50/p95/p99)를 Prometheus 에서 계산하려면 히스토그램 버킷이 필요하다
+      percentiles-histogram:
+        http.server.requests: true
   otlp:
     tracing:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
@@ -73,6 +81,7 @@ springdoc:
 
 server:
   port: 8080
+  shutdown: graceful
   forward-headers-strategy: framework
 
 app:
