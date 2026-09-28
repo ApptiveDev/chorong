@@ -26,7 +26,7 @@ enum class ErrorCode(
     CATALOG_DEFAULT_MISSING(ErrorKind.CONFLICT, "기본 지급 에셋이 카탈로그에 없습니다."),
 }
 
-class ApiException(
+open class ApiException(
     val code: ErrorCode,
     val details: Map<String, Any?> = emptyMap(),
 ) : RuntimeException(code.message)
