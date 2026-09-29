@@ -4,11 +4,14 @@ import com.bawibase.chorong.common.ApiException
 import com.bawibase.chorong.common.ErrorKind
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
+import org.springframework.beans.TypeMismatchException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.ErrorResponse
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.MissingRequestHeaderException
+import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 
@@ -32,6 +35,22 @@ class ApiExceptionHandler {
         ResponseEntity
             .status(HttpStatus.BAD_REQUEST)
             .body(mapOf("code" to "HEADER_REQUIRED", "message" to "${e.headerName} 헤더가 필요합니다."))
+
+    /** 본문 JSON 파싱 실패, 필수 파라미터 누락, 파라미터 타입 불일치. */
+    @ExceptionHandler(
+        HttpMessageNotReadableException::class,
+        MissingServletRequestParameterException::class,
+        TypeMismatchException::class,
+    )
+    fun handleBadRequest(
+        e: Exception,
+        request: HttpServletRequest,
+    ): ResponseEntity<Map<String, Any>> {
+        log.debug("api.rejected code=BAD_REQUEST path={}", request.requestURI)
+        return ResponseEntity
+            .status(HttpStatus.BAD_REQUEST)
+            .body(mapOf("code" to "BAD_REQUEST", "message" to "요청 형식이 올바르지 않습니다."))
+    }
 
     @ExceptionHandler(ApiException::class)
     fun handleApi(
