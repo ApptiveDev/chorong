@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { AuthTools } from '../../src/components/AuthTools';
+import { QuizTools } from '../../src/components/quiz/QuizTools';
 import { healthApi, notesApi, type Note } from '../../src/lib/api';
 
 export default function DevTools() {
@@ -79,6 +80,7 @@ export default function DevTools() {
           </View>
 
           <AuthTools />
+          <QuizTools />
 
           <Text style={styles.heading}>메모</Text>
           <View style={styles.form}>

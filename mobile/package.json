@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:auth": "tsc -p tests/tsconfig.json && node --test tests/auth.test.cjs"
+    "test:auth": "tsc -p tests/tsconfig.json && node --test tests/auth.test.cjs",
+    "test:quiz": "tsc -p tests/tsconfig.quiz.json && node --test tests/quiz.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

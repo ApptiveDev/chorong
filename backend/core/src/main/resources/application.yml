@@ -87,6 +87,9 @@ server:
   forward-headers-strategy: framework
 
 app:
+  quiz-preview:
+    # 개발 스키마 chorong_dev에서만 적용한다. 운영 스키마에서는 항상 차단한다.
+    enabled: ${QUIZ_PREVIEW_ENABLED:true}
   cors:
     origins: ${CORS_ORIGINS:http://localhost:8081,http://localhost:19006}
   jwt:

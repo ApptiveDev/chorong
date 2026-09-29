@@ -1,0 +1,411 @@
+[
+  {
+    "caseId": "slider_range",
+    "question": "산업혁명은 대략 언제 시작되었을까요?",
+    "instruction": "슬라이더를 움직여 값을 선택하세요.",
+    "interactionType": "SLIDER",
+    "config": {
+      "min": 1700,
+      "max": 1900,
+      "step": 10,
+      "initialValue": 1800,
+      "unit": "년",
+      "showValue": true
+    },
+    "answer": {
+      "min": 1750,
+      "max": 1780
+    },
+    "quizOrder": 1,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: slider_range",
+    "correctResponse": {
+      "value": 1760
+    }
+  },
+  {
+    "caseId": "swipe",
+    "question": "르네상스는 이탈리아에서 시작되었다.",
+    "instruction": "왼쪽 또는 오른쪽으로 답을 선택하세요.",
+    "interactionType": "SWIPE",
+    "config": {
+      "left": {
+        "value": "FALSE",
+        "label": "아니다"
+      },
+      "right": {
+        "value": "TRUE",
+        "label": "맞다"
+      }
+    },
+    "answer": {
+      "correctValue": "TRUE"
+    },
+    "quizOrder": 2,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: swipe",
+    "correctResponse": {
+      "value": "TRUE"
+    }
+  },
+  {
+    "caseId": "tap_multiple",
+    "question": "르네상스 미술의 특징을 모두 선택하세요.",
+    "instruction": "조건에 맞는 카드를 선택하세요.",
+    "interactionType": "TAP",
+    "config": {
+      "selectionType": "MULTIPLE",
+      "items": [
+        {
+          "id": "humanism",
+          "text": "인간 중심"
+        },
+        {
+          "id": "perspective",
+          "text": "원근법"
+        },
+        {
+          "id": "abstract",
+          "text": "추상 미술"
+        },
+        {
+          "id": "realism",
+          "text": "사실적 묘사"
+        }
+      ]
+    },
+    "answer": {
+      "correctItemIds": [
+        "humanism",
+        "perspective",
+        "realism"
+      ]
+    },
+    "quizOrder": 3,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: tap_multiple",
+    "correctResponse": {
+      "selectedItemIds": [
+        "humanism",
+        "perspective",
+        "realism"
+      ]
+    }
+  },
+  {
+    "caseId": "drag_drop",
+    "question": "다음 인물을 알맞은 시대에 배치하세요.",
+    "instruction": "각 카드를 알맞은 영역에 배치하세요.",
+    "interactionType": "DRAG_DROP",
+    "config": {
+      "items": [
+        {
+          "id": "newton",
+          "text": "뉴턴"
+        },
+        {
+          "id": "einstein",
+          "text": "아인슈타인"
+        },
+        {
+          "id": "aristotle",
+          "text": "아리스토텔레스"
+        }
+      ],
+      "targets": [
+        {
+          "id": "ancient",
+          "text": "고대"
+        },
+        {
+          "id": "modern",
+          "text": "근대"
+        },
+        {
+          "id": "contemporary",
+          "text": "현대"
+        }
+      ]
+    },
+    "answer": {
+      "placements": {
+        "aristotle": "ancient",
+        "newton": "modern",
+        "einstein": "contemporary"
+      }
+    },
+    "quizOrder": 4,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: drag_drop",
+    "correctResponse": {
+      "placements": {
+        "aristotle": "ancient",
+        "newton": "modern",
+        "einstein": "contemporary"
+      }
+    }
+  },
+  {
+    "caseId": "sort",
+    "question": "다음 사건을 오래된 순서대로 배열하세요.",
+    "instruction": "카드를 오래된 순서대로 정렬하세요.",
+    "interactionType": "SORT",
+    "config": {
+      "items": [
+        {
+          "id": "renaissance",
+          "text": "르네상스"
+        },
+        {
+          "id": "industrial",
+          "text": "산업혁명"
+        },
+        {
+          "id": "french_revolution",
+          "text": "프랑스 혁명"
+        }
+      ]
+    },
+    "answer": {
+      "correctOrder": [
+        "renaissance",
+        "industrial",
+        "french_revolution"
+      ]
+    },
+    "quizOrder": 5,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: sort",
+    "correctResponse": {
+      "order": [
+        "renaissance",
+        "industrial",
+        "french_revolution"
+      ]
+    }
+  },
+  {
+    "caseId": "matching",
+    "question": "다음 인물과 관련된 개념을 연결하세요.",
+    "instruction": "서로 관련된 항목을 연결하세요.",
+    "interactionType": "MATCHING",
+    "config": {
+      "leftItems": [
+        {
+          "id": "newton",
+          "text": "뉴턴"
+        },
+        {
+          "id": "einstein",
+          "text": "아인슈타인"
+        },
+        {
+          "id": "darwin",
+          "text": "다윈"
+        }
+      ],
+      "rightItems": [
+        {
+          "id": "gravity",
+          "text": "만유인력"
+        },
+        {
+          "id": "relativity",
+          "text": "상대성 이론"
+        },
+        {
+          "id": "evolution",
+          "text": "진화론"
+        }
+      ]
+    },
+    "answer": {
+      "matches": {
+        "newton": "gravity",
+        "einstein": "relativity",
+        "darwin": "evolution"
+      }
+    },
+    "quizOrder": 6,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: matching",
+    "correctResponse": {
+      "matches": {
+        "newton": "gravity",
+        "einstein": "relativity",
+        "darwin": "evolution"
+      }
+    }
+  },
+  {
+    "caseId": "flip_card",
+    "question": "카드를 뒤집어 내용을 확인하세요.",
+    "instruction": "카드를 눌러 뒷면을 확인하세요.",
+    "interactionType": "FLIP_CARD",
+    "config": {
+      "front": {
+        "text": "누구의 작품일까요?",
+        "imageUrl": "/images/monalisa.jpg"
+      },
+      "back": {
+        "title": "레오나르도 다빈치",
+        "text": "모나리자는 레오나르도 다빈치의 대표적인 작품입니다."
+      }
+    },
+    "answer": null,
+    "quizOrder": 7,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: flip_card",
+    "correctResponse": {
+      "flipped": true
+    }
+  },
+  {
+    "caseId": "multiple_choice_single",
+    "question": "르네상스가 처음 시작된 지역은?",
+    "instruction": "정답 선택지를 선택하세요.",
+    "interactionType": "MULTIPLE_CHOICE",
+    "config": {
+      "selectionType": "SINGLE",
+      "options": [
+        {
+          "id": "italy",
+          "text": "이탈리아"
+        },
+        {
+          "id": "france",
+          "text": "프랑스"
+        },
+        {
+          "id": "england",
+          "text": "영국"
+        },
+        {
+          "id": "germany",
+          "text": "독일"
+        }
+      ],
+      "shuffle": true
+    },
+    "answer": {
+      "correctOptionIds": [
+        "italy"
+      ]
+    },
+    "quizOrder": 8,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: multiple_choice_single",
+    "correctResponse": {
+      "selectedOptionIds": [
+        "italy"
+      ]
+    }
+  },
+  {
+    "caseId": "slider_exact",
+    "question": "산업혁명은 대략 언제 시작되었을까요?",
+    "instruction": "슬라이더를 움직여 값을 선택하세요.",
+    "interactionType": "SLIDER",
+    "config": {
+      "min": 1700,
+      "max": 1900,
+      "step": 10,
+      "initialValue": 1800,
+      "unit": "년",
+      "showValue": true
+    },
+    "answer": {
+      "value": 1760
+    },
+    "quizOrder": 9,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: slider_exact",
+    "correctResponse": {
+      "value": 1760
+    }
+  },
+  {
+    "caseId": "tap_image_single",
+    "question": "르네상스 작품을 선택하세요.",
+    "instruction": "조건에 맞는 카드를 선택하세요.",
+    "interactionType": "TAP",
+    "config": {
+      "selectionType": "SINGLE",
+      "items": [
+        {
+          "id": "monalisa",
+          "text": "모나리자",
+          "imageUrl": "/images/monalisa.jpg"
+        },
+        {
+          "id": "starrynight",
+          "text": "별이 빛나는 밤",
+          "imageUrl": "/images/starrynight.jpg"
+        },
+        {
+          "id": "guernica",
+          "text": "게르니카",
+          "imageUrl": "/images/guernica.jpg"
+        }
+      ]
+    },
+    "answer": {
+      "correctItemIds": [
+        "monalisa"
+      ]
+    },
+    "quizOrder": 10,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: tap_image_single",
+    "correctResponse": {
+      "selectedItemIds": [
+        "monalisa"
+      ]
+    }
+  },
+  {
+    "caseId": "multiple_choice_multiple",
+    "question": "르네상스 미술의 특징을 모두 선택하세요.",
+    "instruction": "정답 선택지를 선택하세요.",
+    "interactionType": "MULTIPLE_CHOICE",
+    "config": {
+      "selectionType": "MULTIPLE",
+      "options": [
+        {
+          "id": "humanism",
+          "text": "인문주의"
+        },
+        {
+          "id": "perspective",
+          "text": "원근법"
+        },
+        {
+          "id": "realism",
+          "text": "사실적 묘사"
+        },
+        {
+          "id": "cubism",
+          "text": "입체주의"
+        }
+      ],
+      "shuffle": true
+    },
+    "answer": {
+      "correctOptionIds": [
+        "humanism",
+        "perspective",
+        "realism"
+      ]
+    },
+    "quizOrder": 11,
+    "difficulty": "기초",
+    "explanation": "제출 후 공개할 테스트 해설: multiple_choice_multiple",
+    "correctResponse": {
+      "selectedOptionIds": [
+        "humanism",
+        "perspective",
+        "realism"
+      ]
+    }
+  }
+]
