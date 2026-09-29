@@ -39,6 +39,8 @@ data class SocialIdentity(
     }
 }
 
+private class PasswordLoginFailedException : ApiException(ErrorCode.LOGIN_FAILED)
+
 @Service
 @Transactional
 class AuthService(
@@ -103,6 +105,7 @@ class AuthService(
         return tokenService.issue(auth.userId, deviceUuid, created = true)
     }
 
+    @Transactional(noRollbackFor = [PasswordLoginFailedException::class])
     fun passwordLogin(
         email: String,
         rawPassword: String,
@@ -123,7 +126,7 @@ class AuthService(
                 log.warn("auth.locked userId={} until={}", auth.userId, credential.lockedUntil)
             }
             log.debug("auth.login_failed provider={}", AuthProvider.PASSWORD)
-            throw ApiException(ErrorCode.LOGIN_FAILED)
+            throw PasswordLoginFailedException()
         }
         credential.failedCount = 0
         credential.lockedUntil = null

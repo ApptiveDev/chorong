@@ -14,8 +14,11 @@ provider 는 `KAKAO` `APPLE` `GOOGLE` `NAVER` `PASSWORD` `GUEST`. 현재 열린 
 ## 토큰
 
 - 액세스 토큰: JWT HS256. `sub` = user_id, `iss` = `chorong`. 기본 30분 (`JWT_ACCESS_TTL`).
-- 리프레시 토큰: 랜덤 32바이트. 기본 30일 (`JWT_REFRESH_TTL`). `/refresh` 에 쓰면 폐기되고 새 쌍이 나온다.
+- 리프레시 토큰: 랜덤 32바이트. 기본 365일 (`JWT_REFRESH_TTL`, 기본값 `P365D`). `/refresh` 에 쓰면 폐기되고 새 쌍이 나온다.
 - 비밀키는 `JWT_SECRET` (32바이트 이상). dev 기본값은 `application.yml` 에 있다. 운영은 환경변수로 넣는다.
+
+1년은 발급 시점부터 365일이다. 갱신할 때 새 리프레시 토큰에 다시 365일이 부여된다. 이미 발급된 토큰의 만료일은 변경하지 않는다.
+`JWT_REFRESH_TTL` 환경변수가 있으면 기본값보다 우선한다. 365일 정책을 적용하는 환경에서는 이 값을 `P365D`로 맞춘다.
 
 보호된 엔드포인트는 `Authorization: Bearer <accessToken>` 을 요구한다. 없거나 틀리면 401 `UNAUTHORIZED`.
 

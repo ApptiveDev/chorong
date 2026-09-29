@@ -93,4 +93,4 @@ app:
     # HS256 비밀키. 32바이트 이상. 운영은 JWT_SECRET 환경변수로 주입한다.
     secret: ${JWT_SECRET:chorong-dev-only-secret-change-me-0123456789abcdef}
     access-ttl: ${JWT_ACCESS_TTL:PT30M}
-    refresh-ttl: ${JWT_REFRESH_TTL:P30D}
+    refresh-ttl: ${JWT_REFRESH_TTL:P365D}
