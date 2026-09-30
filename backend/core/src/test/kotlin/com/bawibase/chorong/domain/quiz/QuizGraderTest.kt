@@ -280,14 +280,68 @@ class QuizGraderTest {
     }
 
     @Test
-    fun `flip records completion without a correctness result`() {
-        for (flipped in listOf(true, false)) {
-            val result = grade(quiz("flip_card"), mapper.readTree("""{"flipped":$flipped}"""))
-            assertEquals(false, result.graded)
-            assertEquals(null, result.correct)
-            assertEquals(flipped, result.completed)
-        }
+    fun `flip pairs are unordered and completion requires every correct pair`() {
+        val item = quiz("flip_card")
+        assertEquals(QuizGrade(true, true, false), grade(item, mapper.readTree("""{"pairs":[{"firstCardId":"c5","secondCardId":"c1"}]}""")))
+        assertEquals(
+            QuizGrade(true, false, false),
+            grade(item, mapper.readTree("""{"pairs":[{"firstCardId":"c1","secondCardId":"c2"}]}""")),
+        )
+        val full = """
+{
+  "pairs": [
+    {
+      "firstCardId": "c3",
+      "secondCardId": "c6"
+    },
+    {
+      "firstCardId": "c2",
+      "secondCardId": "c4"
+    },
+    {
+      "firstCardId": "c5",
+      "secondCardId": "c1"
     }
+  ]
+}
+        """
+        assertEquals(QuizGrade(true, true, true), grade(item, mapper.readTree(full)))
+    }
+
+    @TestFactory
+    fun `flip pair submissions reject repeated missing and unknown cards`() =
+        listOf(
+            """{"pairs":[]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c1"}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"missing"}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c5"},{"firstCardId":"c1","secondCardId":"c2"}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c5"},{"firstCardId":"c5","secondCardId":"c1"}]}""",
+        ).map { json ->
+            dynamicTest(json) {
+                assertEquals(
+                    ErrorCode.INVALID_QUIZ_RESPONSE,
+                    assertThrows<ApiException> { grade(quiz("flip_card"), mapper.readTree(json)) }.code,
+                )
+            }
+        }
+
+    @TestFactory
+    fun `flip stored answers cover every card exactly once`() =
+        listOf(
+            """{"pairs":[]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c5"}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c1"},{"firstCardId":"c2","secondCardId":"c3"},{"firstCardId":"c4","secondCardId":"c5"}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"unknown"},{"firstCardId":"c2","secondCardId":"c4"},{"firstCardId":"c3","secondCardId":"c6"}]}""",
+        ).map { json ->
+            dynamicTest(json) {
+                val item =
+                    quiz("flip_card").apply {
+                        answer =
+                            mapper.convertValue(mapper.readTree(json), object : TypeReference<Map<String, Any?>>() {})
+                    }
+                assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { validate(item) }.code)
+            }
+        }
 
     @TestFactory
     fun `mismatched typed responses return a request error rather than a cast failure`() =
@@ -442,8 +496,16 @@ class QuizGraderTest {
     }
 
     @Test
-    fun `flip card accepts title-only faces`() {
-        val item = quiz("flip_card").apply { config = mapOf("front" to mapOf("title" to "앞"), "back" to mapOf("title" to "뒤")) }
-        assertEquals(QuizGrade(false, null, true), grade(item, mapper.readTree("""{"flipped":true}""")))
+    fun `legacy flip card faces remain readable as one pair`() {
+        val item =
+            quiz("flip_card").apply {
+                config = mapOf("front" to mapOf("title" to "앞"), "back" to mapOf("title" to "뒤"))
+                answer =
+                    null
+            }
+        assertEquals(
+            QuizGrade(true, true, true),
+            grade(item, mapper.readTree("""{"pairs":[{"firstCardId":"legacy-front","secondCardId":"legacy-back"}]}""")),
+        )
     }
 }

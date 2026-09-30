@@ -38,3 +38,7 @@ data class SortAnswer(
 data class MatchingAnswer(
     val matches: Map<String, String>,
 ) : QuizAnswer
+
+data class FlipCardAnswer(
+    val pairs: List<QuizCardPair>,
+) : QuizAnswer

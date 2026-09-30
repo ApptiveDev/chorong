@@ -214,3 +214,38 @@ test('shared optional settings follow the server contract without filling omitte
     assert.throws(() => prepareQuiz({ ...source, config: { ...source.config, ...invalid } }));
   }
 });
+
+test('memory cards validate even unique cards and preserve the source when shuffled', () => {
+  const source = raw(structuredClone(fixtures.find((f) => f.caseId === 'flip_card')));
+  const before = JSON.stringify(source);
+  const prepared = prepareQuiz(source);
+  assert.deepEqual(
+    prepared.config.cards.map((c) => c.id).sort(),
+    source.config.cards.map((c) => c.id).sort(),
+  );
+  assert.equal(JSON.stringify(source), before);
+  for (const cards of [
+    [],
+    source.config.cards.slice(0, 3),
+    [source.config.cards[0], source.config.cards[0]],
+    [{ id: 'a' }, { id: 'b', text: 'B' }],
+  ]) {
+    assert.throws(() => prepareQuiz({ ...source, config: { cards } }));
+  }
+});
+test('memory completion requires all distinct card IDs and rejects a reused or unknown card', () => {
+  const fixture = fixtures.find((f) => f.caseId === 'flip_card');
+  const quiz = prepareQuiz(raw(fixture));
+  assert.deepEqual(initialResponse(quiz), { pairs: [] });
+  assert.ok(responseIssue(quiz, { pairs: fixture.correctResponse.pairs.slice(0, 1) }));
+  assert.ok(responseIssue(quiz, { pairs: Array(3).fill(fixture.correctResponse.pairs[0]) }));
+  const unknown = structuredClone(fixture.correctResponse);
+  unknown.pairs[0].firstCardId = 'unknown';
+  assert.ok(responseIssue(quiz, unknown));
+  const reversed = {
+    pairs: [...fixture.correctResponse.pairs]
+      .reverse()
+      .map((p) => ({ firstCardId: p.secondCardId, secondCardId: p.firstCardId })),
+  };
+  assert.equal(responseIssue(quiz, reversed), null);
+});

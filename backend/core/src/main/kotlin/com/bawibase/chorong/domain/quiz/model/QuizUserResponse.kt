@@ -40,7 +40,11 @@ data class MatchingUserResponse(
     val matches: Map<String, String>,
 ) : QuizUserResponse
 
-@Schema(requiredProperties = ["flipped"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+@Schema(
+    description = "현재까지 맞춘 짝과 새로 확인할 짝. 카드와 짝의 순서는 채점에 영향을 주지 않는다.",
+    requiredProperties = ["pairs"],
+    additionalProperties = Schema.AdditionalPropertiesValue.FALSE,
+)
 data class FlipCardUserResponse(
-    val flipped: Boolean,
+    val pairs: List<QuizCardPair>,
 ) : QuizUserResponse

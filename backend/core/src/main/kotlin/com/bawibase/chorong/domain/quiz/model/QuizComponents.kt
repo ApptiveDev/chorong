@@ -41,3 +41,9 @@ data class QuizCardFace(
     @field:Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     val imageUrl: String? = null,
 )
+
+@Schema(requiredProperties = ["firstCardId", "secondCardId"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+data class QuizCardPair(
+    val firstCardId: String,
+    val secondCardId: String,
+)

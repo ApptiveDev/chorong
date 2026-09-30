@@ -9,6 +9,7 @@ import com.bawibase.chorong.domain.quiz.model.DragDropConfig
 import com.bawibase.chorong.domain.quiz.model.DragDropQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.DragDropUserResponse
 import com.bawibase.chorong.domain.quiz.model.ExactSliderAnswer
+import com.bawibase.chorong.domain.quiz.model.FlipCardAnswer
 import com.bawibase.chorong.domain.quiz.model.FlipCardConfig
 import com.bawibase.chorong.domain.quiz.model.FlipCardQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
@@ -21,8 +22,11 @@ import com.bawibase.chorong.domain.quiz.model.MultipleChoiceConfig
 import com.bawibase.chorong.domain.quiz.model.MultipleChoiceQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.MultipleChoiceUserResponse
 import com.bawibase.chorong.domain.quiz.model.QuizAnswer
+import com.bawibase.chorong.domain.quiz.model.QuizCardFace
+import com.bawibase.chorong.domain.quiz.model.QuizCardPair
 import com.bawibase.chorong.domain.quiz.model.QuizConfig
 import com.bawibase.chorong.domain.quiz.model.QuizDefinition
+import com.bawibase.chorong.domain.quiz.model.QuizItemOption
 import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
 import com.bawibase.chorong.domain.quiz.model.RangeSliderAnswer
 import com.bawibase.chorong.domain.quiz.model.SelectionType
@@ -149,10 +153,34 @@ class QuizModelConverter(
             }
 
             QuizInteractionType.FLIP_CARD -> {
-                if (answer != null) throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
-                FlipCardQuizDefinition(stored(config, FlipCardConfig::class.java))
+                if (answer == null) {
+                    legacyFlipCard(stored(config, LegacyFlipCardConfig::class.java))
+                } else {
+                    FlipCardQuizDefinition(stored(config, FlipCardConfig::class.java), stored(answer, FlipCardAnswer::class.java))
+                }
             }
         }
+    }
+
+    // 기존 한 장짜리 저장 데이터는 배포 후 샘플 교체 전에도 조회할 수 있도록 한 쌍으로 읽는다.
+    private fun legacyFlipCard(config: LegacyFlipCardConfig): FlipCardQuizDefinition {
+        fun card(
+            id: String,
+            face: QuizCardFace,
+        ): QuizItemOption {
+            val content = listOfNotNull(face.title, face.text, face.imageUrl)
+            if (content.isEmpty() || content.any { it.isBlank() }) throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
+            return QuizItemOption(id, listOfNotNull(face.title, face.text).takeIf { it.isNotEmpty() }?.joinToString("\n"), face.imageUrl)
+        }
+        return FlipCardQuizDefinition(
+            FlipCardConfig(
+                cards = listOf(card("legacy-front", config.front), card("legacy-back", config.back)),
+                shuffle = config.shuffle,
+                allowRetry = config.allowRetry,
+                showHint = config.showHint,
+            ),
+            FlipCardAnswer(listOf(QuizCardPair("legacy-front", "legacy-back"))),
+        )
     }
 
     /** DB 문제에서 결정한 유형을 사용한다. 요청에는 별도의 유형 필드가 필요하지 않다. */
@@ -209,3 +237,11 @@ class QuizModelConverter(
 
     private fun containsNull(node: JsonNode): Boolean = node.isNull || (node.isContainerNode && node.any(::containsNull))
 }
+
+private data class LegacyFlipCardConfig(
+    val front: QuizCardFace,
+    val back: QuizCardFace,
+    val shuffle: Boolean? = null,
+    val allowRetry: Boolean? = null,
+    val showHint: Boolean? = null,
+)

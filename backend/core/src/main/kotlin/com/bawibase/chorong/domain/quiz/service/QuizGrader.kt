@@ -181,13 +181,19 @@ class QuizGrader {
     }
 
     private fun flip(quiz: FlipCardQuizDefinition): (QuizUserResponse) -> QuizGrade {
-        for (card in listOf(quiz.config.front, quiz.config.back)) {
-            val content = listOfNotNull(card.title, card.text, card.imageUrl)
-            stored.ensure(content.isNotEmpty())
-            content.forEach(stored::text)
-        }
-        return response<FlipCardUserResponse> {
-            QuizGrade(graded = false, correct = null, completed = it.flipped)
+        val cards = itemIds(quiz.config.cards)
+        stored.ensure(cards.size >= 2 && cards.size % 2 == 0)
+        val expectedIds = stored.ids(quiz.answer.pairs.flatMap { listOf(it.firstCardId, it.secondCardId) })
+        stored.ensure(expectedIds.toSet() == cards)
+        val expected =
+            quiz.answer.pairs
+                .map { setOf(it.firstCardId, it.secondCardId) }
+                .toSet()
+        return response<FlipCardUserResponse> { response ->
+            val ids = submitted.ids(response.pairs.flatMap { listOf(it.firstCardId, it.secondCardId) })
+            submitted.ensure(cards.containsAll(ids))
+            val correct = response.pairs.all { setOf(it.firstCardId, it.secondCardId) in expected }
+            QuizGrade(graded = true, correct = correct, completed = correct && ids.size == cards.size)
         }
     }
 

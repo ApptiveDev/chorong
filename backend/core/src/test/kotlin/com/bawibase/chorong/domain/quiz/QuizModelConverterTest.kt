@@ -32,7 +32,6 @@ import java.math.BigDecimal
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 
 class QuizModelConverterTest {
     private val mapper = jacksonObjectMapper().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
@@ -329,7 +328,7 @@ class QuizModelConverterTest {
                 "tap_multiple" to "{\"selectedItemIds\":[\"humanism\",\"humanism\"]}",
                 "drag_drop" to "{\"placements\":{\"newton\":\"ancient\",\"einstein\":\"ancient\"}}",
                 "swipe" to "{\"value\":\"  TRUE  \"}",
-                "flip_card" to "{\"flipped\":false}",
+                "flip_card" to "{\"pairs\":[{\"firstCardId\":\"c1\",\"secondCardId\":\"c1\"}]}",
             )
         for ((caseId, json) in examples) {
             val original = mapper.readTree(json)
@@ -366,12 +365,34 @@ class QuizModelConverterTest {
     }
 
     @Test
-    fun `flip card keeps SQL null answer and accepts false without inventing defaults`() {
+    fun `flip card stores typed pairs and never serializes them into public config`() {
         val definition = assertIs<FlipCardQuizDefinition>(converter.readDefinition(entity(fixture("flip_card"))))
-        assertNull(converter.writeAnswer(definition.answer))
-        val response = assertIs<FlipCardUserResponse>(converter.readResponse(definition, mapper.readTree("{\"flipped\":false}")))
-        assertFalse(response.flipped)
+        assertEquals(3, definition.answer.pairs.size)
+        assertFalse(converter.writeConfig(definition.config).containsKey("pairs"))
+        val response = assertIs<FlipCardUserResponse>(converter.readResponse(definition, fixture("flip_card")["correctResponse"]))
+        assertEquals(definition.answer.pairs, response.pairs)
     }
+
+    @TestFactory
+    fun `flip pair fields reject missing null scalar and extra values`() =
+        listOf(
+            """{"pairs":null}""",
+            """{"pairs":{}}""",
+            """{"pairs":[null]}""",
+            """{"pairs":[{"firstCardId":"c1"}]}""",
+            """{"pairs":[{"firstCardId":1,"secondCardId":"c2"}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":null}]}""",
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c2","correct":true}]}""",
+            """{"pairs":[],"completed":true}""",
+        ).map { json ->
+            dynamicTest(json) {
+                val definition = converter.readDefinition(entity(fixture("flip_card")))
+                assertEquals(
+                    ErrorCode.INVALID_QUIZ_RESPONSE,
+                    assertThrows<ApiException> { converter.readResponse(definition, mapper.readTree(json)) }.code,
+                )
+            }
+        }
 
     @Test
     fun `request type hints cannot override the database quiz type`() {

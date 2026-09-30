@@ -165,12 +165,8 @@ class QuizApiTest {
                 )
             assertEquals("jsonb", stored["config_type"])
             assertEquals(example["config"], objectMapper.readTree(stored["config"].toString()))
-            if (quiz.interactionType == QuizInteractionType.FLIP_CARD) {
-                assertNull(stored["answer"])
-                assertEquals(example["config"]["back"], body["config"]["back"])
-            } else {
-                assertEquals(example["answer"], objectMapper.readTree(stored["answer"].toString()))
-            }
+            assertEquals(example["answer"], objectMapper.readTree(stored["answer"].toString()))
+            assertFalse(body["config"].has("pairs"))
         }
         assertEquals(examples.size, get("/api/quizzes?lessonId=101").size())
     }
@@ -359,7 +355,7 @@ class QuizApiTest {
             "answer = NULL",
             "config = '[]'::jsonb",
             "interaction_type = 'UNKNOWN'",
-            "interaction_type = 'FLIP_CARD'",
+            "answer = '[]'::jsonb",
             "lesson_id = 0",
             "quiz_order = -1",
             "difficulty = ''",
@@ -441,10 +437,9 @@ class QuizApiTest {
             val quiz = seed(example)
             val response = example["correctResponse"]
             val body = submit(checkNotNull(quiz.id), """{"response":$response}""")
-            val flip = quiz.interactionType == QuizInteractionType.FLIP_CARD
             assertEquals(setOf("attemptId", "graded", "correct", "completed", "explanation"), body.fieldNames().asSequence().toSet())
-            assertEquals(!flip, body["graded"].asBoolean())
-            if (flip) assertTrue(body["correct"].isNull) else assertTrue(body["correct"].asBoolean())
+            assertTrue(body["graded"].asBoolean())
+            assertTrue(body["correct"].asBoolean())
             assertTrue(body["completed"].asBoolean())
             assertEquals(quiz.explanation, body["explanation"].asText())
             entityManager.flush()
@@ -453,8 +448,8 @@ class QuizApiTest {
             assertEquals(quiz.id, attempt.quizId)
             assertEquals(userId, attempt.userId)
             assertEquals(response, objectMapper.valueToTree<JsonNode>(attempt.response))
-            assertEquals(!flip, attempt.graded)
-            assertEquals(if (flip) null else true, attempt.correct)
+            assertTrue(attempt.graded)
+            assertEquals(true, attempt.correct)
             assertTrue(attempt.completed)
             assertNotNull(attempt.submittedAt)
         }
@@ -581,18 +576,35 @@ class QuizApiTest {
     }
 
     @Test
-    fun `flip false remains an ungraded incomplete record`() {
+    fun `partial flip pair checks save progress without marking completion or exposing explanation`() {
         val quiz = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
-        val body = submit(checkNotNull(quiz.id), """{"response":{"flipped":false}}""")
-        assertFalse(body["graded"].asBoolean())
-        assertTrue(body["correct"].isNull)
+        val body = submit(checkNotNull(quiz.id), """{"response":{"pairs":[{"firstCardId":"c1","secondCardId":"c5"}]}}""")
+        assertTrue(body["graded"].asBoolean())
+        assertTrue(body["correct"].asBoolean())
         assertFalse(body["completed"].asBoolean())
+        assertEquals("", body["explanation"].asText())
         entityManager.flush()
         entityManager.clear()
         val saved = attempts.findById(body["attemptId"].asLong()).orElseThrow()
-        assertNull(saved.correct)
-        assertFalse(saved.graded)
+        assertEquals(true, saved.correct)
+        assertTrue(saved.graded)
         assertFalse(saved.completed)
+    }
+
+    @Test
+    fun `legacy flip storage remains readable after the answer constraint migration`() {
+        val quiz = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
+        jdbc.update(
+            "UPDATE ${table("quiz_item")} SET config = ?::jsonb, answer = NULL WHERE quiz_id = ?",
+            """{"front":{"title":"뉴턴"},"back":{"text":"만유인력"},"shuffle":true}""",
+            quiz.id,
+        )
+        entityManager.clear()
+        val body = get("/api/quizzes/${quiz.id}")
+        assertEquals(2, body["config"]["cards"].size())
+        assertEquals("뉴턴", body["config"]["cards"][0]["text"].asText())
+        assertFalse(body["config"].has("pairs"))
+        assertNull(jdbc.queryForMap("SELECT answer FROM ${table("quiz_item")} WHERE quiz_id = ?", quiz.id)["answer"])
     }
 
     @Test
@@ -742,7 +754,7 @@ class QuizApiTest {
                 "DragDropConfig" to setOf("items", "targets"),
                 "SortConfig" to setOf("items"),
                 "MatchingConfig" to setOf("leftItems", "rightItems"),
-                "FlipCardConfig" to setOf("front", "back"),
+                "FlipCardConfig" to setOf("cards"),
             )
         val config = schemas["QuizResponse"]["properties"]["config"]
         assertEquals(configs.keys, alternatives(config), resolve(config).toString())
@@ -768,7 +780,7 @@ class QuizApiTest {
                 "DragDropUserResponse" to "placements",
                 "SortUserResponse" to "order",
                 "MatchingUserResponse" to "matches",
-                "FlipCardUserResponse" to "flipped",
+                "FlipCardUserResponse" to "pairs",
             )
         val response = schemas["QuizAttemptRequest"]["properties"]["response"]
         assertEquals(responses.keys, alternatives(response), resolve(response).toString())
@@ -781,7 +793,7 @@ class QuizApiTest {
         assertEquals("number", schemas["SliderUserResponse"]["properties"]["value"]["type"].asText())
         assertEquals("string", schemas["SwipeUserResponse"]["properties"]["value"]["type"].asText())
         assertEquals(setOf("id"), schemas["QuizItemOption"]["required"].map { it.asText() }.toSet())
-        assertTrue(schemas["QuizCardFace"].path("required").isMissingNode || schemas["QuizCardFace"]["required"].isEmpty)
+        assertEquals(setOf("firstCardId", "secondCardId"), schemas["QuizCardPair"]["required"].map { it.asText() }.toSet())
         for (name in listOf("QuizDefinition", "QuizAnswer", "ExactSliderAnswer", "MultipleChoiceAnswer")) {
             assertFalse(schemas.has(name), name)
         }

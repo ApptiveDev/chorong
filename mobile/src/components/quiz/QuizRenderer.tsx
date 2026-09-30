@@ -1,4 +1,4 @@
-import type { Quiz, QuizResponse } from '../../types/quiz';
+import type { FlipCardUserResponse, QuizPreviewResult, Quiz, QuizResponse } from '../../types/quiz';
 import { DragDropQuiz } from './DragDropQuiz';
 import { FlipCardQuiz } from './FlipCardQuiz';
 import { MatchingQuiz } from './MatchingQuiz';
@@ -12,11 +12,15 @@ export function QuizRenderer({
   response,
   onChange,
   disabled,
+  checkPairs,
+  onComplete,
 }: {
   quiz: Quiz;
   response: QuizResponse;
   onChange: (response: QuizResponse) => void;
   disabled: boolean;
+  checkPairs: (response: FlipCardUserResponse) => Promise<QuizPreviewResult>;
+  onComplete: (result: QuizPreviewResult) => void;
 }) {
   switch (quiz.interactionType) {
     case 'MULTIPLE_CHOICE':
@@ -65,8 +69,10 @@ export function QuizRenderer({
       return (
         <FlipCardQuiz
           config={quiz.config}
-          flipped={'flipped' in response && response.flipped}
-          onChange={(flipped) => onChange({ flipped })}
+          pairs={'pairs' in response ? response.pairs : []}
+          onChange={(pairs) => onChange({ pairs })}
+          checkPairs={checkPairs}
+          onComplete={onComplete}
           disabled={disabled}
         />
       );

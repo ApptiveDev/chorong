@@ -2,6 +2,7 @@ package com.bawibase.chorong.domain.quiz.service
 
 import com.bawibase.chorong.common.ApiException
 import com.bawibase.chorong.common.ErrorCode
+import com.bawibase.chorong.domain.quiz.QuizInteractionType
 import com.bawibase.chorong.domain.quiz.dto.QuizAttemptResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizPreviewResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizResponse
@@ -43,7 +44,7 @@ class QuizService(
             graded = result.graded,
             correct = result.correct,
             completed = result.completed,
-            explanation = quiz.explanation,
+            explanation = if (quiz.interactionType == QuizInteractionType.FLIP_CARD && !result.completed) "" else quiz.explanation,
         )
     }
 
@@ -74,7 +75,7 @@ class QuizService(
             graded = result.graded,
             correct = result.correct,
             completed = result.completed,
-            explanation = quiz.explanation,
+            explanation = if (quiz.interactionType == QuizInteractionType.FLIP_CARD && !result.completed) "" else quiz.explanation,
         )
     }
 

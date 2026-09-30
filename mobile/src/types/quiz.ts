@@ -18,7 +18,7 @@ export type QuizConfigs = {
   DRAG_DROP: { items: QuizItem[]; targets: QuizItem[] };
   SORT: { items: QuizItem[] };
   MATCHING: { leftItems: QuizItem[]; rightItems: QuizItem[] };
-  FLIP_CARD: { front: CardFace; back: CardFace };
+  FLIP_CARD: { cards: QuizItem[] };
 };
 export type InteractionType = keyof QuizConfigs;
 export type QuizSummary = {
@@ -44,7 +44,8 @@ export type MultipleChoiceUserResponse = { selectedOptionIds: string[] };
 export type DragDropUserResponse = { placements: Record<string, string> };
 export type SortUserResponse = { order: string[] };
 export type MatchingUserResponse = { matches: Record<string, string> };
-export type FlipCardUserResponse = { flipped: boolean };
+export type CardPair = { firstCardId: string; secondCardId: string };
+export type FlipCardUserResponse = { pairs: CardPair[] };
 export type QuizUserResponses = {
   SLIDER: SliderUserResponse;
   SWIPE: SwipeUserResponse;

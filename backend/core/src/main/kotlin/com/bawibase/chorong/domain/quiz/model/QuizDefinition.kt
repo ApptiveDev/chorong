@@ -59,7 +59,7 @@ data class MatchingQuizDefinition(
 
 data class FlipCardQuizDefinition(
     override val config: FlipCardConfig,
+    override val answer: FlipCardAnswer,
 ) : QuizDefinition {
     override val interactionType: QuizInteractionType get() = QuizInteractionType.FLIP_CARD
-    override val answer: Nothing? get() = null
 }

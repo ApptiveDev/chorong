@@ -22,7 +22,7 @@ data class QuizResponse(
     val interactionType: QuizInteractionType,
     // 문서는 상속 구조 대신 아래 구체 config 중 하나로 표현한다.
     @field:Schema(
-        description = "interactionType에 해당하는 화면 구성. FLIP_CARD의 back은 공개 학습 내용이다.",
+        description = "interactionType에 해당하는 화면 구성. FLIP_CARD는 카드 내용만 공개하며 정답 짝은 포함하지 않는다.",
         implementation = Any::class,
         oneOf = [
             SliderConfig::class,

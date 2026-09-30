@@ -239,25 +239,72 @@
   },
   {
     "caseId": "flip_card",
-    "question": "카드를 뒤집어 내용을 확인하세요.",
-    "instruction": "카드를 눌러 뒷면을 확인하세요.",
+    "question": "과학자와 업적의 짝을 찾아보세요.",
+    "instruction": "카드 두 장을 뒤집어 맞는 짝을 찾으세요. 모든 짝을 맞추면 완료됩니다.",
     "interactionType": "FLIP_CARD",
     "config": {
-      "front": {
-        "text": "누구의 작품일까요?",
-        "imageUrl": "/images/monalisa.jpg"
-      },
-      "back": {
-        "title": "레오나르도 다빈치",
-        "text": "모나리자는 레오나르도 다빈치의 대표적인 작품입니다."
-      }
+      "cards": [
+        {
+          "id": "c1",
+          "text": "뉴턴"
+        },
+        {
+          "id": "c2",
+          "text": "진화론"
+        },
+        {
+          "id": "c3",
+          "text": "상대성이론"
+        },
+        {
+          "id": "c4",
+          "text": "다윈"
+        },
+        {
+          "id": "c5",
+          "text": "만유인력"
+        },
+        {
+          "id": "c6",
+          "text": "아인슈타인"
+        }
+      ],
+      "shuffle": true
     },
-    "answer": null,
+    "answer": {
+      "pairs": [
+        {
+          "firstCardId": "c1",
+          "secondCardId": "c5"
+        },
+        {
+          "firstCardId": "c4",
+          "secondCardId": "c2"
+        },
+        {
+          "firstCardId": "c6",
+          "secondCardId": "c3"
+        }
+      ]
+    },
     "quizOrder": 7,
     "difficulty": "기초",
-    "explanation": "제출 후 공개할 테스트 해설: flip_card",
+    "explanation": "뉴턴은 만유인력, 다윈은 진화론, 아인슈타인은 상대성이론과 연결됩니다.",
     "correctResponse": {
-      "flipped": true
+      "pairs": [
+        {
+          "firstCardId": "c1",
+          "secondCardId": "c5"
+        },
+        {
+          "firstCardId": "c4",
+          "secondCardId": "c2"
+        },
+        {
+          "firstCardId": "c6",
+          "secondCardId": "c3"
+        }
+      ]
     }
   },
   {

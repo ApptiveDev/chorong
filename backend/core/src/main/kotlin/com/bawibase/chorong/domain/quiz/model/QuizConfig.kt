@@ -116,10 +116,9 @@ data class MatchingConfig(
     override val showHint: Boolean? = null,
 ) : QuizConfig
 
-@Schema(requiredProperties = ["front", "back"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+@Schema(requiredProperties = ["cards"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 data class FlipCardConfig(
-    val front: QuizCardFace,
-    val back: QuizCardFace,
+    val cards: List<QuizItemOption>,
     @field:Schema(description = "생략 시 표시 순서를 섞지 않는다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     override val shuffle: Boolean? = null,
     @field:Schema(description = "생략 또는 true만 지원한다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
