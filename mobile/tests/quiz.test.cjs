@@ -177,3 +177,40 @@ test('preview failure does not call login or token refresh', async () => {
   await assert.rejects(quizApi.list(23));
   assert.deepEqual(calls, ['/api/dev/quizzes']);
 });
+
+test('slider and swipe keep distinct numeric and string response types', () => {
+  const slider = prepareQuiz(raw(fixtures.find((f) => f.interactionType === 'SLIDER')));
+  assert.equal(responseIssue(slider, { value: 1760 }), null);
+  assert.ok(responseIssue(slider, { value: '1760' }));
+  assert.ok(responseIssue(slider, { value: Number.NaN }));
+  const swipe = prepareQuiz({
+    ...raw(fixtures.find((f) => f.interactionType === 'SWIPE')),
+    config: { left: { value: '0', label: '왼쪽' }, right: { value: '1', label: '오른쪽' } },
+  });
+  assert.equal(responseIssue(swipe, { value: '1' }), null);
+  assert.ok(responseIssue(swipe, { value: 1 }));
+});
+test('shared optional settings follow the server contract without filling omitted fields', () => {
+  const source = raw(structuredClone(fixtures.find((f) => f.caseId === 'slider_exact')));
+  delete source.config.initialValue;
+  delete source.config.showValue;
+  delete source.config.unit;
+  const prepared = prepareQuiz(source);
+  assert.deepEqual(prepared.config, source.config);
+  assert.deepEqual(initialResponse(prepared), { value: source.config.min });
+  const configured = prepareQuiz({
+    ...source,
+    config: { ...source.config, shuffle: false, allowRetry: true, showHint: false },
+  });
+  assert.equal(configured.config.shuffle, false);
+  assert.equal(configured.config.allowRetry, true);
+  assert.equal(configured.config.showHint, false);
+  for (const invalid of [
+    { shuffle: null },
+    { shuffle: 'false' },
+    { allowRetry: false },
+    { showHint: true },
+  ]) {
+    assert.throws(() => prepareQuiz({ ...source, config: { ...source.config, ...invalid } }));
+  }
+});

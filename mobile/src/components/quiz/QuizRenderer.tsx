@@ -43,7 +43,11 @@ export function QuizRenderer({
       return (
         <SliderQuiz
           config={quiz.config}
-          value={'value' in response ? Number(response.value) : quiz.config.min}
+          value={
+            'value' in response && typeof response.value === 'number'
+              ? response.value
+              : quiz.config.min
+          }
           onChange={(value) => onChange({ value })}
           disabled={disabled}
         />
@@ -52,7 +56,7 @@ export function QuizRenderer({
       return (
         <SwipeQuiz
           config={quiz.config}
-          value={'value' in response ? String(response.value) : ''}
+          value={'value' in response && typeof response.value === 'string' ? response.value : ''}
           onChange={(value) => onChange({ value })}
           disabled={disabled}
         />

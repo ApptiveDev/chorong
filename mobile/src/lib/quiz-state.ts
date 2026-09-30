@@ -120,6 +120,12 @@ export function prepareQuiz(raw: QuizSummary): Quiz {
         throw new Error(`지원하지 않는 문제 유형입니다. (${raw.interactionType})`);
     }
   }
+  valid =
+    valid &&
+    object(c) &&
+    (c.shuffle === undefined || typeof c.shuffle === 'boolean') &&
+    (c.allowRetry === undefined || c.allowRetry === true) &&
+    (c.showHint === undefined || c.showHint === false);
   if (!valid || !object(c))
     throw new Error('이 문제의 설정을 표시할 수 없습니다. 관리자에게 확인해 주세요.');
   const config = { ...c };
@@ -154,9 +160,12 @@ export function initialResponse(quiz: Quiz): QuizResponse {
 
 export function responseIssue(quiz: Quiz, response: QuizResponse): string | null {
   switch (quiz.interactionType) {
+    case 'SLIDER':
+      return 'value' in response && finite(response.value) ? null : '슬라이더 값을 선택해 주세요.';
     case 'SWIPE':
       return 'value' in response &&
-        [quiz.config.left.value, quiz.config.right.value].includes(String(response.value))
+        typeof response.value === 'string' &&
+        [quiz.config.left.value, quiz.config.right.value].includes(response.value)
         ? null
         : '왼쪽 또는 오른쪽 답을 선택해 주세요.';
     case 'TAP':

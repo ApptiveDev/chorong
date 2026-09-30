@@ -187,4 +187,24 @@ class QuizPreviewApiTest {
         val result = docs["components"]["schemas"]["QuizPreviewResponse"]["properties"]
         assertFalse(result.has("attemptId"))
     }
+
+    @Test
+    fun `preview validates stored types and values before converting a response`() {
+        val quiz = seed()
+        val original = quiz.config
+        val beforeUsers = users.count()
+        val beforeAttempts = attempts.count()
+        for (change in listOf(mapOf("step" to 0), mapOf("showValue" to null), mapOf("min" to "1700"))) {
+            quiz.config = original + change
+            quizzes.saveAndFlush(quiz)
+            val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":"1760"}"""), 409)
+            assertEquals("QUIZ_DATA_INVALID", error["code"].asText())
+        }
+        quiz.config = original
+        quizzes.saveAndFlush(quiz)
+        val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":"1760"}"""), 400)
+        assertEquals("INVALID_QUIZ_RESPONSE", error["code"].asText())
+        assertEquals(beforeUsers, users.count())
+        assertEquals(beforeAttempts, attempts.count())
+    }
 }

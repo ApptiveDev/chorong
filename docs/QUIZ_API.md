@@ -61,7 +61,7 @@
 }
 ```
 
-서버는 DB의 정답으로 채점한다. 사용자 ID·정답 여부를 클라이언트 입력으로 결정하지 않는다. 정상 제출은 정답·오답 모두 201을 반환하고 원본 `response` JSON, 사용자 ID, 퀴즈 ID, 채점 결과, 제출 시각을 저장한다. 형식 오류·데이터 오류는 제출 기록을 만들지 않는다.
+서버는 DB의 정답으로 채점한다. 사용자 ID·정답 여부를 클라이언트 입력으로 결정하지 않는다. 정상 제출은 정답·오답 모두 201을 반환하고 검증한 `response`의 필드·값을 JSONB에 저장하고 사용자 ID, 퀴즈 ID, 채점 결과, 제출 시각을 함께 기록한다. 형식 오류·데이터 오류는 제출 기록을 만들지 않는다.
 
 ```json
 {
@@ -74,6 +74,44 @@
 ```
 
 채점형 문제의 `completed=true`는 유효한 답안을 제출했다는 뜻이다. 정답 여부는 `correct`로 확인한다. `FLIP_CARD`는 `graded=false`, `correct=null`이며 `completed`에 제출한 `flipped` 값을 넣는다.
+
+## 유형별 객체 계약
+
+조회 `config`는 interactionType에 해당하는 설정 객체다. 사용자 `response`는 URL의 quizId로 조회한 DB 문제 유형에 맞는 답안 객체다. 요청에 interactionType을 추가할 필요가 없다. OpenAPI는 config와 response에 각각 8가지 구체 구조를 표시한다. JSON 필드 이름과 계층은 기존과 같다.
+
+| 유형 | config 필수 필드 | config 선택 필드 | response 필수 필드 |
+|---|---|---|---|
+| SLIDER | min·max·step: 숫자 | initialValue: 숫자, unit: 문자열, showValue: Boolean | value: 숫자 |
+| SWIPE | left·right: 선택지 객체 | 없음 | value: 문자열 |
+| TAP | selectionType: SINGLE/MULTIPLE, items: 항목 배열 | maxSelections: 정수 | selectedItemIds: 문자열 배열 |
+| MULTIPLE_CHOICE | selectionType: SINGLE/MULTIPLE, options: 항목 배열 | maxSelections: 정수 | selectedOptionIds: 문자열 배열 |
+| DRAG_DROP | items·targets: 항목 배열 | 없음 | placements: 항목 ID → 영역 ID 객체 |
+| SORT | items: 항목 배열 | 없음 | order: 문자열 배열 |
+| MATCHING | leftItems·rightItems: 항목 배열 | 없음 | matches: 왼쪽 ID → 오른쪽 ID 객체 |
+| FLIP_CARD | front·back: 카드 면 객체 | 없음 | flipped: Boolean |
+
+모든 config는 공통 선택 옵션 shuffle·allowRetry·showHint도 받는다. 선택 필드는 생략할 수 있지만 명시적 null은 허용하지 않는다. 조회 시 생략된 필드를 null이나 기본값으로 추가하지 않는다. 지정한 false·빈 단위 문자열은 그대로 반환한다.
+
+항목은 필수 id와 선택 text·imageUrl로 구성하며, text·imageUrl 중 하나 이상이 필요하다. 스와이프 선택지는 value·label이 모두 필요하다. 카드 면은 title·text·imageUrl 중 하나 이상이 필요하다. 지정한 표시 문자열과 ID는 공백만 있을 수 없으며 앞뒤 공백을 자동 제거하지 않는다. SLIDER의 unit은 빈 문자열·공백 문자열도 허용한다.
+
+config·answer·response 및 하위 객체에는 정해진 필드만 허용한다. placements·matches의 키는 문제에 정의된 ID다. 요청 바깥의 userId·isCorrect 같은 추가 값은 무시하고, response 내부의 추가 값은 거절한다. 숫자 문자열·숫자형 Boolean 등 타입 자동 변환을 하지 않는다.
+
+### 서버가 보관하는 정답
+
+아래 구조는 DB의 answer다. 조회 응답에는 포함하지 않는다.
+
+| 유형 | answer 구조 |
+|---|---|
+| SLIDER | `{ "value": 1760 }` 또는 `{ "min": 1750, "max": 1780 }`. 두 형태를 섞지 않는다. |
+| SWIPE | `{ "correctValue": "TRUE" }` |
+| TAP | `{ "correctItemIds": ["humanism", "perspective"] }` |
+| MULTIPLE_CHOICE | `{ "correctOptionIds": ["italy"] }` |
+| DRAG_DROP | `{ "placements": { "newton": "modern" } }` |
+| SORT | `{ "correctOrder": ["renaissance", "industrial"] }` |
+| MATCHING | `{ "matches": { "newton": "gravity" } }` |
+| FLIP_CARD | SQL NULL. 빈 객체나 JSON null 문자열로 대체하지 않는다. |
+
+ID는 예시다. 정답·답안에는 실제 config의 ID와 선택 개수·전체 배치 규칙을 적용한다. 서버는 소수를 BigDecimal로 비교·저장한다. `0.3`과 `0.30`은 같은 값이다. 앱은 JavaScript number를 사용하므로 표시할 수 있는 간격·정밀도를 별도로 확인한다.
 
 ## 유형별 response
 
@@ -97,7 +135,7 @@ config와 answer는 JSON 객체로 저장한다. FLIP_CARD만 answer가 SQL NULL
 | 옵션 | 처리 |
 |---|---|
 | `shuffle` | Boolean. 표시 순서를 위한 설정이며 채점은 ID를 기준으로 한다. SORT는 response.order의 순서를 비교한다. |
-| `maxSelections` | TAP·MULTIPLE_CHOICE에서 양의 정수로 지정한다. SINGLE은 1만 허용한다. 서버가 최대 선택 수를 검사한다. 정답 개수가 한도를 넘는 설정은 오류다. |
+| `maxSelections` | TAP·MULTIPLE_CHOICE에서 1~2147483647의 JSON 정수로 지정한다. `1.0`과 문자열 숫자는 거절한다. SINGLE은 1만 허용한다. 서버가 최대 선택 수를 검사한다. 정답 개수가 한도를 넘는 설정은 오류다. |
 | `allowRetry` | 생략하거나 true로 지정한다. 인증된 제출 API는 반복 제출마다 별도 기록을 만든다. 테스트 채점은 기록을 만들지 않는다. false에 해당하는 재시도 제한은 지원하지 않으므로 409로 처리한다. |
 | `showHint` | 생략하거나 false로 지정한다. 힌트 데이터·기능이 없어 true는 409로 처리한다. |
 
@@ -105,7 +143,7 @@ config와 answer는 JSON 객체로 저장한다. FLIP_CARD만 answer가 SQL NULL
 
 아래 config는 해당 유형의 화면을 구성한다. `items`·`options`·`targets`·`leftItems`·`rightItems`의 각 항목은 고유한 `id`와 `text` 또는 `imageUrl`을 가진다. `FLIP_CARD`의 앞·뒷면은 `title`·`text`·`imageUrl` 중 표시할 내용을 가진다.
 
-TAP·MULTIPLE_CHOICE의 `selectionType`은 `SINGLE` 또는 `MULTIPLE`이다. `maxSelections`를 생략하면 SINGLE은 1개, MULTIPLE은 전체 항목 수까지 선택한다. 슬라이더는 `min`에서 시작해 `step` 간격으로 선택하며 `initialValue`를 생략하면 `min`을 사용한다. `max`가 간격에 맞지 않으면 그보다 작은 마지막 간격 값까지 선택할 수 있다.
+TAP·MULTIPLE_CHOICE의 `selectionType`은 `SINGLE` 또는 `MULTIPLE`이다. `maxSelections`를 생략하면 SINGLE은 1개, MULTIPLE은 전체 항목 수까지 선택한다. SLIDER는 `min < max`, `step > 0`이어야 한다. 슬라이더는 `min`에서 시작해 `step` 간격으로 선택하며 `initialValue`를 생략하면 `min`을 사용한다. `max`가 간격에 맞지 않으면 그보다 작은 마지막 간격 값까지 선택할 수 있다.
 
 ### SLIDER
 
@@ -296,12 +334,15 @@ TAP·MULTIPLE_CHOICE의 `selectionType`은 `SINGLE` 또는 `MULTIPLE`이다. `ma
 
 예제의 `/images/monalisa.jpg`는 실제 이미지 파일을 가리키도록 바꿔야 한다. 이미지 TAP과 복수 객관식을 포함한 저장용 예제의 config·answer·response는 [테스트 데이터](../backend/core/src/test/resources/quiz/quiz-items.json)를 참고한다. 정답 예제는 테스트 데이터이며 조회 API에 정답 필드를 추가하지 않는다.
 
+SLIDER의 범위 정답은 설정 범위 안에 있고 선택 가능한 값이 하나 이상 있어야 한다. 범위 끝점 자체가 step에 맞을 필요는 없다. step이 전체 범위보다 크면 min 하나만 선택할 수 있다. MULTIPLE의 maxSelections는 항목 수보다 커도 되지만 실제 항목 ID를 중복 선택할 수는 없다.
+
 ## 오류
 
 | 상태 | 코드·원인 |
 |---|---|
-| 400 | `INVALID_QUIZ_REQUEST`: 양수가 아닌 ID. 형식 오류·누락된 ID도 400이다. |
-| 400 | `INVALID_QUIZ_RESPONSE`: 답안 구조·타입·ID·선택 수·범위 오류. JSON 문법이나 요청 본문 형식 오류도 400이다. |
+| 400 | `BAD_REQUEST`: JSON 문법·중복 키·response 필드 누락·필수 파라미터 누락·ID 타입 불일치·Long 범위 초과. |
+| 400 | `INVALID_QUIZ_REQUEST`: 숫자로 받은 ID가 0 이하임. |
+| 400 | `INVALID_QUIZ_RESPONSE`: response 객체의 구조·타입·ID·선택 수·범위 오류. |
 | 401 | `UNAUTHORIZED`: 유효한 인증이 없음. 제출 시 탈퇴한 사용자는 `USER_WITHDRAWN`이다. |
 | 404 | `QUIZ_PREVIEW_DISABLED`: 해당 환경에서 테스트 API가 비활성화됨. |
 | 404 | `QUIZ_NOT_FOUND`: 요청한 퀴즈가 없음. |

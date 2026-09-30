@@ -7,14 +7,13 @@ import com.bawibase.chorong.domain.quiz.dto.QuizPreviewResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizResponse
 import com.bawibase.chorong.domain.quiz.entity.QuizAttemptEntity
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
+import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
 import com.bawibase.chorong.domain.quiz.repository.QuizAttemptRepository
 import com.bawibase.chorong.domain.quiz.repository.QuizItemRepository
+import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.repository.UserRepository
-import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -25,7 +24,7 @@ class QuizService(
     private val attempts: QuizAttemptRepository,
     private val users: UserRepository,
     private val grader: QuizGrader,
-    private val objectMapper: ObjectMapper,
+    private val converter: QuizModelConverter,
 ) {
     fun list(lessonId: Long): List<QuizResponse> {
         validateId(lessonId, "lessonId")
@@ -39,7 +38,7 @@ class QuizService(
         response: JsonNode,
     ): QuizPreviewResponse {
         val quiz = findQuiz(quizId)
-        val result = grader.grade(quiz, response)
+        val result = check(quiz, response).result
         return QuizPreviewResponse(
             graded = result.graded,
             correct = result.correct,
@@ -57,19 +56,14 @@ class QuizService(
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         if (user.status != UserStatus.ACTIVE) throw ApiException(ErrorCode.USER_WITHDRAWN)
         val quiz = findQuiz(quizId)
-        val result = grader.grade(quiz, response)
+        val checked = check(quiz, response)
+        val result = checked.result
         val attempt =
             attempts.save(
                 QuizAttemptEntity(
                     quizId = quizId,
                     userId = userId,
-                    response =
-                        response.traverse(objectMapper).use { parser ->
-                            objectMapper
-                                .readerFor(object : TypeReference<Map<String, Any?>>() {})
-                                .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
-                                .readValue<Map<String, Any?>>(parser)
-                        },
+                    response = converter.writeResponse(checked.response),
                     graded = result.graded,
                     correct = result.correct,
                     completed = result.completed,
@@ -84,14 +78,30 @@ class QuizService(
         )
     }
 
+    private fun check(
+        quiz: QuizItemEntity,
+        response: JsonNode,
+    ): CheckedResponse {
+        val definition = converter.readDefinition(quiz)
+        val grade = grader.prepare(definition)
+        val submitted = converter.readResponse(definition, response)
+        return CheckedResponse(submitted, grade(submitted))
+    }
+
+    private data class CheckedResponse(
+        val response: QuizUserResponse,
+        val result: QuizGrade,
+    )
+
     private fun findQuiz(quizId: Long): QuizItemEntity {
         validateId(quizId, "quizId")
         return quizzes.findById(quizId).orElseThrow { ApiException(ErrorCode.QUIZ_NOT_FOUND) }
     }
 
     private fun publicQuiz(quiz: QuizItemEntity): QuizResponse {
-        grader.validate(quiz)
-        return QuizResponse.from(quiz)
+        val definition = converter.readDefinition(quiz)
+        grader.validate(definition)
+        return QuizResponse.from(quiz, definition.config)
     }
 
     private fun validateId(
