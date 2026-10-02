@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.springframework.beans.TypeMismatchException
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
@@ -27,11 +28,13 @@ import org.springframework.context.annotation.Import
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
+import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.bind.MissingServletRequestParameterException
 import java.sql.SQLException
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -162,12 +165,8 @@ class QuizApiTest {
                 )
             assertEquals("jsonb", stored["config_type"])
             assertEquals(example["config"], objectMapper.readTree(stored["config"].toString()))
-            if (quiz.interactionType == QuizInteractionType.FLIP_CARD) {
-                assertNull(stored["answer"])
-                assertEquals(example["config"]["back"], body["config"]["back"])
-            } else {
-                assertEquals(example["answer"], objectMapper.readTree(stored["answer"].toString()))
-            }
+            assertEquals(example["answer"], objectMapper.readTree(stored["answer"].toString()))
+            assertFalse(body["config"].has("pairs"))
         }
         assertEquals(examples.size, get("/api/quizzes?lessonId=101").size())
     }
@@ -212,19 +211,87 @@ class QuizApiTest {
     }
 
     @Test
-    fun `missing malformed and overflowing ids return 400`() {
-        for (path in listOf(
-            "/api/quizzes",
-            "/api/quizzes?lessonId=",
-            "/api/quizzes?lessonId=abc",
-            "/api/quizzes?lessonId=9223372036854775808",
-            "/api/quizzes/abc",
-            "/api/quizzes/9223372036854775808",
-        )) {
-            mockMvc.get(path) { header(HttpHeaders.AUTHORIZATION, bearer) }.andExpect {
-                status { isBadRequest() }
+    fun `missing malformed and overflowing ids use the common 400 handler`() {
+        for (base in listOf("/api/quizzes", "/api/dev/quizzes")) {
+            val paths =
+                mapOf(
+                    base to MissingServletRequestParameterException::class.java,
+                    "$base?lessonId=" to TypeMismatchException::class.java,
+                    "$base?lessonId=abc" to TypeMismatchException::class.java,
+                    "$base?lessonId=1.5" to TypeMismatchException::class.java,
+                    "$base?lessonId=9223372036854775808" to TypeMismatchException::class.java,
+                    "$base/abc" to TypeMismatchException::class.java,
+                    "$base/9223372036854775808" to TypeMismatchException::class.java,
+                )
+            for ((path, exceptionType) in paths) {
+                val result =
+                    mockMvc
+                        .get(path) {
+                            if (base == "/api/quizzes") header(HttpHeaders.AUTHORIZATION, bearer)
+                        }.andExpect {
+                            status { isBadRequest() }
+                            jsonPath("$.code") { value("BAD_REQUEST") }
+                        }.andReturn()
+                assertTrue(exceptionType.isInstance(result.resolvedException), "$path: ${result.resolvedException?.javaClass?.simpleName}")
             }
         }
+        assertEquals(0L, attempts.count())
+    }
+
+    @Test
+    fun `unreadable request envelopes return common 400 errors without writing records`() {
+        val quiz = seed()
+        val beforeUsers = users.count()
+        val bodies =
+            listOf(
+                "",
+                " ",
+                "{}",
+                "null",
+                "[]",
+                """{"response":""",
+                """{"response":{"selectedOptionIds":["italy"]},"response":{"selectedOptionIds":["italy"]}}""",
+                """{"response":{"selectedOptionIds":["italy"],"selectedOptionIds":["italy"]}}""",
+            )
+        for (path in listOf("/api/quizzes/${quiz.id}/attempts", "/api/dev/quizzes/${quiz.id}/check")) {
+            for (body in bodies) {
+                val result =
+                    mockMvc
+                        .post(path) {
+                            if (path.startsWith("/api/quizzes/")) header(HttpHeaders.AUTHORIZATION, bearer)
+                            contentType = MediaType.APPLICATION_JSON
+                            content = body
+                        }.andExpect {
+                            status { isBadRequest() }
+                            jsonPath("$.code") { value("BAD_REQUEST") }
+                        }.andReturn()
+                assertTrue(result.resolvedException is HttpMessageNotReadableException, path)
+            }
+        }
+        assertEquals(0L, attempts.count())
+        assertEquals(beforeUsers, users.count())
+    }
+
+    @Test
+    fun `malformed submission path ids return common 400 errors without writing records`() {
+        val beforeUsers = users.count()
+        for (id in listOf("abc", "1.5", "9223372036854775808")) {
+            for (path in listOf("/api/quizzes/$id/attempts", "/api/dev/quizzes/$id/check")) {
+                val result =
+                    mockMvc
+                        .post(path) {
+                            if (path.startsWith("/api/quizzes/")) header(HttpHeaders.AUTHORIZATION, bearer)
+                            contentType = MediaType.APPLICATION_JSON
+                            content = """{"response":{"selectedOptionIds":["italy"]}}"""
+                        }.andExpect {
+                            status { isBadRequest() }
+                            jsonPath("$.code") { value("BAD_REQUEST") }
+                        }.andReturn()
+                assertTrue(result.resolvedException is TypeMismatchException, path)
+            }
+        }
+        assertEquals(0L, attempts.count())
+        assertEquals(beforeUsers, users.count())
     }
 
     @Test
@@ -288,7 +355,7 @@ class QuizApiTest {
             "answer = NULL",
             "config = '[]'::jsonb",
             "interaction_type = 'UNKNOWN'",
-            "interaction_type = 'FLIP_CARD'",
+            "answer = '[]'::jsonb",
             "lesson_id = 0",
             "quiz_order = -1",
             "difficulty = ''",
@@ -370,10 +437,9 @@ class QuizApiTest {
             val quiz = seed(example)
             val response = example["correctResponse"]
             val body = submit(checkNotNull(quiz.id), """{"response":$response}""")
-            val flip = quiz.interactionType == QuizInteractionType.FLIP_CARD
             assertEquals(setOf("attemptId", "graded", "correct", "completed", "explanation"), body.fieldNames().asSequence().toSet())
-            assertEquals(!flip, body["graded"].asBoolean())
-            if (flip) assertTrue(body["correct"].isNull) else assertTrue(body["correct"].asBoolean())
+            assertTrue(body["graded"].asBoolean())
+            assertTrue(body["correct"].asBoolean())
             assertTrue(body["completed"].asBoolean())
             assertEquals(quiz.explanation, body["explanation"].asText())
             entityManager.flush()
@@ -382,8 +448,8 @@ class QuizApiTest {
             assertEquals(quiz.id, attempt.quizId)
             assertEquals(userId, attempt.userId)
             assertEquals(response, objectMapper.valueToTree<JsonNode>(attempt.response))
-            assertEquals(!flip, attempt.graded)
-            assertEquals(if (flip) null else true, attempt.correct)
+            assertTrue(attempt.graded)
+            assertEquals(true, attempt.correct)
             assertTrue(attempt.completed)
             assertNotNull(attempt.submittedAt)
         }
@@ -510,18 +576,35 @@ class QuizApiTest {
     }
 
     @Test
-    fun `flip false remains an ungraded incomplete record`() {
+    fun `partial flip pair checks save progress without marking completion or exposing explanation`() {
         val quiz = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
-        val body = submit(checkNotNull(quiz.id), """{"response":{"flipped":false}}""")
-        assertFalse(body["graded"].asBoolean())
-        assertTrue(body["correct"].isNull)
+        val body = submit(checkNotNull(quiz.id), """{"response":{"pairs":[{"firstCardId":"c1","secondCardId":"c5"}]}}""")
+        assertTrue(body["graded"].asBoolean())
+        assertTrue(body["correct"].asBoolean())
         assertFalse(body["completed"].asBoolean())
+        assertEquals("", body["explanation"].asText())
         entityManager.flush()
         entityManager.clear()
         val saved = attempts.findById(body["attemptId"].asLong()).orElseThrow()
-        assertNull(saved.correct)
-        assertFalse(saved.graded)
+        assertEquals(true, saved.correct)
+        assertTrue(saved.graded)
         assertFalse(saved.completed)
+    }
+
+    @Test
+    fun `legacy flip storage remains readable after the answer constraint migration`() {
+        val quiz = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
+        jdbc.update(
+            "UPDATE ${table("quiz_item")} SET config = ?::jsonb, answer = NULL WHERE quiz_id = ?",
+            """{"front":{"title":"뉴턴"},"back":{"text":"만유인력"},"shuffle":true}""",
+            quiz.id,
+        )
+        entityManager.clear()
+        val body = get("/api/quizzes/${quiz.id}")
+        assertEquals(2, body["config"]["cards"].size())
+        assertEquals("뉴턴", body["config"]["cards"][0]["text"].asText())
+        assertFalse(body["config"].has("pairs"))
+        assertNull(jdbc.queryForMap("SELECT answer FROM ${table("quiz_item")} WHERE quiz_id = ?", quiz.id)["answer"])
     }
 
     @Test
@@ -613,5 +696,106 @@ class QuizApiTest {
         val different = submit(checkNotNull(quiz.id), """{"response":{"value":0.1}}""")
         assertTrue(exact["correct"].asBoolean())
         assertFalse(different["correct"].asBoolean())
+    }
+
+    @Test
+    fun `stored semantic errors take precedence over response conversion and never save attempts`() {
+        val quiz = seed()
+        val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
+        managed.config += "maxSelections" to 0
+        quizzes.flush()
+        entityManager.clear()
+        val result = submit(checkNotNull(quiz.id), """{"response":{"selectedOptionIds":"italy"}}""", 409)
+        assertEquals("QUIZ_DATA_INVALID", result["code"].asText())
+        assertEquals(0L, attempts.count())
+    }
+
+    @Test
+    fun `typed public configs keep original fields and omit absent nested options`() {
+        val examples = fixtures().toMutableList()
+        val minimal =
+            fixtures()
+                .first { it["caseId"].asText() == "slider_exact" }
+                .deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
+        val config = minimal["config"] as com.fasterxml.jackson.databind.node.ObjectNode
+        config.remove(listOf("initialValue", "unit", "showValue"))
+        config.put("shuffle", false)
+        config.put("allowRetry", true)
+        config.put("showHint", false)
+        examples.add(minimal)
+        val expected = examples.associate { example -> checkNotNull(seed(example).id) to example["config"] }
+        val list = get("/api/quizzes?lessonId=101")
+        assertEquals(expected.size, list.size())
+        for (item in list) {
+            assertPublicFields(item)
+            assertEquals(expected[item["quizId"].asLong()], item["config"])
+            val detail = get("/api/quizzes/${item["quizId"].asLong()}")
+            assertPublicFields(detail)
+            assertEquals(item["config"], detail["config"])
+        }
+    }
+
+    @Test
+    fun `openapi exposes concrete config and response contracts without server answers`() {
+        val result = mockMvc.get("/api-docs").andExpect { status { isOk() } }.andReturn()
+        val schemas = objectMapper.readTree(result.response.contentAsString)["components"]["schemas"]
+
+        fun resolve(node: JsonNode): JsonNode =
+            if (node.has("\$ref")) resolve(schemas[node["\$ref"].asText().substringAfterLast('/')]) else node
+
+        fun alternatives(node: JsonNode): Set<String> =
+            resolve(node)["oneOf"]?.map { it["\$ref"].asText().substringAfterLast('/') }?.toSet() ?: emptySet()
+        val configs =
+            mapOf(
+                "SliderConfig" to setOf("min", "max", "step"),
+                "SwipeConfig" to setOf("left", "right"),
+                "TapConfig" to setOf("selectionType", "items"),
+                "MultipleChoiceConfig" to setOf("selectionType", "options"),
+                "DragDropConfig" to setOf("items", "targets"),
+                "SortConfig" to setOf("items"),
+                "MatchingConfig" to setOf("leftItems", "rightItems"),
+                "FlipCardConfig" to setOf("cards"),
+            )
+        val config = schemas["QuizResponse"]["properties"]["config"]
+        assertEquals(configs.keys, alternatives(config), resolve(config).toString())
+        for ((name, required) in configs) {
+            val schema = resolve(schemas[name])
+            assertEquals(required, schema["required"].map { it.asText() }.toSet(), name)
+            assertEquals(false, schema["additionalProperties"]?.asBoolean(), name)
+            assertTrue(schema.has("properties"), "$name: $schema")
+            val properties = schema["properties"]
+            assertFalse(properties.has("answer"), name)
+            assertFalse(properties.has("type"), name)
+            for (field in listOf("shuffle", "allowRetry", "showHint")) {
+                assertTrue(properties.has(field), "$name.$field")
+                assertFalse(properties[field].path("nullable").asBoolean(), "$name.$field ${properties[field]}")
+            }
+        }
+        val responses =
+            mapOf(
+                "SliderUserResponse" to "value",
+                "SwipeUserResponse" to "value",
+                "TapUserResponse" to "selectedItemIds",
+                "MultipleChoiceUserResponse" to "selectedOptionIds",
+                "DragDropUserResponse" to "placements",
+                "SortUserResponse" to "order",
+                "MatchingUserResponse" to "matches",
+                "FlipCardUserResponse" to "pairs",
+            )
+        val response = schemas["QuizAttemptRequest"]["properties"]["response"]
+        assertEquals(responses.keys, alternatives(response), resolve(response).toString())
+        for ((name, field) in responses) {
+            val schema = resolve(schemas[name])
+            assertEquals(setOf(field), schema["required"].map { it.asText() }.toSet(), name)
+            assertEquals(setOf(field), schema["properties"].fieldNames().asSequence().toSet(), name)
+            assertEquals(false, schema["additionalProperties"]?.asBoolean(), name)
+        }
+        assertEquals("number", schemas["SliderUserResponse"]["properties"]["value"]["type"].asText())
+        assertEquals("string", schemas["SwipeUserResponse"]["properties"]["value"]["type"].asText())
+        assertEquals(setOf("id"), schemas["QuizItemOption"]["required"].map { it.asText() }.toSet())
+        assertEquals(setOf("firstCardId", "secondCardId"), schemas["QuizCardPair"]["required"].map { it.asText() }.toSet())
+        for (name in listOf("QuizDefinition", "QuizAnswer", "ExactSliderAnswer", "MultipleChoiceAnswer")) {
+            assertFalse(schemas.has(name), name)
+        }
     }
 }

@@ -2,10 +2,28 @@ package com.bawibase.chorong.domain.quiz.service
 
 import com.bawibase.chorong.common.ApiException
 import com.bawibase.chorong.common.ErrorCode
-import com.bawibase.chorong.domain.quiz.QuizInteractionType
-import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import com.bawibase.chorong.domain.quiz.model.DragDropQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.DragDropUserResponse
+import com.bawibase.chorong.domain.quiz.model.ExactSliderAnswer
+import com.bawibase.chorong.domain.quiz.model.FlipCardQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
+import com.bawibase.chorong.domain.quiz.model.MatchingQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.MatchingUserResponse
+import com.bawibase.chorong.domain.quiz.model.MultipleChoiceQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.MultipleChoiceUserResponse
+import com.bawibase.chorong.domain.quiz.model.QuizDefinition
+import com.bawibase.chorong.domain.quiz.model.QuizItemOption
+import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
+import com.bawibase.chorong.domain.quiz.model.RangeSliderAnswer
+import com.bawibase.chorong.domain.quiz.model.SelectionType
+import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
+import com.bawibase.chorong.domain.quiz.model.SortQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.SortUserResponse
+import com.bawibase.chorong.domain.quiz.model.SwipeQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
+import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -17,321 +35,215 @@ internal data class QuizGrade(
 )
 
 @Component
-class QuizGrader(
-    private val objectMapper: ObjectMapper,
-) {
-    private val stored = QuizJsonValidation(ErrorCode.QUIZ_DATA_INVALID)
-    private val submitted = QuizJsonValidation(ErrorCode.INVALID_QUIZ_RESPONSE)
+class QuizGrader {
+    private val stored = QuizValueValidation(ErrorCode.QUIZ_DATA_INVALID)
+    private val submitted = QuizValueValidation(ErrorCode.INVALID_QUIZ_RESPONSE)
 
-    fun validate(quiz: QuizItemEntity) {
+    fun validate(quiz: QuizDefinition) {
         prepare(quiz)
     }
 
-    internal fun grade(
-        quiz: QuizItemEntity,
-        response: JsonNode,
-    ): QuizGrade = prepare(quiz)(response)
-
-    private fun prepare(quiz: QuizItemEntity): (JsonNode) -> QuizGrade {
-        val config = objectMapper.valueToTree<JsonNode>(quiz.config)
-        val answer = quiz.answer?.let { objectMapper.valueToTree<JsonNode>(it) }
-        stored.objectValue(config)
-        if (config.has("shuffle")) stored.boolean(config["shuffle"])
-        // 반복 제출은 허용한다. 재시도 제한과 힌트 데이터는 아직 지원하지 않는다.
-        if (config.has("allowRetry")) stored.ensure(stored.boolean(config["allowRetry"]))
-        if (config.has("showHint")) stored.ensure(!stored.boolean(config["showHint"]))
-        if (config.has("maxSelections")) {
-            stored.ensure(quiz.interactionType in setOf(QuizInteractionType.TAP, QuizInteractionType.MULTIPLE_CHOICE))
-        }
-        if (quiz.interactionType == QuizInteractionType.FLIP_CARD) stored.ensure(answer == null) else stored.objectValue(answer)
-        return when (quiz.interactionType) {
-            QuizInteractionType.SLIDER -> {
-                slider(config, checkNotNull(answer))
+    /** 저장 데이터 검증을 먼저 끝내고 사용자 답안을 채점할 함수를 반환한다. */
+    internal fun prepare(quiz: QuizDefinition): (QuizUserResponse) -> QuizGrade {
+        stored.ensure(quiz.config.allowRetry != false)
+        stored.ensure(quiz.config.showHint != true)
+        return when (quiz) {
+            is SliderQuizDefinition -> {
+                slider(quiz)
             }
 
-            QuizInteractionType.SWIPE -> {
-                swipe(config, checkNotNull(answer))
+            is SwipeQuizDefinition -> {
+                swipe(quiz)
             }
 
-            QuizInteractionType.TAP -> {
-                selection(config, checkNotNull(answer), "items", "correctItemIds", "selectedItemIds")
+            is TapQuizDefinition -> {
+                val grade = selection(quiz.config.items, quiz.config.selectionType, quiz.config.maxSelections, quiz.answer.correctItemIds)
+                response<TapUserResponse> { grade(it.selectedItemIds) }
             }
 
-            QuizInteractionType.MULTIPLE_CHOICE -> {
-                selection(
-                    config,
-                    checkNotNull(answer),
-                    "options",
-                    "correctOptionIds",
-                    "selectedOptionIds",
-                )
+            is MultipleChoiceQuizDefinition -> {
+                val grade =
+                    selection(quiz.config.options, quiz.config.selectionType, quiz.config.maxSelections, quiz.answer.correctOptionIds)
+                response<MultipleChoiceUserResponse> { grade(it.selectedOptionIds) }
             }
 
-            QuizInteractionType.DRAG_DROP -> {
-                placement(config, checkNotNull(answer), false)
+            is DragDropQuizDefinition -> {
+                val grade = placement(quiz.config.items, quiz.config.targets, quiz.answer.placements, oneToOne = false)
+                response<DragDropUserResponse> { grade(it.placements) }
             }
 
-            QuizInteractionType.MATCHING -> {
-                placement(config, checkNotNull(answer), true)
+            is MatchingQuizDefinition -> {
+                val grade = placement(quiz.config.leftItems, quiz.config.rightItems, quiz.answer.matches, oneToOne = true)
+                response<MatchingUserResponse> { grade(it.matches) }
             }
 
-            QuizInteractionType.SORT -> {
-                sort(config, checkNotNull(answer))
+            is SortQuizDefinition -> {
+                sort(quiz)
             }
 
-            QuizInteractionType.FLIP_CARD -> {
-                flip(config)
+            is FlipCardQuizDefinition -> {
+                flip(quiz)
             }
         }
     }
 
-    private fun slider(
-        config: JsonNode,
-        answer: JsonNode,
-    ): (JsonNode) -> QuizGrade {
-        configKeys(config, "min", "max", "step", "initialValue", "unit", "showValue")
-        val min = stored.number(config["min"])
-        val max = stored.number(config["max"])
-        val step = stored.number(config["step"])
-        stored.ensure(min < max && step > BigDecimal.ZERO)
+    private fun slider(quiz: SliderQuizDefinition): (QuizUserResponse) -> QuizGrade {
+        val config = quiz.config
+        stored.ensure(config.min < config.max && config.step > BigDecimal.ZERO)
 
-        fun selectable(value: BigDecimal) = value >= min && value <= max && (value - min).remainder(step).compareTo(BigDecimal.ZERO) == 0
-        if (config.has("initialValue")) stored.ensure(selectable(stored.number(config["initialValue"])))
-        if (config.has("unit")) stored.text(config["unit"], allowBlank = true)
-        if (config.has("showValue")) stored.boolean(config["showValue"])
+        fun selectable(value: BigDecimal) =
+            value >= config.min && value <= config.max && (value - config.min).remainder(config.step).compareTo(BigDecimal.ZERO) == 0
+
+        config.initialValue?.let { stored.ensure(selectable(it)) }
         val lower: BigDecimal
         val upper: BigDecimal
-        if (answer.has("value")) {
-            stored.keys(answer, setOf("value"))
-            lower = stored.number(answer["value"])
-            upper = lower
-            stored.ensure(selectable(lower))
-        } else {
-            stored.keys(answer, setOf("min", "max"))
-            lower = stored.number(answer["min"])
-            upper = stored.number(answer["max"])
-            stored.ensure(lower >= min && upper <= max && lower <= upper)
-            val firstSelectable = min + (lower - min).divide(step, 0, RoundingMode.CEILING) * step
-            stored.ensure(firstSelectable <= upper)
+        when (val answer = quiz.answer) {
+            is ExactSliderAnswer -> {
+                lower = answer.value
+                upper = answer.value
+                stored.ensure(selectable(answer.value))
+            }
+
+            is RangeSliderAnswer -> {
+                lower = answer.min
+                upper = answer.max
+                stored.ensure(lower >= config.min && upper <= config.max && lower <= upper)
+                val firstSelectable = config.min + (lower - config.min).divide(config.step, 0, RoundingMode.CEILING) * config.step
+                stored.ensure(firstSelectable <= upper)
+            }
         }
-        return { response ->
-            submitted.keys(response, setOf("value"))
-            val value = submitted.number(response["value"])
-            submitted.ensure(selectable(value))
-            graded(value >= lower && value <= upper)
+        return response<SliderUserResponse> {
+            submitted.ensure(selectable(it.value))
+            graded(it.value >= lower && it.value <= upper)
         }
     }
 
-    private fun swipe(
-        config: JsonNode,
-        answer: JsonNode,
-    ): (JsonNode) -> QuizGrade {
-        configKeys(config, "left", "right")
+    private fun swipe(quiz: SwipeQuizDefinition): (QuizUserResponse) -> QuizGrade {
         val choices =
-            listOf("left", "right").map { side ->
-                val item = stored.objectValue(config[side])
-                stored.keys(item, setOf("value", "label"))
-                stored.text(item["label"])
-                stored.text(item["value"])
+            listOf(quiz.config.left, quiz.config.right).map {
+                stored.text(it.label)
+                stored.text(it.value)
             }
         stored.ensure(choices.toSet().size == 2)
-        stored.keys(answer, setOf("correctValue"))
-        val correct = stored.text(answer["correctValue"])
+        val correct = stored.text(quiz.answer.correctValue)
         stored.ensure(correct in choices)
-        return { response ->
-            submitted.keys(response, setOf("value"))
-            val value = submitted.text(response["value"])
+        return response<SwipeUserResponse> {
+            val value = submitted.text(it.value)
             submitted.ensure(value in choices)
             graded(value == correct)
         }
     }
 
     private fun selection(
-        config: JsonNode,
-        answer: JsonNode,
-        itemsKey: String,
-        answerKey: String,
-        responseKey: String,
-    ): (JsonNode) -> QuizGrade {
-        configKeys(config, "selectionType", itemsKey, "maxSelections")
-        val ids = itemIds(config[itemsKey])
-        val selectionType = stored.text(config["selectionType"])
-        stored.ensure(selectionType in setOf("SINGLE", "MULTIPLE"))
-        val single = selectionType == "SINGLE"
-        val limit =
-            if (config.has("maxSelections")) {
-                stored.positiveInteger(config["maxSelections"])
-            } else if (single) {
-                1
-            } else {
-                ids.size
-            }
-        stored.ensure(!single || limit == 1)
-        stored.keys(answer, setOf(answerKey))
-        val correct = stored.ids(answer[answerKey])
+        items: List<QuizItemOption>,
+        selectionType: SelectionType,
+        maxSelections: Int?,
+        correctIds: List<String>,
+    ): (List<String>) -> QuizGrade {
+        val ids = itemIds(items)
+        val single = selectionType == SelectionType.SINGLE
+        val limit = maxSelections ?: if (single) 1 else ids.size
+        stored.ensure(limit > 0 && (!single || limit == 1))
+        val correct = stored.ids(correctIds)
         stored.ensure(correct.all { it in ids } && correct.size <= limit && (!single || correct.size == 1))
         return { response ->
-            submitted.keys(response, setOf(responseKey))
-            val selected = submitted.ids(response[responseKey])
+            val selected = submitted.ids(response)
             submitted.ensure(selected.all { it in ids } && selected.size <= limit && (!single || selected.size == 1))
             graded(selected.toSet() == correct.toSet())
         }
     }
 
     private fun placement(
-        config: JsonNode,
-        answer: JsonNode,
-        matching: Boolean,
-    ): (JsonNode) -> QuizGrade {
-        val leftKey = if (matching) "leftItems" else "items"
-        val rightKey = if (matching) "rightItems" else "targets"
-        val resultKey = if (matching) "matches" else "placements"
-        configKeys(config, leftKey, rightKey)
-        val left = itemIds(config[leftKey])
-        val right = itemIds(config[rightKey])
-        if (matching) stored.ensure(left.size == right.size)
-        stored.keys(answer, setOf(resultKey))
-        val correct = stored.mapping(answer[resultKey], left, right, matching)
+        items: List<QuizItemOption>,
+        targets: List<QuizItemOption>,
+        correctPlacements: Map<String, String>,
+        oneToOne: Boolean,
+    ): (Map<String, String>) -> QuizGrade {
+        val left = itemIds(items)
+        val right = itemIds(targets)
+        if (oneToOne) stored.ensure(left.size == right.size)
+        val correct = stored.mapping(correctPlacements, left, right, oneToOne)
         return { response ->
-            submitted.keys(response, setOf(resultKey))
-            val chosen = submitted.mapping(response[resultKey], left, right, matching)
+            val chosen = submitted.mapping(response, left, right, oneToOne)
             graded(chosen == correct)
         }
     }
 
-    private fun sort(
-        config: JsonNode,
-        answer: JsonNode,
-    ): (JsonNode) -> QuizGrade {
-        configKeys(config, "items")
-        val ids = itemIds(config["items"])
-        stored.keys(answer, setOf("correctOrder"))
-        val correct = stored.ids(answer["correctOrder"])
+    private fun sort(quiz: SortQuizDefinition): (QuizUserResponse) -> QuizGrade {
+        val ids = itemIds(quiz.config.items)
+        val correct = stored.ids(quiz.answer.correctOrder)
         stored.ensure(correct.toSet() == ids)
-        return { response ->
-            submitted.keys(response, setOf("order"))
-            val chosen = submitted.ids(response["order"])
+        return response<SortUserResponse> {
+            val chosen = submitted.ids(it.order)
             submitted.ensure(chosen.toSet() == ids)
             graded(chosen == correct)
         }
     }
 
-    private fun flip(config: JsonNode): (JsonNode) -> QuizGrade {
-        configKeys(config, "front", "back")
-        for (side in listOf("front", "back")) {
-            val card = stored.objectValue(config[side])
-            stored.allowedKeys(card, setOf("title", "text", "imageUrl"))
-            stored.ensure(card.size() > 0)
-            card.fields().forEachRemaining { stored.text(it.value) }
-        }
-        return { response ->
-            submitted.keys(response, setOf("flipped"))
-            QuizGrade(graded = false, correct = null, completed = submitted.boolean(response["flipped"]))
+    private fun flip(quiz: FlipCardQuizDefinition): (QuizUserResponse) -> QuizGrade {
+        val cards = itemIds(quiz.config.cards)
+        stored.ensure(cards.size >= 2 && cards.size % 2 == 0)
+        val expectedIds = stored.ids(quiz.answer.pairs.flatMap { listOf(it.firstCardId, it.secondCardId) })
+        stored.ensure(expectedIds.toSet() == cards)
+        val expected =
+            quiz.answer.pairs
+                .map { setOf(it.firstCardId, it.secondCardId) }
+                .toSet()
+        return response<FlipCardUserResponse> { response ->
+            val ids = submitted.ids(response.pairs.flatMap { listOf(it.firstCardId, it.secondCardId) })
+            submitted.ensure(cards.containsAll(ids))
+            val correct = response.pairs.all { setOf(it.firstCardId, it.secondCardId) in expected }
+            QuizGrade(graded = true, correct = correct, completed = correct && ids.size == cards.size)
         }
     }
 
-    private fun itemIds(node: JsonNode?): Set<String> {
-        val items = stored.array(node)
-        val ids =
-            items.map { item ->
-                stored.objectValue(item)
-                stored.allowedKeys(item, setOf("id", "text", "imageUrl"))
-                stored.ensure(item.has("text") || item.has("imageUrl"))
-                if (item.has("text")) stored.text(item["text"])
-                if (item.has("imageUrl")) stored.text(item["imageUrl"])
-                stored.text(item["id"])
-            }
-        stored.ensure(ids.size == ids.toSet().size)
-        return ids.toSet()
-    }
+    private fun itemIds(items: List<QuizItemOption>): Set<String> =
+        stored
+            .ids(
+                items.map { item ->
+                    stored.ensure(item.text != null || item.imageUrl != null)
+                    item.text?.let(stored::text)
+                    item.imageUrl?.let(stored::text)
+                    item.id
+                },
+            ).toSet()
 
-    private fun configKeys(
-        config: JsonNode,
-        vararg keys: String,
-    ) {
-        stored.allowedKeys(config, keys.toSet() + setOf("shuffle", "allowRetry", "showHint"))
-    }
+    private inline fun <reified T : QuizUserResponse> response(crossinline grade: (T) -> QuizGrade): (QuizUserResponse) -> QuizGrade =
+        { response ->
+            if (response !is T) throw ApiException(ErrorCode.INVALID_QUIZ_RESPONSE)
+            grade(response)
+        }
 
     private fun graded(correct: Boolean) = QuizGrade(graded = true, correct = correct, completed = true)
 }
 
-private class QuizJsonValidation(
+private class QuizValueValidation(
     private val error: ErrorCode,
 ) {
     fun ensure(condition: Boolean) {
         if (!condition) throw ApiException(error)
     }
 
-    fun objectValue(node: JsonNode?): JsonNode {
-        if (node == null || !node.isObject) throw ApiException(error)
-        return node
-    }
-
-    fun keys(
-        node: JsonNode,
-        expected: Set<String>,
-    ) {
-        ensure(objectValue(node).fieldNames().asSequence().toSet() == expected)
-    }
-
-    fun allowedKeys(
-        node: JsonNode,
-        expected: Set<String>,
-    ) {
-        ensure(objectValue(node).fieldNames().asSequence().all { it in expected })
-    }
-
-    fun text(
-        node: JsonNode?,
-        allowBlank: Boolean = false,
-    ): String {
-        if (node == null || !node.isTextual) throw ApiException(error)
-        val value = node.textValue()
-        ensure(allowBlank || value.isNotBlank())
+    fun text(value: String): String {
+        ensure(value.isNotBlank())
         return value
     }
 
-    fun boolean(node: JsonNode?): Boolean {
-        if (node == null || !node.isBoolean) throw ApiException(error)
-        return node.booleanValue()
-    }
-
-    fun number(node: JsonNode?): BigDecimal {
-        if (node == null || !node.isNumber) throw ApiException(error)
-        return try {
-            node.decimalValue()
-        } catch (_: NumberFormatException) {
-            throw ApiException(error)
-        }
-    }
-
-    fun positiveInteger(node: JsonNode?): Int {
-        if (node == null || !node.isIntegralNumber || !node.canConvertToInt()) throw ApiException(error)
-        val value = node.intValue()
-        ensure(value > 0)
-        return value
-    }
-
-    fun array(node: JsonNode?): List<JsonNode> {
-        if (node == null || !node.isArray || node.isEmpty) throw ApiException(error)
-        return node.toList()
-    }
-
-    fun ids(node: JsonNode?): List<String> {
-        val values = array(node).map { text(it) }
+    fun ids(values: List<String>): List<String> {
+        ensure(values.isNotEmpty())
+        values.forEach(::text)
         ensure(values.size == values.toSet().size)
         return values
     }
 
     fun mapping(
-        node: JsonNode?,
+        values: Map<String, String>,
         left: Set<String>,
         right: Set<String>,
         oneToOne: Boolean,
     ): Map<String, String> {
-        val obj = objectValue(node)
-        ensure(obj.fieldNames().asSequence().toSet() == left)
-        val values = obj.fields().asSequence().associate { it.key to text(it.value) }
+        ensure(values.keys == left)
+        values.values.forEach(::text)
         ensure(values.values.all { it in right })
         if (oneToOne) ensure(values.values.toSet() == right && values.size == right.size)
         return values

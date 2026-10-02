@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema
 data class QuizPreviewResponse(
     val graded: Boolean,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    @param:Schema(description = "정답 여부. FLIP_CARD는 null이다.", nullable = true)
+    @param:Schema(description = "정답 여부. FLIP_CARD는 제출한 짝이 모두 맞는지 나타낸다.", nullable = true)
     val correct: Boolean?,
     val completed: Boolean,
     val explanation: String,

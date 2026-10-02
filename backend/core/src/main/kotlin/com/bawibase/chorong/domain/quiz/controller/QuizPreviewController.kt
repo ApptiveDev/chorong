@@ -35,7 +35,7 @@ class QuizPreviewController(
         @PathVariable quizId: Long,
     ): QuizResponse = quizService.get(quizId)
 
-    @Operation(summary = "테스트용 퀴즈 채점", description = "인증 없이 채점하고 해설을 반환한다. 사용자와 제출 기록을 생성하지 않는다.")
+    @Operation(summary = "테스트용 퀴즈 채점", description = "인증 없이 채점하고 해설을 반환한다. 사용자와 제출 기록을 생성하지 않는다. 입력 오류는 400, 문제 데이터 오류는 409이다.")
     @PostMapping("/{quizId}/check")
     fun check(
         @PathVariable quizId: Long,

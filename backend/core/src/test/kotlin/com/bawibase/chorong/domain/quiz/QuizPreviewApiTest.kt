@@ -111,13 +111,8 @@ class QuizPreviewApiTest {
             val result = check(checkNotNull(quiz.id), fixture["correctResponse"])
             assertEquals(setOf("graded", "correct", "completed", "explanation"), result.fieldNames().asSequence().toSet())
             assertTrue(result["completed"].asBoolean())
-            if (quiz.interactionType == QuizInteractionType.FLIP_CARD) {
-                assertFalse(result["graded"].asBoolean())
-                assertTrue(result["correct"].isNull)
-            } else {
-                assertTrue(result["graded"].asBoolean())
-                assertTrue(result["correct"].asBoolean())
-            }
+            assertTrue(result["graded"].asBoolean())
+            assertTrue(result["correct"].asBoolean())
             assertEquals(quiz.explanation, result["explanation"].asText())
         }
         assertEquals(beforeUsers, users.count())
@@ -186,5 +181,46 @@ class QuizPreviewApiTest {
         assertTrue(!operation.has("security") || operation["security"].isEmpty)
         val result = docs["components"]["schemas"]["QuizPreviewResponse"]["properties"]
         assertFalse(result.has("attemptId"))
+    }
+
+    @Test
+    fun `preview validates stored types and values before converting a response`() {
+        val quiz = seed()
+        val original = quiz.config
+        val beforeUsers = users.count()
+        val beforeAttempts = attempts.count()
+        for (change in listOf(mapOf("step" to 0), mapOf("showValue" to null), mapOf("min" to "1700"))) {
+            quiz.config = original + change
+            quizzes.saveAndFlush(quiz)
+            val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":"1760"}"""), 409)
+            assertEquals("QUIZ_DATA_INVALID", error["code"].asText())
+        }
+        quiz.config = original
+        quizzes.saveAndFlush(quiz)
+        val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":"1760"}"""), 400)
+        assertEquals("INVALID_QUIZ_RESPONSE", error["code"].asText())
+        assertEquals(beforeUsers, users.count())
+        assertEquals(beforeAttempts, attempts.count())
+    }
+
+    @Test
+    fun `memory pairs support partial wrong and complete checks without persistence`() {
+        val fixture = fixtures().first { it["caseId"].asText() == "flip_card" }
+        val quiz = seed(fixture)
+        val before = attempts.count()
+        for ((json, correct) in listOf(
+            """{"pairs":[{"firstCardId":"c5","secondCardId":"c1"}]}""" to true,
+            """{"pairs":[{"firstCardId":"c1","secondCardId":"c2"}]}""" to false,
+        )) {
+            val result = check(checkNotNull(quiz.id), objectMapper.readTree(json))
+            assertEquals(correct, result["correct"].asBoolean())
+            assertTrue(result["graded"].asBoolean())
+            assertFalse(result["completed"].asBoolean())
+            assertEquals("", result["explanation"].asText())
+        }
+        val completed = check(checkNotNull(quiz.id), fixture["correctResponse"])
+        assertTrue(completed["completed"].asBoolean())
+        assertEquals(quiz.explanation, completed["explanation"].asText())
+        assertEquals(before, attempts.count())
     }
 }

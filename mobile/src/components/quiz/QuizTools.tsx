@@ -47,6 +47,8 @@ function QuizForm({ quiz }: { quiz: Quiz }) {
         quiz={quiz}
         response={response}
         disabled={busy}
+        checkPairs={(next) => quizApi.check(quiz.quizId, next)}
+        onComplete={setResult}
         onChange={(next) => {
           if (!inFlight.current) {
             setResponse(next);
@@ -55,14 +57,16 @@ function QuizForm({ quiz }: { quiz: Quiz }) {
           }
         }}
       />
-      {issue ? <Text style={styles.muted}>{issue}</Text> : null}
-      <QuizButton
-        label={
-          busy ? '확인 중' : quiz.interactionType === 'FLIP_CARD' ? '학습 완료 확인' : '채점하기'
-        }
-        disabled={busy || issue !== null}
-        onPress={submit}
-      />
+      {quiz.interactionType !== 'FLIP_CARD' ? (
+        <>
+          {issue ? <Text style={styles.muted}>{issue}</Text> : null}
+          <QuizButton
+            label={busy ? '확인 중' : '채점하기'}
+            disabled={busy || issue !== null}
+            onPress={submit}
+          />
+        </>
+      ) : null}
       {busy ? <ActivityIndicator accessibilityLabel="답안 확인 중" /> : null}
       {error ? (
         <Text accessibilityRole="alert" style={styles.error}>

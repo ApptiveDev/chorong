@@ -1,3 +1,4 @@
+export type QuizConfigOptions = { shuffle?: boolean; allowRetry?: true; showHint?: false };
 export type QuizItem = { id: string; text?: string; imageUrl?: string };
 export type CardFace = { title?: string; text?: string; imageUrl?: string };
 export type SliderConfig = {
@@ -17,7 +18,7 @@ export type QuizConfigs = {
   DRAG_DROP: { items: QuizItem[]; targets: QuizItem[] };
   SORT: { items: QuizItem[] };
   MATCHING: { leftItems: QuizItem[]; rightItems: QuizItem[] };
-  FLIP_CARD: { front: CardFace; back: CardFace };
+  FLIP_CARD: { cards: QuizItem[] };
 };
 export type InteractionType = keyof QuizConfigs;
 export type QuizSummary = {
@@ -33,17 +34,29 @@ export type QuizSummary = {
 export type Quiz = {
   [K in InteractionType]: Omit<QuizSummary, 'interactionType' | 'config'> & {
     interactionType: K;
-    config: QuizConfigs[K] & { shuffle?: boolean };
+    config: QuizConfigs[K] & QuizConfigOptions;
   };
 }[InteractionType];
-export type QuizResponse =
-  | { value: number | string }
-  | { selectedItemIds: string[] }
-  | { selectedOptionIds: string[] }
-  | { placements: Record<string, string> }
-  | { order: string[] }
-  | { matches: Record<string, string> }
-  | { flipped: boolean };
+export type SliderUserResponse = { value: number };
+export type SwipeUserResponse = { value: string };
+export type TapUserResponse = { selectedItemIds: string[] };
+export type MultipleChoiceUserResponse = { selectedOptionIds: string[] };
+export type DragDropUserResponse = { placements: Record<string, string> };
+export type SortUserResponse = { order: string[] };
+export type MatchingUserResponse = { matches: Record<string, string> };
+export type CardPair = { firstCardId: string; secondCardId: string };
+export type FlipCardUserResponse = { pairs: CardPair[] };
+export type QuizUserResponses = {
+  SLIDER: SliderUserResponse;
+  SWIPE: SwipeUserResponse;
+  TAP: TapUserResponse;
+  MULTIPLE_CHOICE: MultipleChoiceUserResponse;
+  DRAG_DROP: DragDropUserResponse;
+  SORT: SortUserResponse;
+  MATCHING: MatchingUserResponse;
+  FLIP_CARD: FlipCardUserResponse;
+};
+export type QuizResponse = QuizUserResponses[InteractionType];
 export type QuizPreviewResult = {
   graded: boolean;
   correct: boolean | null;

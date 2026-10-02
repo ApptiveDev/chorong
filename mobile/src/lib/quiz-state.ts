@@ -1,20 +1,9 @@
-import type {
-  CardFace,
-  Quiz,
-  QuizItem,
-  QuizResponse,
-  QuizSummary,
-  SliderConfig,
-} from '../types/quiz';
+import type { Quiz, QuizItem, QuizResponse, QuizSummary, SliderConfig } from '../types/quiz';
 
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const face = (v: unknown): v is CardFace =>
-  object(v) &&
-  ['title', 'text', 'imageUrl'].some((k) => text(v[k])) &&
-  ['title', 'text', 'imageUrl'].every((k) => v[k] === undefined || typeof v[k] === 'string');
 const items = (v: unknown): v is QuizItem[] =>
   Array.isArray(v) &&
   v.length > 0 &&
@@ -114,17 +103,23 @@ export function prepareQuiz(raw: QuizSummary): Quiz {
           items(c.leftItems) && items(c.rightItems) && c.leftItems.length === c.rightItems.length;
         break;
       case 'FLIP_CARD':
-        valid = face(c.front) && face(c.back);
+        valid = items(c.cards) && c.cards.length >= 2 && c.cards.length % 2 === 0;
         break;
       default:
         throw new Error(`지원하지 않는 문제 유형입니다. (${raw.interactionType})`);
     }
   }
+  valid =
+    valid &&
+    object(c) &&
+    (c.shuffle === undefined || typeof c.shuffle === 'boolean') &&
+    (c.allowRetry === undefined || c.allowRetry === true) &&
+    (c.showHint === undefined || c.showHint === false);
   if (!valid || !object(c))
     throw new Error('이 문제의 설정을 표시할 수 없습니다. 관리자에게 확인해 주세요.');
   const config = { ...c };
   if (c.shuffle === true) {
-    for (const key of ['items', 'options', 'targets', 'leftItems', 'rightItems']) {
+    for (const key of ['items', 'options', 'targets', 'leftItems', 'rightItems', 'cards']) {
       if (Array.isArray(c[key])) config[key] = shuffled(c[key]);
     }
   }
@@ -148,15 +143,18 @@ export function initialResponse(quiz: Quiz): QuizResponse {
     case 'MATCHING':
       return { matches: {} };
     case 'FLIP_CARD':
-      return { flipped: false };
+      return { pairs: [] };
   }
 }
 
 export function responseIssue(quiz: Quiz, response: QuizResponse): string | null {
   switch (quiz.interactionType) {
+    case 'SLIDER':
+      return 'value' in response && finite(response.value) ? null : '슬라이더 값을 선택해 주세요.';
     case 'SWIPE':
       return 'value' in response &&
-        [quiz.config.left.value, quiz.config.right.value].includes(String(response.value))
+        typeof response.value === 'string' &&
+        [quiz.config.left.value, quiz.config.right.value].includes(response.value)
         ? null
         : '왼쪽 또는 오른쪽 답을 선택해 주세요.';
     case 'TAP':
@@ -178,9 +176,13 @@ export function responseIssue(quiz: Quiz, response: QuizResponse): string | null
         ? null
         : '모든 항목을 연결해 주세요.';
     case 'FLIP_CARD':
-      return 'flipped' in response && response.flipped
+      if (!('pairs' in response)) return '모든 카드의 짝을 맞춰 주세요.';
+      const ids = response.pairs.flatMap((pair) => [pair.firstCardId, pair.secondCardId]);
+      return ids.length === quiz.config.cards.length &&
+        new Set(ids).size === ids.length &&
+        quiz.config.cards.every((card) => ids.includes(card.id))
         ? null
-        : '카드를 뒤집어 내용을 확인해 주세요.';
+        : '모든 카드의 짝을 맞춰 주세요.';
     default:
       return null;
   }
