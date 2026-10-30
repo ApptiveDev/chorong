@@ -6,6 +6,7 @@ import com.bawibase.chorong.domain.auth.config.JwtProperties
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.entity.UserRefreshTokenEntity
 import com.bawibase.chorong.domain.user.repository.UserRefreshTokenRepository
+import com.bawibase.chorong.domain.user.service.UserAccessService
 import org.slf4j.LoggerFactory
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm
 import org.springframework.security.oauth2.jwt.JwsHeader
@@ -27,6 +28,7 @@ class TokenService(
     private val encoder: JwtEncoder,
     private val refreshTokens: UserRefreshTokenRepository,
     private val clock: Clock,
+    private val access: UserAccessService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val random = SecureRandom()
@@ -36,12 +38,14 @@ class TokenService(
         deviceUuid: String?,
         created: Boolean = false,
     ): TokenResponse {
+        val role = access.role(userId)
         val now = clock.instant()
         val claims =
             JwtClaimsSet
                 .builder()
                 .issuer(ISSUER)
                 .subject(userId.toString())
+                .claim("role", role.name)
                 .issuedAt(now)
                 .expiresAt(now.plus(props.accessTtl))
                 .build()

@@ -5,7 +5,7 @@ provider 는 `KAKAO` `APPLE` `GOOGLE` `NAVER` `PASSWORD` `GUEST`. 현재 열린 
 
 | 테이블 | 용도 |
 |---|---|
-| `app_user` | 계정. `status` (ACTIVE/WITHDRAWN), `nickname`, `email` |
+| `app_user` | 계정. `status` (GUEST/ACTIVE/WITHDRAWN), `nickname`, `email`, 설정·학습 집계 |
 | `user_auth` | 인증 수단. `(provider, provider_uid)` 유니크. GUEST 의 uid 는 기기 UUID, PASSWORD 는 소문자 이메일, 소셜은 provider 가 준 sub/id (예정) |
 | `user_password` | PASSWORD 전용. bcrypt 해시, 실패 횟수, 잠금 시각 |
 | `user_oauth` | 소셜 전용. 이메일, 표시 이름, 원본 프로필(JSONB) |
@@ -13,7 +13,7 @@ provider 는 `KAKAO` `APPLE` `GOOGLE` `NAVER` `PASSWORD` `GUEST`. 현재 열린 
 
 ## 토큰
 
-- 액세스 토큰: JWT HS256. `sub` = user_id, `iss` = `chorong`. 기본 30분 (`JWT_ACCESS_TTL`).
+- 액세스 토큰: JWT HS256. `sub` = user_id, `iss` = `chorong`, `role` = GUEST/MEMBER. 기본 30분 (`JWT_ACCESS_TTL`).
 - 리프레시 토큰: 랜덤 32바이트. 기본 365일 (`JWT_REFRESH_TTL`, 기본값 `P365D`). `/refresh` 에 쓰면 폐기되고 새 쌍이 나온다.
 - 비밀키는 `JWT_SECRET` (32바이트 이상). dev 기본값은 `application.yml` 에 있다. 운영은 환경변수로 넣는다.
 
@@ -21,6 +21,31 @@ provider 는 `KAKAO` `APPLE` `GOOGLE` `NAVER` `PASSWORD` `GUEST`. 현재 열린 
 `JWT_REFRESH_TTL` 환경변수가 있으면 기본값보다 우선한다. 365일 정책을 적용하는 환경에서는 이 값을 `P365D`로 맞춘다.
 
 보호된 엔드포인트는 `Authorization: Bearer <accessToken>` 을 요구한다. 없거나 틀리면 401 `UNAUTHORIZED`.
+
+## 사용자 상태·권한
+
+| DB status | 현재 권한 | 인증 |
+|---|---|---|
+| GUEST | ROLE_GUEST | 허용 |
+| ACTIVE | ROLE_MEMBER | 허용 |
+| WITHDRAWN | 없음 | 거절 |
+
+JWT의 role은 발급 당시 값이다. 요청마다 DB에서 현재 상태를 읽어 권한을 결정한다. role이 없는 기존 JWT도 사용할 수 있다. 회원 전환은 기존 토큰에도 다음 요청부터 반영한다. 탈퇴·삭제된 계정은 기존 JWT로 접근하거나 토큰을 새로 발급받을 수 없다.
+
+신규 v1의 회원 전용 경로는 로그인 수단 연동·해제, 탈퇴, 커뮤니티다. 게스트는 403 MEMBER_ONLY, 미인증 요청은 401 UNAUTHORIZED다. 내 하우징 조회는 게스트도 허용한다. 공개 여부 변경의 회원 제한은 하우징 서비스 단계에서 연결한다. 구 API의 탈퇴 계정 오류는 USER_WITHDRAWN을 유지한다.
+
+V9는 ACTIVE 중 GUEST 수단만 가진 계정을 GUEST로 이관한다. PASSWORD·소셜 수단이 하나라도 있는 계정과 WITHDRAWN은 유지한다. 수단이 없는 기존 계정은 분류 근거가 없어 기존 상태를 유지한다. userId·인증·지갑·보유 자산·퀴즈 데이터는 바꾸지 않는다.
+
+| 새 사용자 필드 | 초기값 |
+|---|---|
+| pushEnabled | false |
+| onboardingCompleted | false |
+| lastStudyDate | null |
+| streakDays | 0 |
+
+알림 동의·온보딩·학습 기록이 없는 기존 계정에도 같은 초기값을 적용한다. 이 값의 갱신은 해당 업무 단계에서 구현한다. streakDays 음수는 DB에서 거절한다.
+
+기존 nickname VARCHAR(40)와 null·저장값은 유지한다. 새 닉네임 변경에는 UserNicknamePolicy를 사용한다. 공백만인 값은 거절하고 Unicode 코드 포인트 2~12자로 검사한다. 앞뒤 공백이나 기존 긴 닉네임을 자동으로 자르지 않는다. 닉네임 수정 API는 후속 단계에서 연결한다.
 
 ## 엔드포인트
 

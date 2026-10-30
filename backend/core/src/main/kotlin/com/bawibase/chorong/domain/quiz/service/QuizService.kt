@@ -12,7 +12,6 @@ import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
 import com.bawibase.chorong.domain.quiz.repository.QuizAttemptRepository
 import com.bawibase.chorong.domain.quiz.repository.QuizItemRepository
 import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
-import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.fasterxml.jackson.databind.JsonNode
 import org.springframework.stereotype.Service
@@ -55,7 +54,7 @@ class QuizService(
         response: JsonNode,
     ): QuizAttemptResponse {
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
-        if (user.status != UserStatus.ACTIVE) throw ApiException(ErrorCode.USER_WITHDRAWN)
+        if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
         val quiz = findQuiz(quizId)
         val checked = check(quiz, response)
         val result = checked.result

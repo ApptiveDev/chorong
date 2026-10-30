@@ -11,6 +11,7 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.hibernate.annotations.CreationTimestamp
 import org.hibernate.annotations.UpdateTimestamp
+import java.time.LocalDate
 import java.time.OffsetDateTime
 
 @Entity
@@ -28,7 +29,19 @@ class UserEntity(
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    var status: UserStatus = UserStatus.ACTIVE
+    var status: UserStatus = UserStatus.GUEST
+
+    @Column(name = "push_enabled", nullable = false)
+    var pushEnabled: Boolean = false
+
+    @Column(name = "onboarding_completed", nullable = false)
+    var onboardingCompleted: Boolean = false
+
+    @Column(name = "last_study_date")
+    var lastStudyDate: LocalDate? = null
+
+    @Column(name = "streak_days", nullable = false)
+    var streakDays: Int = 0
 
     @Column(name = "withdrawn_at")
     var withdrawnAt: OffsetDateTime? = null

@@ -153,6 +153,7 @@ class AuthService(
         val auth =
             if (currentUserId != null) {
                 activeUserId(currentUserId)
+                users.findById(currentUserId).orElseThrow().status = UserStatus.ACTIVE
                 auths.save(UserAuthEntity(userId = currentUserId, provider = identity.provider, providerUid = identity.providerUid))
             } else {
                 createUserWithAuth(identity.provider, identity.providerUid, email = identity.email, nickname = identity.displayName)
@@ -188,13 +189,18 @@ class AuthService(
         email: String? = null,
         nickname: String? = null,
     ): UserAuthEntity {
-        val user = users.save(UserEntity(nickname = nickname, email = email))
+        val user =
+            users.save(
+                UserEntity(nickname = nickname, email = email).apply {
+                    status = if (provider == AuthProvider.GUEST) UserStatus.GUEST else UserStatus.ACTIVE
+                },
+            )
         return auths.save(UserAuthEntity(userId = checkNotNull(user.id), provider = provider, providerUid = providerUid))
     }
 
     private fun activeUserId(userId: Long): Long {
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
-        if (user.status != UserStatus.ACTIVE) throw ApiException(ErrorCode.USER_WITHDRAWN)
+        if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
         return userId
     }
 
