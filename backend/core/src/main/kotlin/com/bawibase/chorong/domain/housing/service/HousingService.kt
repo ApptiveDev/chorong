@@ -152,13 +152,14 @@ class HousingService(
     fun ensureProfile(
         userId: Long,
         catalog: CatalogSnapshot,
+        logCreated: Boolean = true,
     ): HousingProfileEntity {
         profiles.findById(userId).orElse(null)?.let { return it }
         val profile = profiles.save(HousingProfileEntity(userId = userId))
         grantDefaults(userId, catalog)
         catalog.rooms.filter { it.isDefault }.forEach { createDefaultLayout(userId, checkNotNull(it.id), catalog) }
         profile.activeRoomId = catalog.rooms.firstOrNull { it.isDefault }?.id
-        log.info("housing.profile_created userId={}", userId)
+        if (logCreated) log.info("housing.profile_created userId={}", userId)
         return profile
     }
 

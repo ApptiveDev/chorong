@@ -54,6 +54,9 @@ paths:
       description: |
         F-01-01, F-02-05, F-07-01. 같은 `deviceUuid`가 이미 있으면 기존 게스트 계정을 돌려주고,
         없으면 users · user_auth · auth_guest · 하우징 · 아바타 · 지갑을 함께 생성합니다.
+        UUID는 정규 36자 형식이며 대소문자를 구분하지 않습니다. platform은 IOS 또는 ANDROID입니다.
+        isNew는 이 요청이 계정을 생성했을 때만 true입니다. 기존 자산은 초기화하지 않습니다.
+        기본 에셋 누락 시 신규 생성 전체를 되돌리고 CONFLICT를 반환합니다.
       security: []
       requestBody:
         required: true
@@ -73,6 +76,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400': { $ref: '#/components/responses/ValidationFailed' }
+
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: CONFLICT. 초기 에셋을 구성할 수 없거나 기존 UUID가 여러 계정과 겹침.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /auth/email/signup:
     post:
@@ -1623,12 +1633,12 @@ components:
         refreshToken: { type: string }
         expiresIn:
           type: integer
-          description: access 토큰 수명(초), 3600
+          description: access 토큰 수명(초). JWT_ACCESS_TTL 설정값.
     UserBrief:
       type: object
       properties:
         userId: { type: integer, format: int64 }
-        nickname: { type: string }
+        nickname: { type: [string, 'null'] }
         status: { $ref: '#/components/schemas/UserStatus' }
     AuthResponse:
       type: object

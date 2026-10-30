@@ -51,13 +51,15 @@ class AuthService(
     private val passwordEncoder: PasswordEncoder,
     private val tokenService: TokenService,
     private val clock: Clock,
+    private val guests: GuestAccountCoordinator,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     /** 비회원 가입. 기기 UUID 를 GUEST 인증 수단으로 등록한다. 이미 등록된 UUID 면 409. */
     fun guestSignUp(deviceUuid: String): TokenResponse {
-        val uuid = deviceUuid.trim()
-        if (auths.findByProviderAndProviderUid(AuthProvider.GUEST, uuid) != null) {
+        val uuid = guests.normalize(deviceUuid)
+        guests.lock(uuid)
+        if (guests.find(uuid) != null) {
             throw ApiException(ErrorCode.DEVICE_ALREADY_REGISTERED)
         }
         val auth =
@@ -72,9 +74,9 @@ class AuthService(
 
     /** 비회원 로그인. 등록되지 않은 기기 UUID 면 401. */
     fun guestLogin(deviceUuid: String): TokenResponse {
-        val uuid = deviceUuid.trim()
+        val uuid = guests.normalize(deviceUuid)
         val auth =
-            auths.findByProviderAndProviderUid(AuthProvider.GUEST, uuid)
+            guests.find(uuid)
                 ?: throw ApiException(ErrorCode.GUEST_NOT_FOUND)
         return tokenService.issue(activeUserId(auth.userId), uuid)
     }

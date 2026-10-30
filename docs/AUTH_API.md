@@ -7,6 +7,7 @@ provider 는 `KAKAO` `APPLE` `GOOGLE` `NAVER` `PASSWORD` `GUEST`. 현재 열린 
 |---|---|
 | `app_user` | 계정. `status` (GUEST/ACTIVE/WITHDRAWN), `nickname`, `email`, 설정·학습 집계 |
 | `user_auth` | 인증 수단. `(provider, provider_uid)` 유니크. GUEST 의 uid 는 기기 UUID, PASSWORD 는 소문자 이메일, 소셜은 provider 가 준 sub/id (예정) |
+| `auth_guest` | GUEST 인증의 기기 플랫폼. IOS/ANDROID. 기존 계정은 v1 로그인 때 생성 |
 | `user_password` | PASSWORD 전용. bcrypt 해시, 실패 횟수, 잠금 시각 |
 | `user_oauth` | 소셜 전용. 이메일, 표시 이름, 원본 프로필(JSONB) |
 | `user_refresh_token` | 리프레시 토큰의 SHA-256 해시. 기기별 폐기 가능 |
@@ -51,6 +52,7 @@ V9는 ACTIVE 중 GUEST 수단만 가진 계정을 GUEST로 이관한다. PASSWOR
 
 | 메서드 | 경로 | 인증 | 용도 |
 |---|---|---|---|
+| POST | `/api/v1/auth/guest` | 없음 | 기기 UUID로 가입 또는 자동 로그인. 200. 공통 data 응답 |
 | POST | `/api/auth/guest/signup` | 없음 | 기기 UUID 로 비회원 가입 후 로그인. 201. 중복 UUID 는 409 `DEVICE_ALREADY_REGISTERED` |
 | POST | `/api/auth/guest/login` | 없음 | 비회원 로그인. 미등록 UUID 는 401 `GUEST_NOT_FOUND` |
 | POST | `/api/auth/password/signup` | 없음 | 이메일·비밀번호 가입 후 로그인. 201. 중복 이메일은 409 `EMAIL_ALREADY_USED` |
@@ -59,7 +61,21 @@ V9는 ACTIVE 중 GUEST 수단만 가진 계정을 GUEST로 이관한다. PASSWOR
 | POST | `/api/auth/logout` | Bearer | `refreshToken` 을 주면 그 토큰만, 없으면 전부 폐기. 204 |
 | GET | `/api/auth/me` | Bearer | 내 계정과 연결된 provider 목록 |
 
-요청·응답 필드는 `/docs` 의 OpenAPI 스펙을 본다.
+### v1 게스트 가입·자동 로그인
+
+요청은 `deviceUuid`(8-4-4-4-12 자리 UUID)와 `platform`(`IOS` 또는 `ANDROID`)이다. 공백·잘못된 UUID·지원하지 않는 플랫폼은 400 VALIDATION_FAILED다.
+
+성공 응답의 `data`는 `accessToken`, `refreshToken`, `expiresIn`, `user`, `isNew`를 담는다. `user`는 `userId`, `nickname`, `status`다. 기존 null 닉네임은 유지한다. 새 계정이면 `isNew=true`, 기존 계정이면 false다. 토큰 유효시간은 JWT_ACCESS_TTL 설정을 따른다.
+
+같은 UUID는 대소문자를 구분하지 않는다. 구 가입 경로와 v1은 같은 기기 잠금을 쓴다. 동시 요청에도 계정은 하나만 생성한다. 과거 데이터에 대소문자만 다른 복수 계정이 있으면 임의로 합치지 않고 409 CONFLICT를 반환한다. 탈퇴 계정은 401 UNAUTHORIZED다.
+
+신규 가입은 계정·인증·플랫폼·기본 하우징·아바타·지갑·토큰을 한 트랜잭션에서 생성한다. 기본 방·배경·아바타·벽·바닥이 없으면 409 CONFLICT로 전체 취소한다. 기존 계정은 없는 하우징과 지갑만 초기화한다. 기존 자산·잔액·닉네임·회원 상태는 바꾸지 않는다. 이미 하우징이 있으면 현재 기본 에셋 누락으로 로그인을 막지 않는다.
+
+지갑은 현재 coin 구조의 기본값을 쓴다. STAR·STARDUST와 coin 이관 정책은 15단계에서 구현한다. V10은 플랫폼 테이블과 UUID 조회 인덱스만 추가한다. 기존 UUID·계정·퀴즈를 수정하지 않는다.
+
+### 구 API 응답
+
+구 API는 data 래퍼 없이 기존 응답을 유지한다. 요청·응답 필드는 `/docs`의 OpenAPI 스펙을 본다.
 
 ```json
 { "accessToken": "eyJ...", "refreshToken": "Q2h...", "expiresIn": 1800, "created": true }

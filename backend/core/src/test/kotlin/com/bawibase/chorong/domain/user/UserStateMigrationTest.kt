@@ -95,6 +95,37 @@ class UserStateMigrationTest {
         assertFailsWith<DataIntegrityViolationException> { jdbc.update("UPDATE $schema.app_user SET status='UNKNOWN' WHERE user_id=60") }
     }
 
+    @Test fun `v10 keeps historical platform unknown and enforces platform and auth cascade`() {
+        val schema = "guest_platform_upgrade"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("9")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(postgres.jdbcUrl, postgres.username, postgres.password))
+        jdbc.update("INSERT INTO $schema.app_user(user_id) VALUES (10)")
+        jdbc.update("INSERT INTO $schema.user_auth(auth_id,user_id,provider,provider_uid) VALUES (3,10,'GUEST','legacy-device')")
+        migrate("10")
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM $schema.auth_guest", Int::class.java))
+        assertEquals("legacy-device", jdbc.queryForObject("SELECT provider_uid FROM $schema.user_auth WHERE auth_id=3", String::class.java))
+        jdbc.update("INSERT INTO $schema.auth_guest(auth_id,platform) VALUES (3,'IOS')")
+        assertFailsWith<DataIntegrityViolationException> { jdbc.update("UPDATE $schema.auth_guest SET platform='WEB' WHERE auth_id=3") }
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc.update(
+                "INSERT INTO $schema.auth_guest(auth_id,platform) VALUES (999,'IOS')",
+            )
+        }
+        jdbc.update("DELETE FROM $schema.user_auth WHERE auth_id=3")
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM $schema.auth_guest", Int::class.java))
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM $schema.app_user WHERE user_id=10", Int::class.java))
+    }
+
     companion object {
         @Container
         @JvmField

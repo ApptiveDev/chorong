@@ -32,6 +32,8 @@ class SecurityConfig(
                 it
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/guest")
+                    .permitAll()
                     // TODO(auth): 소셜 로그인 개방 시 /api/auth/social/** 추가
                     .requestMatchers(
                         "/api/health",
