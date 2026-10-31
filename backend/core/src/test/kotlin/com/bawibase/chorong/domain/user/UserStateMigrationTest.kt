@@ -126,6 +126,35 @@ class UserStateMigrationTest {
         assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM $schema.app_user WHERE user_id=10", Int::class.java))
     }
 
+    @Test fun `v11 adds empty email sessions without changing existing account or wallet`() {
+        val schema = "email_signup_upgrade"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("10")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(postgres.jdbcUrl, postgres.username, postgres.password))
+        jdbc.update("INSERT INTO $schema.app_user(user_id,nickname) VALUES (10,'legacy')")
+        jdbc.update("INSERT INTO $schema.user_wallet(user_id,coin) VALUES (10,321)")
+        migrate("11")
+        assertEquals("legacy", jdbc.queryForObject("SELECT nickname FROM $schema.app_user WHERE user_id=10", String::class.java))
+        assertEquals(321L, jdbc.queryForObject("SELECT coin FROM $schema.user_wallet WHERE user_id=10", Long::class.java))
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM $schema.email_signup_verification", Int::class.java))
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc.update(
+                """INSERT INTO $schema.email_signup_verification
+                (verification_id,user_id,email,password_hash,code_hash,created_at,expires_at)
+                VALUES (gen_random_uuid(),999,'a@example.com','hash','hash',now(),now())""",
+            )
+        }
+    }
+
     companion object {
         @Container
         @JvmField

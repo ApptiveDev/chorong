@@ -6,6 +6,7 @@ import com.bawibase.chorong.domain.auth.config.JwtProperties
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.entity.UserRefreshTokenEntity
 import com.bawibase.chorong.domain.user.repository.UserRefreshTokenRepository
+import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.bawibase.chorong.domain.user.service.UserAccessService
 import org.slf4j.LoggerFactory
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm
@@ -29,6 +30,7 @@ class TokenService(
     private val refreshTokens: UserRefreshTokenRepository,
     private val clock: Clock,
     private val access: UserAccessService,
+    private val users: UserRepository,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val random = SecureRandom()
@@ -38,47 +40,39 @@ class TokenService(
         deviceUuid: String?,
         created: Boolean = false,
     ): TokenResponse {
+        users.findByIdForUpdate(userId) ?: throw ApiException(ErrorCode.UNAUTHORIZED)
         val role = access.role(userId)
         val now = clock.instant()
+        val raw = ByteArray(32).also(random::nextBytes).let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+        val refresh =
+            refreshTokens.saveAndFlush(
+                UserRefreshTokenEntity(
+                    userId = userId,
+                    tokenHash = hash(raw),
+                    deviceUuid = deviceUuid,
+                    expiresAt = OffsetDateTime.now(clock).plus(props.refreshTtl),
+                ),
+            )
         val claims =
             JwtClaimsSet
                 .builder()
                 .issuer(ISSUER)
                 .subject(userId.toString())
                 .claim("role", role.name)
+                .claim("sid", checkNotNull(refresh.id).toString())
                 .issuedAt(now)
                 .expiresAt(now.plus(props.accessTtl))
                 .build()
         val access = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).tokenValue
 
-        val raw = ByteArray(32).also(random::nextBytes).let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
-        refreshTokens.save(
-            UserRefreshTokenEntity(
-                userId = userId,
-                tokenHash = hash(raw),
-                deviceUuid = deviceUuid,
-                expiresAt = OffsetDateTime.now(clock).plus(props.refreshTtl),
-            ),
-        )
         return TokenResponse(access, raw, props.accessTtl.seconds, created)
-    }
-
-    /** 리프레시 토큰을 한 번 쓰고 폐기한 뒤 새 쌍을 발급한다. */
-    fun rotate(rawRefreshToken: String): TokenResponse {
-        val now = OffsetDateTime.now(clock)
-        val token = refreshTokens.findByTokenHash(hash(rawRefreshToken)) ?: throw ApiException(ErrorCode.REFRESH_TOKEN_INVALID)
-        if (!token.isUsable(now)) {
-            log.warn("auth.refresh_rejected userId={}", token.userId)
-            throw ApiException(ErrorCode.REFRESH_TOKEN_INVALID)
-        }
-        token.revokedAt = now
-        return issue(token.userId, token.deviceUuid)
     }
 
     fun revoke(
         userId: Long,
         rawRefreshToken: String?,
     ) {
+        users.findByIdForUpdate(userId) ?: return
         val now = OffsetDateTime.now(clock)
         if (rawRefreshToken == null) {
             val count = refreshTokens.revokeAllByUserId(userId, now)
@@ -89,8 +83,7 @@ class TokenService(
         if (token.userId == userId && token.revokedAt == null) token.revokedAt = now
     }
 
-    private fun hash(raw: String): String =
-        MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it) }
+    fun hash(raw: String): String = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it) }
 
     companion object {
         const val ISSUER = "chorong"

@@ -1,5 +1,7 @@
 package com.bawibase.chorong.domain.auth.controller
 
+import com.bawibase.chorong.common.ApiException
+import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.config.CurrentUserId
 import com.bawibase.chorong.domain.auth.dto.GuestRequest
 import com.bawibase.chorong.domain.auth.dto.LogoutRequest
@@ -9,7 +11,9 @@ import com.bawibase.chorong.domain.auth.dto.PasswordSignUpRequest
 import com.bawibase.chorong.domain.auth.dto.RefreshRequest
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.auth.service.AuthService
-import com.bawibase.chorong.domain.auth.service.TokenService
+import com.bawibase.chorong.domain.auth.service.PasswordLoginFailure
+import com.bawibase.chorong.domain.auth.service.PasswordLoginService
+import com.bawibase.chorong.domain.auth.service.TokenRotationService
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
@@ -28,14 +32,10 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/auth")
 class AuthController(
     private val authService: AuthService,
-    private val tokenService: TokenService,
+    private val rotations: TokenRotationService,
+    private val passwordLogins: PasswordLoginService,
 ) {
     // TODO(auth): POST /social/{provider} (AuthService.socialLogin) 개방. 개방 시 SecurityConfig 의 permitAll 경로에도 추가한다.
-    // TODO(auth): 인증 수단 연동. Bearer 로 로그인한 유저(a 수단)에 다른 수단(b)을 붙인다.
-    //  - POST /link/password {email, password}: PASSWORD 행 + user_password 추가. 비회원 → 이메일 회원 전환 경로.
-    //  - POST /link/social/{provider}: 검증기로 SocialIdentity 를 만들고 AuthService.socialLogin(identity, currentUserId = 유저) 호출.
-    //  - DELETE /link/{provider}: 수단 해제. 마지막 수단은 해제 불가.
-    //  같은 user_id 를 유지하므로 하우징 자산은 그대로 이어진다.
 
     @Operation(description = "기기 UUID 로 비회원 가입 후 바로 로그인한다. 이미 등록된 UUID 면 409.")
     @PostMapping("/guest/signup")
@@ -57,17 +57,26 @@ class AuthController(
         @Valid @RequestBody request: PasswordSignUpRequest,
     ): TokenResponse = authService.passwordSignUp(request.email, request.password, request.deviceUuid)
 
-    @Operation(description = "이메일·비밀번호 로그인. 5회 실패하면 10분 잠긴다.")
+    @Operation(description = "이메일·비밀번호 로그인. 5회 실패하면 15분 잠긴다.")
     @PostMapping("/password/login")
     fun passwordLogin(
         @Valid @RequestBody request: PasswordLoginRequest,
-    ): TokenResponse = authService.passwordLogin(request.email, request.password, request.deviceUuid)
+    ): TokenResponse {
+        val result = passwordLogins.login(request.email, request.password, request.deviceUuid, requireMember = false)
+        return result.token ?: throw ApiException(
+            when {
+                result.failure == PasswordLoginFailure.WITHDRAWN -> ErrorCode.USER_WITHDRAWN
+                result.failure == PasswordLoginFailure.LOCKED && !result.newlyLocked -> ErrorCode.ACCOUNT_LOCKED
+                else -> ErrorCode.LOGIN_FAILED
+            },
+        )
+    }
 
     @Operation(description = "리프레시 토큰으로 새 토큰 쌍을 받는다. 쓴 리프레시 토큰은 폐기된다.")
     @PostMapping("/refresh")
     fun refresh(
         @Valid @RequestBody request: RefreshRequest,
-    ): TokenResponse = tokenService.rotate(request.refreshToken)
+    ): TokenResponse = rotations.rotate(request.refreshToken, null).token ?: throw ApiException(ErrorCode.REFRESH_TOKEN_INVALID)
 
     @Operation(description = "리프레시 토큰을 폐기한다.")
     @SecurityRequirement(name = "bearer")

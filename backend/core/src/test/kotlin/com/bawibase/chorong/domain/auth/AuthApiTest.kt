@@ -237,7 +237,7 @@ class AuthApiTest {
     }
 
     @Test
-    fun `five password failures persist and lock until ten minutes have elapsed`() {
+    fun `five password failures persist and lock until fifteen minutes have elapsed`() {
         val email = "lock-${UUID.randomUUID()}@test.local"
         val started = clock.instant()
         post("/api/auth/password/signup", """{"email":"$email","password":"password123"}""", 201)
@@ -250,7 +250,7 @@ class AuthApiTest {
             assertEquals(if (index == 4) 0 else index + 1, saved.failedCount)
         }
         val lockedUntil = assertNotNull(credential(email).lockedUntil)
-        assertEquals(started.plus(Duration.ofMinutes(10)), lockedUntil.toInstant())
+        assertEquals(started.plus(Duration.ofMinutes(15)), lockedUntil.toInstant())
         assertEquals(tokenCount, refreshTokens.count())
 
         at(lockedUntil.toInstant().minusMillis(1))

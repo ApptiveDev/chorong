@@ -16,6 +16,10 @@ class UserWalletEntity(
     var userId: Long,
     @Column(nullable = false)
     var coin: Long = 0,
+    @Column(nullable = false)
+    var star: Long = 0,
+    @Column(nullable = false)
+    var stardust: Long = 0,
 ) {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

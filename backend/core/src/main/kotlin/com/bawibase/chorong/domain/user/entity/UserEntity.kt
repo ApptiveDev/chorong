@@ -46,6 +46,12 @@ class UserEntity(
     @Column(name = "withdrawn_at")
     var withdrawnAt: OffsetDateTime? = null
 
+    @Column(name = "withdrawal_reason", length = 255)
+    var withdrawalReason: String? = null
+
+    @Column(name = "deletion_after")
+    var deletionAfter: OffsetDateTime? = null
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: OffsetDateTime? = null

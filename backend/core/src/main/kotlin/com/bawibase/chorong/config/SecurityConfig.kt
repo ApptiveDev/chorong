@@ -34,6 +34,16 @@ class SecurityConfig(
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/v1/auth/guest")
                     .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/token/refresh")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/email/login")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/oauth/google")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/oauth/kakao")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/oauth/apple")
+                    .permitAll()
                     // TODO(auth): 소셜 로그인 개방 시 /api/auth/social/** 추가
                     .requestMatchers(
                         "/api/health",
@@ -46,6 +56,8 @@ class SecurityConfig(
                     .requestMatchers("/api/housing/catalog/**", "/api/notes/**")
                     .permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/v1/housings/me")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.PATCH, "/api/v1/housings/me")
                     .authenticated()
                     .requestMatchers(HttpMethod.DELETE, "/api/v1/users/me")
                     .access(memberOnly())

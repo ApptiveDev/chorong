@@ -38,6 +38,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.put
 import java.util.UUID
@@ -170,6 +171,68 @@ class HousingApiTest {
             jsonPath("$.layouts.room_basic.placements.length()") { value(0) }
         }
         mockMvc.get("/api/housing/me") { header(header, device) }.andExpect { status { isOk() } }
+    }
+
+    @Test
+    fun `v1 home returns saved housing and legacy layouts without invented coordinates`() {
+        val device = login("v1-h-${UUID.randomUUID()}@test.local")
+        mockMvc.get("/api/housing/me") { header(header, device) }.andExpect { status { isOk() } }
+        mockMvc.get("/api/v1/housings/me") { header(header, device) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.housing.name") { value("나의 우주") }
+            jsonPath("$.data.housing.isPublic") { value(false) }
+            jsonPath("$.data.housing.likeCount") { value(0) }
+            jsonPath("$.data.placements") { value(null) }
+            jsonPath("$.data.avatar") { value(null) }
+            jsonPath("$.data.activeRoomId") { value("room_basic") }
+            jsonPath("$.data.legacyLayouts.room_basic.avatarId") { value("av_cat") }
+        }
+    }
+
+    @Test
+    fun `v1 profile patch updates member settings and rejects guest visibility changes`() {
+        val memberToken = login("v1-p-${UUID.randomUUID()}@test.local")
+        mockMvc
+            .patch("/api/v1/housings/me") {
+                header(header, memberToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"name":"새로운 우주","isPublic":true}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.name") { value("새로운 우주") }
+                jsonPath("$.data.isPublic") { value(true) }
+            }
+        mockMvc
+            .patch("/api/v1/housings/me") {
+                header(header, memberToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"name":""}"""
+            }.andExpect { status { isBadRequest() } }
+
+        val guestBody =
+            mockMvc
+                .post("/api/v1/auth/guest") {
+                    contentType = MediaType.APPLICATION_JSON
+                    content = """{"deviceUuid":"${UUID.randomUUID()}","platform":"ANDROID"}"""
+                }.andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        val guestToken = "Bearer " + objectMapper.readTree(guestBody)["data"]["accessToken"].asText()
+        mockMvc
+            .patch("/api/v1/housings/me") {
+                header(header, guestToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"name":"게스트 방"}"""
+            }.andExpect { status { isOk() } }
+        mockMvc
+            .patch("/api/v1/housings/me") {
+                header(header, guestToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"isPublic":true}"""
+            }.andExpect {
+                status { isForbidden() }
+                jsonPath("$.error.code") { value("MEMBER_ONLY") }
+            }
     }
 
     @Test

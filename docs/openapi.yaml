@@ -89,7 +89,10 @@ paths:
       tags: [auth]
       operationId: API-102
       summary: 이메일 회원가입 – 인증코드 발송
-      description: F-01-02. 6자리 코드, 10분 유효, 재발송 60초 제한(ERR-08). 이미 가입된 이메일은 ERR-10.
+      description: |
+        인증된 게스트 또는 회원이 요청합니다. 게스트 인증 완료는 회원 전환이며, 회원 인증 완료는 같은 회원에 EMAIL 수단을 추가합니다. 이메일은 소문자로 정규화하며 6자리 코드의 유효기간은 10분입니다.
+        같은 이메일은 계정과 관계없이 60초 안에 재발송할 수 없습니다. 재발송은 이전 미사용 세션을 무효화합니다.
+        실제 메일 발송기는 아직 연결되지 않았습니다. 발송 실패 시 세션을 생성하지 않고 500을 반환합니다.
       requestBody:
         required: true
         content:
@@ -118,12 +121,23 @@ paths:
                       verificationId: { type: string }
                       expiresAt: { type: string, format: date-time }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: FORBIDDEN. 게스트 계정이 아닙니다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409':
           description: ERR-10 EMAIL_ALREADY_REGISTERED
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500':
+          description: INTERNAL. 메일 발송 실패 또는 발송기 미설정.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /auth/email/verify:
     post:
@@ -131,9 +145,10 @@ paths:
       operationId: API-103
       summary: 이메일 인증코드 확인 (가입 완료)
       description: |
-        F-01-02, F-02-03. 게스트 토큰으로 호출하면 현재 게스트 계정에 이메일 수단을 붙이고
-        status를 ACTIVE로 바꿉니다(가입하고 내 정보 저장하기). 해당 이메일이 이미 다른 회원 계정에
-        있으면 ERR-14. 코드 불일치·만료는 ERR-15.
+        게스트 토큰으로 호출하면 현재 게스트 계정에 EMAIL 수단을 붙이고 status를 ACTIVE로 바꿉니다.
+        회원 토큰으로 호출하면 현재 회원 계정에 EMAIL 수단을 추가합니다. 해당 이메일이 이미 다른 회원 계정에
+        있으면 ERR-14. 코드 불일치·만료·사용·무효화·소유자 불일치는 ERR-15입니다.
+        인증 세션에서 코드를 5회 잘못 입력하면 세션을 무효화합니다. 기기 식별을 위해 현재 액세스 토큰에 세션 정보가 필요합니다.
       requestBody:
         required: true
         content:
@@ -155,6 +170,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
           description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
           content:
@@ -166,7 +182,10 @@ paths:
       tags: [auth]
       operationId: API-104
       summary: 이메일 로그인
-      description: F-01-03. 연속 5회 실패 시 15분 잠금(ERR-12, `retryAfter`).
+      description: |
+        F-01-03. 연속 5회 실패하면 다섯 번째 요청부터 15분간 423 ACCOUNT_LOCKED와 retryAfter(초)를 반환합니다.
+        구 password 로그인과 실패 횟수·잠금을 공유합니다. 잠금이 만료되면 다음 시도부터 다시 검사합니다.
+        이메일 대소문자는 구분하지 않으며 성공하면 실패 횟수를 초기화합니다.
       security: []
       requestBody:
         required: true
@@ -185,6 +204,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '423':
           description: ERR-12 ACCOUNT_LOCKED
@@ -200,6 +220,8 @@ paths:
       description: |
         F-01-04, F-02-03. `(provider, providerUid)` 일치 계정이 있으면 로그인, 없으면 신규 가입.
         게스트 토큰으로 호출하면 전환 가입(이미 다른 회원 계정에 있는 수단이면 ERR-14).
+        google은 idToken, kakao는 accessToken, apple은 idToken과 authorizationCode를 받습니다. Google은 서명·issuer·audience·만료·sub를 검증합니다. 이메일로 계정을 합치지 않습니다.
+        GOOGLE_OAUTH_CLIENT_IDS, KAKAO_OAUTH_APP_ID, APPLE_OAUTH_CLIENT_ID·TEAM_ID·KEY_ID·PRIVATE_KEY 설정이 필요합니다. Apple은 ES256 서명과 authorization code 교환을 확인합니다.
       security:
         - {}
         - guest: []
@@ -229,9 +251,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: FORBIDDEN. 게스트가 아닌 계정의 전환 요청.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409':
-          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
+          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER 또는 초기 에셋 누락 CONFLICT.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '500':
+          description: INTERNAL. Google client ID 미설정 또는 공개키 조회 실패.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -241,7 +274,10 @@ paths:
       tags: [auth]
       operationId: API-106
       summary: 토큰 갱신 (refresh 회전)
-      description: F-01-05. 이미 revoke된 refresh 재사용은 ERR-04이며 해당 유저의 모든 토큰이 revoke됩니다.
+      description: |
+        F-01-05. refreshToken과 deviceUuid가 일치해야 합니다. 회전한 토큰은 다시 쓸 수 없습니다.
+        폐기된 토큰 재사용은 AUTH_TOKEN_REUSED이며 해당 유저의 모든 refresh 토큰을 폐기합니다.
+        만료된 미폐기 토큰은 AUTH_TOKEN_EXPIRED이며 다른 토큰을 폐기하지 않습니다.
       security: []
       requestBody:
         required: true
@@ -262,8 +298,9 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401':
-          description: ERR-01 / ERR-04 AUTH_TOKEN_REUSED
+          description: UNAUTHORIZED / AUTH_TOKEN_EXPIRED / AUTH_TOKEN_REUSED
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -273,7 +310,10 @@ paths:
       tags: [auth]
       operationId: API-107
       summary: 로그아웃
-      description: F-01-06. 현재 디바이스의 refresh 토큰 revoke, `all=true`면 전체 디바이스. Push 토큰도 삭제.
+      description: |
+        F-01-06. 현재 액세스 토큰의 세션에 연결된 기기의 refresh 토큰과 Push 등록을 폐기합니다.
+        all=true면 전체 기기의 refresh 토큰과 Push 등록을 폐기합니다. 세션 정보가 없는 기존 액세스 토큰은
+        all=false에 사용할 수 없으므로 재로그인 또는 토큰 갱신이 필요합니다.
       requestBody:
         content:
           application/json:
@@ -291,8 +331,8 @@ paths:
       operationId: API-108
       summary: 로그인 수단 연동
       description: |
-        F-01-07. 해당 수단이 다른 계정에 이미 연결되어 있으면 존재 여부만 알리고 중단(ERR-11, 상대 계정 정보 없음).
-        요청 본문은 provider별 자격 증명(API-102~105와 동일). `email` provider는 인증코드 확인까지 끝낸 `verificationId`를 보냅니다.
+        회원만 연동할 수 있습니다. 다른 계정에 연결된 수단이면 상대 계정 정보를 노출하지 않고 ERR-11로 거절합니다.
+        email은 API-103 성공 후 반환된 verificationId, google은 idToken, kakao는 accessToken, apple은 idToken과 authorizationCode를 받습니다.
       security:
         - member: []
       parameters:
@@ -310,7 +350,7 @@ paths:
                 verificationId: { type: string }
       responses:
         '200':
-          description: 연동된 수단 목록
+          description: 연동된 수단 목록. 이메일은 EMAIL로 표시합니다.
           content:
             application/json:
               schema:
@@ -339,7 +379,7 @@ paths:
         - $ref: '#/components/parameters/LinkProvider'
       responses:
         '200':
-          description: 남은 수단 목록
+          description: 남은 수단 목록. 이메일은 EMAIL로 표시합니다.
           content:
             application/json:
               schema:
@@ -404,8 +444,9 @@ paths:
       operationId: API-110
       summary: 회원 탈퇴
       description: |
-        F-01-09. 즉시 status=WITHDRAWN, 토큰·로그인 수단·Push 토큰 삭제, 하우징 비공개.
-        개인정보(email, nickname)와 나머지 데이터는 90일 후 배치 삭제.
+        F-01-09. 요청 즉시 status=WITHDRAWN으로 바꾸고 모든 refresh token을 폐기합니다. 로그인 수단·이메일 인증 세션·Push 등록을 삭제하고 하우징을 비공개로 전환합니다.
+        reason은 선택 항목이며 최대 255자까지 보관합니다. email·nickname과 나머지 데이터는 deletionAfter(탈퇴 시각+90일) 이후 배치 삭제 대상입니다.
+        기존 access token은 다음 요청부터 거절합니다.
       security:
         - member: []
       requestBody:
@@ -417,6 +458,8 @@ paths:
                 reason: { type: string, maxLength: 255 }
       responses:
         '204': { description: 탈퇴 완료 }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/MemberOnly' }
 
   # ---------------------------------------------------------------- API-3xx 알림
@@ -425,7 +468,9 @@ paths:
       tags: [push]
       operationId: API-301
       summary: Push 디바이스 토큰 등록/갱신
-      description: F-03-01. `(deviceUuid)` 기준 upsert.
+      description: |
+        F-03-01. 현재 access token의 sid에 연결된 refresh 세션과 deviceUuid가 일치해야 합니다.
+        `(deviceUuid)` 기준 upsert이며 다른 계정으로 로그인한 뒤 같은 기기에서 등록하면 소유자를 현재 계정으로 이전합니다.
       requestBody:
         required: true
         content:
@@ -436,17 +481,18 @@ paths:
               properties:
                 deviceUuid: { type: string, format: uuid }
                 platform: { $ref: '#/components/schemas/Platform' }
-                pushToken: { type: string }
+                pushToken: { type: string, minLength: 1, maxLength: 8192 }
       responses:
         '204': { description: 등록됨 }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /push/devices/{deviceUuid}:
     delete:
       tags: [push]
       operationId: API-302
       summary: Push 디바이스 토큰 삭제
-      description: F-03-02.
+      description: 소유한 기기의 Push 토큰을 삭제합니다. 다른 계정 소유이거나 이미 없는 기기면 변경 없이 204를 반환합니다.
       parameters:
         - name: deviceUuid
           in: path
@@ -454,6 +500,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '204': { description: 삭제됨 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- API-4xx 학습
   /courses:
@@ -870,7 +917,7 @@ paths:
               type: object
               properties:
                 name: { type: string, minLength: 1, maxLength: 20 }
-                isPublic: { type: boolean }
+                isPublic: { type: boolean, description: 회원만 변경할 수 있습니다. }
       responses:
         '200':
           description: 하우징
@@ -1654,9 +1701,10 @@ components:
                   description: 이 호출로 계정이 새로 만들어졌는지
     Wallet:
       type: object
+      required: [star, stardust]
       properties:
-        star: { type: integer, format: int64 }
-        stardust: { type: integer, format: int64 }
+        star: { type: integer, format: int64, minimum: 0 }
+        stardust: { type: integer, format: int64, minimum: 0 }
     Me:
       type: object
       properties:
@@ -2169,17 +2217,45 @@ components:
       type: object
       properties:
         housingId: { type: integer, format: int64 }
-        name: { type: string }
+        name: { type: string, minLength: 1, maxLength: 20 }
         isPublic: { type: boolean }
         likeCount: { type: integer }
+    HousingLayout:
+      type: object
+      properties:
+        backgroundId: { type: string }
+        surfaceSkins:
+          type: object
+          additionalProperties: { type: string }
+        avatarId: { type: string }
+        placements:
+          type: array
+          items:
+            type: object
+            properties:
+              slotId: { type: string }
+              furnitureId: { type: string }
+        updatedAt: { type: string, format: date-time, nullable: true }
     HousingDetail:
       type: object
       properties:
         housing: { $ref: '#/components/schemas/Housing' }
         placements:
+          nullable: true
+          description: 기존 저장 모델은 좌표형 배치를 지원하지 않아 null입니다. 기존 슬롯 배치는 legacyLayouts에 보존합니다.
           type: array
           items: { $ref: '#/components/schemas/Placement' }
-        avatar: { $ref: '#/components/schemas/Avatar' }
+        avatar:
+          nullable: true
+          description: 기존 저장 모델에는 아바타 배치 상세가 없어 null입니다. 방별 avatarId는 legacyLayouts에 보존합니다.
+          allOf:
+            - $ref: '#/components/schemas/Avatar'
+        activeRoomId: { type: string, nullable: true }
+        legacyLayouts:
+          type: object
+          description: 방별 배경, 표면 스킨, 아바타 ID, 슬롯·가구 배치를 기존 코드 형식으로 보존합니다.
+          additionalProperties:
+            $ref: '#/components/schemas/HousingLayout'
     HousingCard:
       type: object
       properties:

@@ -2,6 +2,9 @@ package com.bawibase.chorong.domain.housing.service
 
 import com.bawibase.chorong.common.ApiException
 import com.bawibase.chorong.common.ErrorCode
+import com.bawibase.chorong.common.api.ApiErrorCode
+import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.common.api.FieldViolation
 import com.bawibase.chorong.domain.housing.HousingItemType
 import com.bawibase.chorong.domain.housing.SurfaceKind
 import com.bawibase.chorong.domain.housing.dto.LayoutRequest
@@ -11,6 +14,7 @@ import com.bawibase.chorong.domain.housing.dto.OwnedFurnitureResponse
 import com.bawibase.chorong.domain.housing.dto.OwnedResponse
 import com.bawibase.chorong.domain.housing.dto.PlacementResponse
 import com.bawibase.chorong.domain.housing.dto.WalletResponse
+import com.bawibase.chorong.domain.housing.dto.toHousingResponse
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutPlacementEntity
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutSurfaceSkinEntity
 import com.bawibase.chorong.domain.housing.entity.HousingOwnedItemEntity
@@ -21,6 +25,8 @@ import com.bawibase.chorong.domain.housing.repository.HousingLayoutSurfaceSkinRe
 import com.bawibase.chorong.domain.housing.repository.HousingOwnedItemRepository
 import com.bawibase.chorong.domain.housing.repository.HousingProfileRepository
 import com.bawibase.chorong.domain.housing.repository.HousingRoomLayoutRepository
+import com.bawibase.chorong.domain.user.UserStatus
+import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.bawibase.chorong.domain.user.service.UserWalletService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -38,6 +44,7 @@ class HousingService(
     private val surfaceSkins: HousingLayoutSurfaceSkinRepository,
     private val placements: HousingLayoutPlacementRepository,
     private val walletService: UserWalletService,
+    private val users: UserRepository,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -51,6 +58,39 @@ class HousingService(
             activeRoomId = profile.activeRoomId?.let { catalog.roomById[it]?.code },
             layouts = layoutsResponse(userId, catalog),
         )
+    }
+
+    fun v1Me(userId: Long): com.bawibase.chorong.domain.housing.dto.HousingDetailResponse {
+        val legacy = me(userId)
+        val profile = checkNotNull(profiles.findById(userId).orElse(null))
+        return com.bawibase.chorong.domain.housing.dto.HousingDetailResponse(
+            housing = profile.toHousingResponse(),
+            placements = null,
+            avatar = null,
+            activeRoomId = legacy.activeRoomId,
+            legacyLayouts = legacy.layouts,
+        )
+    }
+
+    fun updateProfile(
+        userId: Long,
+        name: String?,
+        isPublic: Boolean?,
+    ): com.bawibase.chorong.domain.housing.dto.HousingResponse {
+        if (name == null && isPublic == null) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val profile = profiles.findById(userId).orElseGet { profiles.save(HousingProfileEntity(userId)) }
+        name?.let {
+            if (it.isBlank() || it.codePointCount(0, it.length) !in 1..20) {
+                throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED, fields = listOf(FieldViolation("name", "이름은 1~20자로 입력하세요.")))
+            }
+            profile.name = it
+        }
+        isPublic?.let {
+            val user = users.findById(userId).orElseThrow { ApiV1Exception(ApiErrorCode.UNAUTHORIZED) }
+            if (user.status != UserStatus.ACTIVE) throw ApiV1Exception(ApiErrorCode.MEMBER_ONLY)
+            profile.isPublic = it
+        }
+        return profile.toHousingResponse()
     }
 
     fun saveLayout(

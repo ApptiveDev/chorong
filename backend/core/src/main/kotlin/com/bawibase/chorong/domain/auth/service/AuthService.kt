@@ -39,8 +39,6 @@ data class SocialIdentity(
     }
 }
 
-private class PasswordLoginFailedException : ApiException(ErrorCode.LOGIN_FAILED)
-
 @Service
 @Transactional
 class AuthService(
@@ -52,6 +50,7 @@ class AuthService(
     private val tokenService: TokenService,
     private val clock: Clock,
     private val guests: GuestAccountCoordinator,
+    private val emails: EmailIdentityCoordinator,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -87,7 +86,8 @@ class AuthService(
         deviceUuid: String?,
     ): TokenResponse {
         val loginId = normalizeEmail(email)
-        if (auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, loginId) != null) {
+        emails.lock(loginId)
+        if (auths.findAllByProviderAndProviderUidIgnoreCase(AuthProvider.PASSWORD, loginId).isNotEmpty()) {
             throw ApiException(ErrorCode.EMAIL_ALREADY_USED)
         }
         val auth =
@@ -105,34 +105,6 @@ class AuthService(
         )
         log.info("user.created userId={} provider={}", auth.userId, AuthProvider.PASSWORD)
         return tokenService.issue(auth.userId, deviceUuid, created = true)
-    }
-
-    @Transactional(noRollbackFor = [PasswordLoginFailedException::class])
-    fun passwordLogin(
-        email: String,
-        rawPassword: String,
-        deviceUuid: String?,
-    ): TokenResponse {
-        val auth =
-            auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, normalizeEmail(email))
-                ?: throw ApiException(ErrorCode.LOGIN_FAILED)
-        val credential = passwords.findById(checkNotNull(auth.id)).orElseThrow { ApiException(ErrorCode.LOGIN_FAILED) }
-        val now = OffsetDateTime.now(clock)
-        credential.lockedUntil?.let { if (it.isAfter(now)) throw ApiException(ErrorCode.ACCOUNT_LOCKED) }
-
-        if (!passwordEncoder.matches(rawPassword, credential.passwordHash)) {
-            credential.failedCount += 1
-            if (credential.failedCount >= MAX_FAILED) {
-                credential.lockedUntil = now.plusMinutes(LOCK_MINUTES)
-                credential.failedCount = 0
-                log.warn("auth.locked userId={} until={}", auth.userId, credential.lockedUntil)
-            }
-            log.debug("auth.login_failed provider={}", AuthProvider.PASSWORD)
-            throw PasswordLoginFailedException()
-        }
-        credential.failedCount = 0
-        credential.lockedUntil = null
-        return tokenService.issue(activeUserId(auth.userId), deviceUuid)
     }
 
     /**
@@ -213,10 +185,5 @@ class AuthService(
         profileJson = identity.profile
     }
 
-    private fun normalizeEmail(email: String) = email.trim().lowercase()
-
-    companion object {
-        const val MAX_FAILED = 5
-        const val LOCK_MINUTES = 10L
-    }
+    private fun normalizeEmail(email: String) = emails.normalize(email)
 }

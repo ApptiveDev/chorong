@@ -16,6 +16,10 @@ class HousingProfileEntity(
     var userId: Long,
     @Column(name = "active_room_id")
     var activeRoomId: Long? = null,
+    @Column(name = "is_public", nullable = false)
+    var isPublic: Boolean = false,
+    @Column(nullable = false, length = 20)
+    var name: String = "나의 우주",
 ) {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
