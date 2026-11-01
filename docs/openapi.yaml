@@ -419,7 +419,7 @@ paths:
       tags: [users]
       operationId: API-202
       summary: 내 정보 수정 (닉네임, 학습 알림 on/off)
-      description: F-02-02, F-03-03, F-15-05.
+      description: F-02-02, F-03-03, F-15-05. GUEST와 ACTIVE 모두 수정할 수 있다. 생략하거나 null인 항목은 변경하지 않으며, 변경할 값이 하나 이상 필요하다. nickname은 null로 지울 수 없다.
       requestBody:
         required: true
         content:
@@ -427,8 +427,8 @@ paths:
             schema:
               type: object
               properties:
-                nickname: { type: string, minLength: 2, maxLength: 12 }
-                pushEnabled: { type: boolean }
+                nickname: { type: string, minLength: 2, maxLength: 12, nullable: true }
+                pushEnabled: { type: boolean, nullable: true }
       responses:
         '200':
           description: 갱신된 내 정보
@@ -439,6 +439,7 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
     delete:
       tags: [auth]
       operationId: API-110
@@ -578,7 +579,8 @@ paths:
         F-04-04, F-04-07, F-04-10, F-05-05.
         1) 해금 검사(미해금 ERR-20, `unlocksAt` 포함) → 2) 복습 세트가 만들어지면 `reviewRequired=true`로
         먼저 돌려주고 레슨 진입은 복습 완료 후 → 3) UNLOCKED이면 IN_PROGRESS로.
-        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 보상 없음).
+        오늘 복습 완료 세션이 있거나 후보가 5개 미만이면 복습 없이 진입합니다.
+        `replay=true`는 COMPLETED 레슨을 다시 풉니다. 다시 풀기 진행은 별도 저장하며 보상은 지급하지 않습니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -590,7 +592,7 @@ paths:
                 replay: { type: boolean, default: false }
       responses:
         '200':
-          description: 레슨 시작 결과
+          description: 레슨 시작 결과. 복습 필수 시 reviewRequired=true와 복습 세트를 반환하고 콘텐츠는 비웁니다.
           content:
             application/json:
               schema:
@@ -602,15 +604,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
-
   /contents/{contentId}/complete:
     post:
       tags: [learning]
       operationId: API-405
       summary: 컨텐츠 완료 보고 (이어하기 위치 갱신)
       description: |
-        F-04-05, F-04-09. 마지막 컨텐츠면 레슨 완료 처리와 보상 지급까지 수행하고
-        `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다. 복습 미완료 상태면 ERR-21.
+        F-04-05, F-04-09. 일반 학습은 마지막 컨텐츠에서 레슨 완료 처리와 보상 지급까지 같은 트랜잭션으로 수행하고
+        `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다. 다시 풀기는 별도 진척을 저장하고 마지막 콘텐츠까지 완료한 뒤 학습일을 갱신하며 보상은 주지 않습니다.
+        복습 미완료 상태면 ERR-21입니다.
       parameters:
         - name: contentId
           in: path
@@ -630,7 +632,9 @@ paths:
                       progress: { $ref: '#/components/schemas/LessonProgress' }
                       lessonCompleted: { type: boolean }
                       completion:
-                        $ref: '#/components/schemas/LessonCompleteResponse'
+                        allOf:
+                          - $ref: '#/components/schemas/LessonCompleteResponse'
+                        nullable: true
         '409':
           description: ERR-21 REVIEW_REQUIRED
           content:
@@ -645,10 +649,11 @@ paths:
       description: |
         F-04-06, F-05-02, F-06-03, F-03-04. 기존 8종 계약으로 채점하고 결과·해설과 답안을 기록합니다.
         정답 객체는 반환하지 않습니다. FLIP_CARD 미완료 상태의 해설은 빈 문자열입니다.
-        해금된 레슨의 퀴즈만 제출할 수 있습니다. 완료된 레슨은 `replay=true`로 다시 풀 수 있습니다.
-        레슨 학습(`replay=false`)은 완료 답안에 복습 풀(WRONG/CORRECT)·KST 학습일·연속일을 반영합니다.
-        CORRECT 항목은 다음 KST 자정부터 복습 후보가 됩니다. FLIP_CARD 미완료 제출은 학습일·복습 풀을 바꾸지 않습니다.
-        replay 제출은 이력만 저장하고 진행·복습 풀·보상·학습일을 바꾸지 않습니다.
+        해금된 레슨의 퀴즈만 제출할 수 있습니다. 오늘 복습을 요구받은 경우 복습을 완료해야 답안을 제출할 수 있습니다.
+        완료된 레슨은 `replay=true`로 다시 풀 수 있으며, replay 시작 후 현재 콘텐츠 순서에 맞는 퀴즈만 답할 수 있습니다.
+        일반 레슨 답안은 완료 시 복습 풀(WRONG/CORRECT)을 갱신합니다. CORRECT 항목은 다음 KST 자정부터 복습 후보가 됩니다.
+        학습일·연속일은 퀴즈 제출이 아닌 레슨·복습·replay 전체 완료 시 갱신합니다. FLIP_CARD 부분 제출은 완료로 보지 않습니다.
+        replay 답안은 이력만 저장하며 복습 풀과 레슨 보상을 바꾸지 않습니다.
       parameters:
         - name: quizId
           in: path
@@ -673,6 +678,11 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/AnswerResult' }
+        '409':
+          description: 복습 미완료 또는 현재 콘텐츠 순서와 맞지 않는 답안
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '403': { $ref: '#/components/responses/LessonLocked' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -689,7 +699,8 @@ paths:
       summary: 레슨 완료 (보상 지급)
       description: |
         F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03. 최초 완료 1회만 보상.
-        코스의 모든 레슨이 완료되면 코스 보상과 별자리 뱃지도 함께 지급.
+        API-405가 마지막 콘텐츠를 완료하면 이 처리를 자동 실행합니다. 이 API는 호환용 완료 요청이며 이미 완료된 레슨에 추가 보상을 주지 않습니다.
+        코스의 모든 레슨이 완료되면 별자리 배지를 지급합니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -815,7 +826,7 @@ paths:
       tags: [review]
       operationId: API-503
       summary: 복습 세션 완료 (보상)
-      description: F-05-04, F-11-02. 5문항이 모두 오늘 제출된 것인지 확인 후 보상(하루 3세션까지).
+      description: F-05-04, F-11-02. 5문항이 오늘 모두 제출됐는지 확인합니다. 완료 시 학습일·연속일을 갱신하고 하루 최대 3세션까지 보상합니다.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -853,7 +864,7 @@ paths:
       tags: [onboarding]
       operationId: API-601
       summary: 온보딩 퀴즈 조회
-      description: F-06-03. `category=ONBOARDING` 코스의 유일한 레슨과 퀴즈 컨텐츠.
+      description: F-06-03. 미완료 사용자에게 유일한 ONBOARDING 레슨과 정답·해설을 제외한 퀴즈 콘텐츠를 반환한다. 완료 또는 건너뛴 계정은 다시 조회할 수 없다.
       responses:
         '200':
           description: 온보딩 레슨
@@ -866,6 +877,11 @@ paths:
                     type: object
                     properties:
                       lesson: { $ref: '#/components/schemas/LessonDetail' }
+        '409':
+          description: 온보딩을 이미 완료했거나 건너뜀
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /onboarding/complete:
     post:
@@ -873,8 +889,8 @@ paths:
       operationId: API-602
       summary: 온보딩 완료 또는 건너뛰기
       description: |
-        F-06-04, F-06-05, F-11-06. `skipped=false`면 50 별가루 지급(1회), `skipped=true`면 보상 없이 완료 처리.
-        건너뛴 뒤 다시 진행할 수 없습니다.
+        F-06-04, F-06-05, F-11-06. `skipped=false`는 모든 퀴즈를 완료한 뒤 STARDUST 50개를 한 번 지급하고 KST 학습일·연속일을 갱신한다. `skipped=true`는 보상 없이 완료 처리하며 학습일을 갱신하지 않는다.
+        두 경우 모두 다시 진행할 수 없다. 사용자·operation·키·본문이 같은 재요청은 저장된 응답을 반환한다.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -901,7 +917,7 @@ paths:
                         properties:
                           onboardingCompleted: { type: boolean }
         '409':
-          description: 같은 멱등 키에 다른 요청 본문
+          description: 일반 완료 요건 미충족 또는 같은 멱등 키에 다른 요청 본문
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1029,7 +1045,7 @@ paths:
       operationId: API-801
       summary: 공개 하우징 탐색 (우주 탐험)
       description: |
-        F-09-01. 호출자 하우징이 비공개면 ERR-40. 본인·차단 관계·정지 중·탈퇴 유저는 제외.
+        F-09-01. 호출자 하우징이 비공개면 ERR-40. 본인, 양방향 차단 관계, ACTIVE가 아닌 사용자는 목록에서 제외한다. `recent`는 공개 하우징 프로필 수정 시각과 사용자 ID 내림차순이다. 현재 좋아요 저장소가 없어 `popular`는 `recent`와 같은 순서를 사용한다.
       security:
         - member: []
       parameters:
@@ -1067,7 +1083,7 @@ paths:
       tags: [community]
       operationId: API-802
       summary: 다른 유저 하우징 구경
-      description: F-09-03, F-08-02. 비공개·차단·정지·탈퇴 대상은 ERR-42(사유 비노출).
+      description: F-09-03, F-08-02. 본인·비공개·양방향 차단·ACTIVE가 아닌 대상은 ERR-42(사유 비노출).
       security:
         - member: []
       parameters:
@@ -1085,7 +1101,7 @@ paths:
                       - $ref: '#/components/schemas/HousingDetail'
                       - type: object
                         properties:
-                          ownerNickname: { type: string }
+                          ownerNickname: { type: string, nullable: true }
                           likedByMe: { type: boolean }
         '403':
           description: ERR-40 / ERR-41
@@ -1103,7 +1119,7 @@ paths:
       tags: [community]
       operationId: API-803
       summary: 좋아요
-      description: F-09-04. 멱등. 본인 하우징 ERR-43.
+      description: F-09-04. 공개·ACTIVE 하우징에 멱등 처리한다. 본인 하우징은 ERR-43, 비공개·차단 대상은 ERR-42다.
       security:
         - member: []
       parameters:
@@ -1131,7 +1147,7 @@ paths:
       tags: [community]
       operationId: API-804
       summary: 좋아요 취소
-      description: F-09-04. 멱등.
+      description: F-09-04. 공개·ACTIVE 하우징에 멱등 처리한다. 본인 하우징은 ERR-43, 비공개·차단 대상은 ERR-42다.
       security:
         - member: []
       parameters:
@@ -1145,6 +1161,16 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/LikeState' }
+        '400':
+          description: ERR-43 SELF_TARGET
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: ERR-42 HOUSING_NOT_VISIBLE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /reports:
     post:
@@ -1152,8 +1178,10 @@ paths:
       operationId: API-805
       summary: 신고
       description: |
-        F-09-06. 24시간 내 서로 다른 3명 이상이 같은 하우징(유저)을 신고하면 해당 유저는 30일간
-        모든 유저에게서 숨겨집니다. 대상에게는 알리지 않습니다.
+        F-09-06. ACTIVE 회원만 ACTIVE 하우징을 신고할 수 있습니다. reason은 INAPPROPRIATE_NAME, ABUSE,
+        SPAM, OTHER 중 하나이며 detail은 선택 사항으로 최대 255자입니다. 같은 신고자의
+        반복 신고는 임계 인원을 늘리지 않습니다. 최근 24시간 내 서로 다른 신고자 3명에 도달하면
+        30일간 모든 사용자에게 숨기며, 숨김 중 추가 신고는 종료 시각을 연장하지 않습니다. 대상에게 알리지 않습니다.
       security:
         - member: []
       requestBody:
@@ -1184,13 +1212,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: 대상 사용자 없음 또는 활성 상태 아님
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /blocks:
     get:
       tags: [community]
       operationId: API-808
       summary: 차단한 사용자 목록
-      description: F-09-07, F-15-05.
+      description: F-09-07, F-15-05. ACTIVE 회원의 차단만 반환한다. 최근 차단 순으로 페이지 조회하며 차단 대상이 탈퇴하면 목록에서 제외한다.
       security:
         - member: []
       parameters:
@@ -1213,7 +1246,7 @@ paths:
                           type: object
                           properties:
                             userId: { type: integer, format: int64 }
-                            nickname: { type: string }
+                            nickname: { type: string, nullable: true }
                             blockedAt: { type: string, format: date-time }
                   meta: { $ref: '#/components/schemas/PageMeta' }
 
@@ -1222,7 +1255,7 @@ paths:
       tags: [community]
       operationId: API-806
       summary: 사용자 차단
-      description: F-09-07. 양방향으로 탐색·조회에서 제외. 본인 ERR-43.
+      description: F-09-07. ACTIVE 회원을 차단한다. 차단 방향과 무관하게 탐색·상세 조회에서 서로 제외한다. 이미 차단한 대상의 재요청은 성공 처리한다. 본인 ERR-43.
       security:
         - member: []
       parameters:
@@ -1238,7 +1271,7 @@ paths:
       tags: [community]
       operationId: API-807
       summary: 차단 풀기
-      description: F-09-07.
+      description: F-09-07. 이미 해제된 관계를 다시 해제해도 성공 처리한다.
       security:
         - member: []
       parameters:
@@ -1386,7 +1419,7 @@ paths:
       tags: [shop]
       operationId: API-905
       summary: 보상 지급 내역
-      description: F-11-05.
+      description: F-11-05. 지급 시각 내림차순으로 조회한다. cursor는 응답에서 받은 불투명 커서이며 size 기본값은 20, 최대 100이다.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Size'
@@ -1411,7 +1444,7 @@ paths:
       tags: [shop]
       operationId: API-906
       summary: 별자리 목록과 획득 현황
-      description: F-13-04.
+      description: F-13-04. 코스에 연결된 별자리와 사용자별 레슨 STAR 획득 수 및 코스 배지 획득 여부를 반환한다.
       responses:
         '200':
           description: 별자리
@@ -1432,7 +1465,7 @@ paths:
       tags: [shop]
       operationId: API-907
       summary: 인벤토리 조회
-      description: F-14-01.
+      description: F-14-01. 기존 하우징 보유 자산을 조회한다. FURNITURE는 가구만, OBJECT는 가구 이외 자산을 반환한다.
       parameters:
         - name: itemType
           in: query
@@ -1732,7 +1765,7 @@ components:
       type: object
       properties:
         userId: { type: integer, format: int64 }
-        nickname: { type: string }
+        nickname: { type: string, nullable: true }
         status: { $ref: '#/components/schemas/UserStatus' }
         providers:
           type: array
@@ -2283,7 +2316,7 @@ components:
       type: object
       properties:
         housingId: { type: integer, format: int64 }
-        ownerNickname: { type: string }
+        ownerNickname: { type: string, nullable: true }
         name: { type: string }
         likeCount: { type: integer }
         likedByMe: { type: boolean }
@@ -2337,11 +2370,14 @@ components:
       type: object
       properties:
         inventoryId: { type: string }
-        itemId: { type: integer }
-        optionId: { type: integer, format: int64 }
+        itemId: { type: integer, format: int64 }
+        optionId: { type: integer, format: int64, nullable: true }
         itemType: { $ref: '#/components/schemas/ItemType' }
         name: { type: string }
-        option: { $ref: '#/components/schemas/ItemOption' }
+        option:
+          allOf:
+            - $ref: '#/components/schemas/ItemOption'
+          nullable: true
         acquiredVia: { $ref: '#/components/schemas/AcquiredVia' }
         acquiredAt: { type: string, format: date-time }
         placed: { type: boolean }

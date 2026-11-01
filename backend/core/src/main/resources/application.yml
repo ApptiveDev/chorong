@@ -87,6 +87,10 @@ server:
   forward-headers-strategy: framework
 
 app:
+  account-retention:
+    enabled: ${ACCOUNT_RETENTION_ENABLED:false}
+    interval-ms: ${ACCOUNT_RETENTION_INTERVAL_MS:86400000}
+    batch-size: ${ACCOUNT_RETENTION_BATCH_SIZE:100}
   oauth:
     google:
       client-ids: ${GOOGLE_OAUTH_CLIENT_IDS:}

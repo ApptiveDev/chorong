@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository
 interface HousingRoomLayoutRepository : JpaRepository<HousingRoomLayoutEntity, Long> {
     fun findAllByUserId(userId: Long): List<HousingRoomLayoutEntity>
 
+    fun findAllByUserIdIn(userIds: Collection<Long>): List<HousingRoomLayoutEntity>
+
     fun findByUserIdAndRoomId(
         userId: Long,
         roomId: Long,

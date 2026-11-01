@@ -19,6 +19,8 @@ class LessonCompletionService(
     private val jdbc: JdbcTemplate,
     private val wallets: UserWalletService,
     private val idempotency: IdempotencyService,
+    private val reviewGate: ReviewGateService,
+    private val studyStreak: StudyStreakService,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -38,6 +40,12 @@ class LessonCompletionService(
         ) {
             IdempotentResponse(200, completeOnce(userId, lessonId))
         }
+
+    @Transactional
+    fun completeFromProgress(
+        userId: Long,
+        lessonId: Long,
+    ): LessonCompleteResponse = completeOnce(userId, lessonId)
 
     private fun completeOnce(
         userId: Long,
@@ -64,6 +72,7 @@ class LessonCompletionService(
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
         if (progress.status == "COMPLETED") return response(emptyList(), courseCompleted(userId, lesson.courseId), userId)
         if (progress.status != "IN_PROGRESS") throw ApiV1Exception(ApiErrorCode.CONFLICT)
+        reviewGate.enforce(userId, lessonId)
         val lastContentId =
             jdbc
                 .query(
@@ -78,6 +87,7 @@ class LessonCompletionService(
             userId,
             lessonId,
         )
+        studyStreak.recordCompletedStudy(userId)
         return grantRewards(userId, lessonId, lesson.courseId)
     }
 

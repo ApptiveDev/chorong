@@ -18,9 +18,19 @@ data class HousingDetailResponse(
     val legacyLayouts: Map<String, LayoutResponse>,
 )
 
+data class PublicHousingDetailResponse(
+    val housing: HousingResponse,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val placements: List<Any>? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val avatar: Any? = null,
+    val activeRoomId: String?,
+    val legacyLayouts: Map<String, LayoutResponse>,
+    val ownerNickname: String?,
+    val likedByMe: Boolean,
+)
+
 data class HousingProfilePatchRequest(
     val name: String? = null,
     val isPublic: Boolean? = null,
 )
 
-fun HousingProfileEntity.toHousingResponse() = HousingResponse(userId, name, isPublic, 0)
+fun HousingProfileEntity.toHousingResponse(likeCount: Int = 0) = HousingResponse(userId, name, isPublic, likeCount)

@@ -28,6 +28,9 @@ data class AnswerResult(
 class LearningQuizService(
     private val jdbc: JdbcTemplate,
     private val quizzes: QuizService,
+    private val reviewGate: ReviewGateService,
+    private val lessonReplay: LessonReplayService,
+    private val studyStreak: StudyStreakService,
     private val clock: Clock,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
@@ -43,12 +46,27 @@ class LearningQuizService(
         val lesson =
             jdbc
                 .query(
-                    """SELECT l.lesson_id, l.course_id FROM lesson_content lc
+                    """SELECT l.lesson_id, l.course_id, c.is_onboarding FROM lesson_content lc
                    JOIN lesson l ON l.lesson_id = lc.lesson_id
+                   JOIN course c ON c.course_id = l.course_id
                    WHERE lc.quiz_id = ?""",
-                    { rs, _ -> LinkedLesson(rs.getLong("lesson_id"), rs.getLong("course_id")) },
+                    { rs, _ -> LinkedLesson(rs.getLong("lesson_id"), rs.getLong("course_id"), rs.getBoolean("is_onboarding")) },
                     quizId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
+
+        if (lesson.onboarding) {
+            if (replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
+            val onboardingAvailable =
+                jdbc
+                    .query(
+                        "SELECT onboarding_completed FROM app_user WHERE user_id=? AND status <> 'WITHDRAWN' FOR UPDATE",
+                        { rs, _ -> !rs.getBoolean("onboarding_completed") },
+                        userId,
+                    ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
+            if (!onboardingAvailable) throw ApiV1Exception(ApiErrorCode.CONFLICT)
+            val result = quizzes.submit(userId, quizId, response, false)
+            return result.toAnswerResult(studyStreak.current(userId))
+        }
 
         val progress =
             jdbc
@@ -62,9 +80,11 @@ class LearningQuizService(
         if (replay && progress != "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (!replay && progress == "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (progress !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw lessonLocked(userId, lesson.courseId)
+        reviewGate.enforce(userId, lesson.lessonId)
+        if (replay) lessonReplay.assertQuizIsCurrent(userId, quizId)
 
         val result = quizzes.submit(userId, quizId, response, replay)
-        if (replay) return result.toAnswerResult(currentStreak(userId))
+        if (replay) return result.toAnswerResult(studyStreak.current(userId))
 
         jdbc.update(
             "UPDATE lesson_progress SET status = 'IN_PROGRESS', modified_at = now() WHERE user_id = ? AND lesson_id = ? AND status = 'UNLOCKED'",
@@ -75,9 +95,8 @@ class LearningQuizService(
             val now = Timestamp.from(clock.instant())
             val studyDate = LocalDate.ofInstant(now.toInstant(), kst)
             updateReviewPool(userId, quizId, result, studyDate, now)
-            updateStudyStreak(userId, studyDate)
         }
-        return result.toAnswerResult(currentStreak(userId))
+        return result.toAnswerResult(studyStreak.current(userId))
     }
 
     private fun updateReviewPool(
@@ -103,34 +122,6 @@ class LearningQuizService(
         )
     }
 
-    private fun updateStudyStreak(
-        userId: Long,
-        studyDate: LocalDate,
-    ) {
-        val userState =
-            jdbc
-                .query(
-                    "SELECT last_study_date, streak_days FROM app_user WHERE user_id = ? FOR UPDATE",
-                    { rs, _ -> StudyState(rs.getDate("last_study_date")?.toLocalDate(), rs.getInt("streak_days")) },
-                    userId,
-                ).let { values ->
-                    if (values.isEmpty()) throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
-                    values.firstOrNull()
-                } ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
-        if (userState.lastStudyDate == studyDate) return
-        val streak = if (userState.lastStudyDate == studyDate.minusDays(1)) userState.streakDays + 1 else 1
-        jdbc.update(
-            "UPDATE app_user SET last_study_date = ?, streak_days = ?, modified_at = now() WHERE user_id = ?",
-            studyDate,
-            streak,
-            userId,
-        )
-    }
-
-    private fun currentStreak(userId: Long): Int =
-        jdbc.query("SELECT streak_days FROM app_user WHERE user_id = ?", { rs, _ -> rs.getInt(1) }, userId).firstOrNull()
-            ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
-
     private fun lessonLocked(
         userId: Long,
         courseId: Long,
@@ -154,10 +145,6 @@ class LearningQuizService(
     private data class LinkedLesson(
         val lessonId: Long,
         val courseId: Long,
-    )
-
-    private data class StudyState(
-        val lastStudyDate: LocalDate?,
-        val streakDays: Int,
+        val onboarding: Boolean,
     )
 }

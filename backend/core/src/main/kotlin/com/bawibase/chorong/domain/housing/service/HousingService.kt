@@ -13,6 +13,7 @@ import com.bawibase.chorong.domain.housing.dto.MeResponse
 import com.bawibase.chorong.domain.housing.dto.OwnedFurnitureResponse
 import com.bawibase.chorong.domain.housing.dto.OwnedResponse
 import com.bawibase.chorong.domain.housing.dto.PlacementResponse
+import com.bawibase.chorong.domain.housing.dto.PublicHousingDetailResponse
 import com.bawibase.chorong.domain.housing.dto.WalletResponse
 import com.bawibase.chorong.domain.housing.dto.toHousingResponse
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutPlacementEntity
@@ -70,6 +71,46 @@ class HousingService(
             activeRoomId = legacy.activeRoomId,
             legacyLayouts = legacy.layouts,
         )
+    }
+
+    fun publicDetail(
+        userId: Long,
+        ownerNickname: String?,
+        likedByMe: Boolean,
+        likeCount: Int,
+    ): PublicHousingDetailResponse {
+        val catalog = catalogService.snapshot()
+        val profile = profiles.findById(userId).orElseThrow { ApiV1Exception(ApiErrorCode.HOUSING_NOT_VISIBLE) }
+        return PublicHousingDetailResponse(
+            housing = profile.toHousingResponse(likeCount),
+            activeRoomId = profile.activeRoomId?.let { catalog.roomById[it]?.code },
+            legacyLayouts = layoutsResponse(userId, catalog),
+            ownerNickname = ownerNickname,
+            likedByMe = likedByMe,
+        )
+    }
+
+    fun publicPreviews(
+        userIds: Collection<Long>,
+        catalog: CatalogSnapshot,
+    ): Map<Long, List<PlacementResponse>> {
+        if (userIds.isEmpty()) return emptyMap()
+        val userSet = userIds.toSet()
+        val profilesByUser = profiles.findAllById(userSet).associateBy { it.userId }
+        val activeLayouts =
+            layouts
+                .findAllByUserIdIn(userSet)
+                .filter { layout -> profilesByUser[layout.userId]?.activeRoomId == layout.roomId }
+        val activeLayoutByUser = activeLayouts.associateBy { it.userId }
+        val placementsByLayout = placements.findAllByLayoutIdIn(activeLayouts.mapNotNull { it.id }).groupBy { it.layoutId }
+        return userIds.associateWith { ownerId ->
+            val layout = activeLayoutByUser[ownerId]
+            placementsByLayout[layout?.id].orEmpty().sortedBy { it.id }.mapNotNull { placement ->
+                val slotCode = catalog.slotById[placement.slotId]?.code ?: return@mapNotNull null
+                val furnitureCode = catalog.furnitureById[placement.furnitureId]?.code ?: return@mapNotNull null
+                PlacementResponse(slotCode, furnitureCode)
+            }
+        }
     }
 
     fun updateProfile(

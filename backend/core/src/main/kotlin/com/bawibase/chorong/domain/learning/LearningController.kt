@@ -73,7 +73,7 @@ data class LessonProgressState(
 
 data class LessonStartResponse(
     val reviewRequired: Boolean,
-    val review: Any? = null,
+    val review: ReviewSetResponse? = null,
     val progress: LessonProgressState,
     val contents: List<LearningContent>,
 )
@@ -116,7 +116,25 @@ class LearningController(
     private val reviewSets: ReviewSetService,
     private val reviewAnswers: ReviewAnswerService,
     private val reviewCompletion: ReviewCompletionService,
+    private val onboarding: OnboardingService,
 ) {
+    @GetMapping("/onboarding")
+    @Operation(operationId = "API-601", summary = "온보딩 레슨 조회")
+    fun getOnboarding(
+        @CurrentUserId userId: Long,
+    ): ApiResponse<Map<String, LessonDetail>> = ApiResponse(mapOf("lesson" to onboarding.getLesson(userId)))
+
+    @PostMapping("/onboarding/complete")
+    @Operation(operationId = "API-602", summary = "온보딩 완료 또는 건너뛰기")
+    fun completeOnboarding(
+        @CurrentUserId userId: Long,
+        @RequestHeader("Idempotency-Key") idempotencyKey: String,
+        @RequestBody request: OnboardingCompleteRequest,
+    ): ResponseEntity<ApiResponse<OnboardingCompleteResponse>> {
+        val result = onboarding.complete(userId, request, idempotencyKey)
+        return ResponseEntity.status(result.status).body(ApiResponse(result.body))
+    }
+
     @GetMapping("/courses")
     @Operation(operationId = "API-401", summary = "코스 목록", description = "ONBOARDING 코스는 제외한다.")
     fun courses(

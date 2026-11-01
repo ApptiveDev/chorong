@@ -31,6 +31,7 @@ class ReviewCompletionService(
     private val jdbc: JdbcTemplate,
     private val wallets: UserWalletService,
     private val idempotency: IdempotencyService,
+    private val studyStreak: StudyStreakService,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -130,6 +131,7 @@ class ReviewCompletionService(
             Timestamp.from(clock.instant()),
             session.sessionId,
         )
+        studyStreak.recordCompletedStudy(userId)
         if (rewards.isNotEmpty()) {
             log.info(
                 "learning.review.reward_granted userId={} reviewSessionId={} currency=STAR amount={}",

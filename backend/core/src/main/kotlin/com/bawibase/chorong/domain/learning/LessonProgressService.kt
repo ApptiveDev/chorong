@@ -13,6 +13,9 @@ import java.time.ZoneId
 class LessonProgressService(
     private val jdbc: JdbcTemplate,
     private val learning: LearningService,
+    private val reviewGate: ReviewGateService,
+    private val lessonCompletion: LessonCompletionService,
+    private val lessonReplay: LessonReplayService,
     private val clock: Clock,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
@@ -31,6 +34,16 @@ class LessonProgressService(
         if (row.status == "COMPLETED" && !replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (row.status != "COMPLETED" && replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (row.status !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw locked(userId, courseId)
+        val requiredReview = reviewGate.requiredSet(userId, lessonId)
+        if (requiredReview != null) {
+            return LessonStartResponse(
+                true,
+                requiredReview,
+                LessonProgressState(row.status, row.lastContentId, nextContentId(lessonId, row.lastContentId)),
+                emptyList(),
+            )
+        }
+        reviewGate.markPassed(userId, lessonId)
         if (row.status == "UNLOCKED") {
             jdbc.update(
                 "UPDATE lesson_progress SET status='IN_PROGRESS', modified_at=now() WHERE user_id=? AND lesson_id=?",
@@ -39,9 +52,11 @@ class LessonProgressService(
             )
         }
         val detail = learning.getLesson(lessonId)
-        val resumeId = if (replay) detail.contents.firstOrNull()?.contentId else nextContentId(lessonId, row.lastContentId)
+        val replayLastContentId = if (replay) lessonReplay.start(userId, lessonId) else null
+        val lastContentId = if (replay) replayLastContentId else row.lastContentId
+        val resumeId = nextContentId(lessonId, lastContentId)
         val status = if (row.status == "UNLOCKED") "IN_PROGRESS" else row.status
-        return LessonStartResponse(false, null, LessonProgressState(status, row.lastContentId, resumeId), detail.contents)
+        return LessonStartResponse(false, null, LessonProgressState(status, lastContentId, resumeId), detail.contents)
     }
 
     @Transactional
@@ -70,8 +85,27 @@ class LessonProgressService(
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
         val courseId = lessonCourse(content.lessonId)
         val row = progress(userId, content.lessonId, true) ?: throw locked(userId, courseId)
-        if (row.status == "COMPLETED" || row.lastContentId == contentId) return result(content.lessonId, row)
+        if (row.status == "COMPLETED") {
+            if (!lessonReplay.isActive(userId, content.lessonId)) {
+                if (row.lastContentId != contentId) throw ApiV1Exception(ApiErrorCode.CONFLICT)
+                return ContentCompletionResult(
+                    LessonProgressState("COMPLETED", row.lastContentId, null),
+                    lessonCompleted = true,
+                    completion = lessonCompletion.completeFromProgress(userId, content.lessonId),
+                )
+            }
+            reviewGate.enforce(userId, content.lessonId)
+            return lessonReplay.completeContent(
+                userId,
+                content.lessonId,
+                contentId,
+                content.quizId,
+                nextContentId(content.lessonId, contentId),
+            )
+        }
+        if (row.lastContentId == contentId) return result(content.lessonId, row)
         if (row.status !in setOf("UNLOCKED", "IN_PROGRESS")) throw locked(userId, courseId)
+        reviewGate.enforce(userId, content.lessonId)
         if (nextContentId(content.lessonId, row.lastContentId) != contentId) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (content.type == "QUIZ" && !hasCompletedAttempt(userId, content.quizId)) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         jdbc.update(
@@ -80,7 +114,16 @@ class LessonProgressService(
             userId,
             content.lessonId,
         )
-        return result(content.lessonId, ProgressRow("IN_PROGRESS", contentId))
+        val next = nextContentId(content.lessonId, contentId)
+        if (next == null) {
+            val completion = lessonCompletion.completeFromProgress(userId, content.lessonId)
+            return ContentCompletionResult(
+                LessonProgressState("COMPLETED", contentId, null),
+                lessonCompleted = true,
+                completion = completion,
+            )
+        }
+        return ContentCompletionResult(LessonProgressState("IN_PROGRESS", contentId, next))
     }
 
     @Transactional(readOnly = true)
