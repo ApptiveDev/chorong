@@ -52,6 +52,7 @@ class QuizService(
         userId: Long,
         quizId: Long,
         response: JsonNode,
+        replay: Boolean = false,
     ): QuizAttemptResponse {
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
@@ -67,6 +68,7 @@ class QuizService(
                     graded = result.graded,
                     correct = result.correct,
                     completed = result.completed,
+                    replay = replay,
                 ),
             )
         return QuizAttemptResponse(
