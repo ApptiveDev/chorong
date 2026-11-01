@@ -22,7 +22,10 @@ import {
 
 type LoadStatus = 'loading' | 'success' | 'error';
 
-export default function Home() {
+export { default } from '../../src/integration/user/HomeScreen';
+
+// 기존 하우징 구현은 명세 개정 뒤 비교할 수 있도록 보존한다. 테스트 홈에서는 마운트하지 않는다.
+export function LegacyHousingHome() {
   const { isEditing, setIsEditing } = useHouseEditing();
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [catalogStatus, setCatalogStatus] = useState<LoadStatus>('loading');

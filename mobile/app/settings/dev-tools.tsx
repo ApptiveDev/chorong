@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { AuthTools } from '../../src/components/AuthTools';
+import { Nav } from '../../src/integration/ui';
 import { QuizTools } from '../../src/components/quiz/QuizTools';
 import { healthApi, notesApi, type Note } from '../../src/lib/api';
 
@@ -81,6 +82,10 @@ export default function DevTools() {
 
           <AuthTools />
           <QuizTools />
+          <Text style={styles.heading}>API 통합 진단</Text>
+          <Nav href="/preview" label="로그인 없이 UI 미리보기" />
+          <Nav href="/integration" label="기능 테스트 열기" />
+          <Nav href="/integration/diagnostics" label="요청 기록 열기" />
 
           <Text style={styles.heading}>메모</Text>
           <View style={styles.form}>

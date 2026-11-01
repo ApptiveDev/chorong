@@ -1,4 +1,4 @@
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Line, Polygon } from 'react-native-svg';
 import type { CatalogResponse, Layout } from '../../lib/housingApi';
 import { PlacedFurniture } from './PlacedFurniture';
@@ -17,9 +17,10 @@ type HouseCanvasProps = {
   layout: Layout | null;
   catalog: CatalogResponse | null;
   roomId?: string;
+  style?: StyleProp<ViewStyle>;
 };
 
-export function HouseCanvas({ layout, catalog, roomId }: HouseCanvasProps) {
+export function HouseCanvas({ layout, catalog, roomId, style }: HouseCanvasProps) {
   const room = catalog?.rooms.find((candidate) => candidate.id === roomId);
   const wallSurface = room?.surfaces.find((surface) => surface.kind.toLowerCase() === 'wall');
   const floorSurface = room?.surfaces.find((surface) => surface.kind.toLowerCase() === 'floor');
@@ -27,7 +28,7 @@ export function HouseCanvas({ layout, catalog, roomId }: HouseCanvasProps) {
   const hasFloorSkin = Boolean(floorSurface && layout?.surfaceSkins[floorSurface.id]);
 
   return (
-    <View style={styles.container} accessibilityLabel="빈 방 미리보기">
+    <View style={[styles.container, style]} accessibilityLabel="빈 방 미리보기">
       <Svg width="100%" height="100%" viewBox="0 0 320 300">
         <Polygon
           points="160,28 38,96 38,218 160,282 282,218 282,96"
