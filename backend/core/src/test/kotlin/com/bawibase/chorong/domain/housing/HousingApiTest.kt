@@ -27,6 +27,9 @@ import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserWalletRepository
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
@@ -36,6 +39,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
+import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.patch
@@ -77,6 +81,8 @@ class HousingApiTest {
     @Autowired lateinit var auths: UserAuthRepository
 
     @Autowired lateinit var objectMapper: ObjectMapper
+
+    @Autowired lateinit var jdbc: JdbcTemplate
 
     private val header = HttpHeaders.AUTHORIZATION
 
@@ -182,10 +188,224 @@ class HousingApiTest {
             jsonPath("$.data.housing.name") { value("나의 우주") }
             jsonPath("$.data.housing.isPublic") { value(false) }
             jsonPath("$.data.housing.likeCount") { value(0) }
-            jsonPath("$.data.placements") { value(null) }
+            jsonPath("$.data.placements.length()") { value(0) }
             jsonPath("$.data.avatar") { value(null) }
             jsonPath("$.data.activeRoomId") { value("room_basic") }
             jsonPath("$.data.legacyLayouts.room_basic.avatarId") { value("av_cat") }
+        }
+    }
+
+    @Test
+    fun `v1 coordinate placement replaces owned items and leaves legacy layout intact`() {
+        val token = login("v1-placement-${UUID.randomUUID()}@test.local")
+        val inventoryBody =
+            mockMvc
+                .get("/api/v1/users/me/inventory") { header(header, token) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        val furnitureInventoryId =
+            objectMapper
+                .readTree(inventoryBody)["data"]["items"]
+                .first { it["itemType"].asText() == "FURNITURE" }["inventoryId"]
+                .asText()
+
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content =
+                    """{"placements":[{"inventoryId":"$furnitureInventoryId","area":"INTERIOR","transform":{"x":0.35,"y":0.7,"rotation":90,"layer":2}}]}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.placements.length()") { value(1) }
+                jsonPath("$.data.placements[0].inventoryId") { value(furnitureInventoryId) }
+                jsonPath("$.data.placements[0].transform.x") { value(0.35) }
+            }
+        mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.placements.length()") { value(1) }
+            jsonPath("$.data.legacyLayouts.room_basic.avatarId") { value("av_cat") }
+        }
+        mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.items[?(@.inventoryId=='$furnitureInventoryId')].placed[0]") { value(true) }
+        }
+
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$furnitureInventoryId","area":"EXTERIOR","transform":{"x":0.5,"y":0.5}}]}"""
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.error.code") { value("PLACEMENT_AREA_MISMATCH") }
+            }
+
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[]}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.placements.length()") { value(0) }
+            }
+    }
+
+    @Test
+    fun `v1 shop list filters store items and reports option prices and ownership`() {
+        val email = "v1-store-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val furnitureItemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_item(name,item_type,sort_order) VALUES ('Store chair','FURNITURE',1) RETURNING item_id""",
+                    Long::class.java,
+                ),
+            )
+        val objectItemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_item(name,item_type,unlocked,unlock_hint,sort_order) VALUES ('Locked object','OBJECT',FALSE,'Complete a lesson',2) RETURNING item_id""",
+                    Long::class.java,
+                ),
+            )
+        val ownedOptionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset,sort_order)
+                       VALUES (?, '{"color":"blue"}', 'STAR', 10, 'store/chair-blue.png', 1) RETURNING option_id""",
+                    Long::class.java,
+                    furnitureItemId,
+                ),
+            )
+        jdbc.update(
+            """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset,sort_order)
+               VALUES (?, '{"color":"red"}', 'STARDUST', 5, 'store/chair-red.png', 2)""",
+            furnitureItemId,
+        )
+        jdbc.update("INSERT INTO housing_store_owned_option(user_id,option_id) VALUES (?,?)", userId, ownedOptionId)
+        jdbc.update(
+            """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset)
+               VALUES (?, '{"shape":"round"}', 'STARDUST', 20, 'store/object-round.png')""",
+            objectItemId,
+        )
+
+        val allItemsBody =
+            mockMvc
+                .get("/api/v1/shop/items") { header(header, token) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        val items = objectMapper.readTree(allItemsBody)["data"]["items"]
+        assertEquals(2, items.size())
+        val furnitureItem = items.first { it["itemId"].asLong() == furnitureItemId }
+        assertEquals(2, furnitureItem["options"].size())
+        assertEquals("STARDUST", furnitureItem["minPrice"]["currency"].asText())
+        assertEquals(5, furnitureItem["minPrice"]["amount"].asInt())
+        assertTrue(furnitureItem["options"][0]["owned"].asBoolean())
+        assertFalse(furnitureItem["options"][1]["owned"].asBoolean())
+        val lockedItem = items.first { it["itemId"].asLong() == objectItemId }
+        assertFalse(lockedItem["unlocked"].asBoolean())
+        assertEquals("Complete a lesson", lockedItem["unlockHint"].asText())
+
+        val detailBody =
+            mockMvc
+                .get("/api/v1/shop/items/$furnitureItemId") { header(header, token) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        val detail = objectMapper.readTree(detailBody)["data"]
+        assertEquals(furnitureItem, detail["item"])
+        assertEquals(furnitureItem["options"], detail["options"])
+
+        mockMvc.get("/api/v1/shop/items/$objectItemId") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.item.unlocked") { value(false) }
+            jsonPath("$.data.options.length()") { value(1) }
+        }
+        mockMvc.get("/api/v1/shop/items/9223372036854775807") { header(header, token) }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.error.code") { value("NOT_FOUND") }
+        }
+        mockMvc.get("/api/v1/shop/items?itemType=FURNITURE") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.items.length()") { value(1) }
+            jsonPath("$.data.items[0].itemType") { value("FURNITURE") }
+        }
+        mockMvc.get("/api/v1/shop/items?itemType=INVALID") { header(header, token) }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("VALIDATION_FAILED") }
+        }
+    }
+
+    @Test
+    fun `v1 bulk store purchase debits wallet and adds placeable inventory`() {
+        val email = "v1-purchase-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('Purchased chair','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset)
+                       VALUES (?, '{"color":"green"}', 'STAR', 10, 'store/chair-green.png') RETURNING option_id""",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        jdbc.update("UPDATE user_wallet SET star=50 WHERE user_id=?", userId)
+        val body = """{"items":[{"itemId":$itemId,"optionId":$optionId}]}"""
+        val idempotencyKey = "purchase-${UUID.randomUUID()}"
+        val firstResponse =
+            mockMvc
+                .post("/api/v1/shop/purchases") {
+                    header(header, token)
+                    header("Idempotency-Key", idempotencyKey)
+                    contentType = MediaType.APPLICATION_JSON
+                    content = body
+                }.andExpect {
+                    status { isOk() }
+                    jsonPath("$.data.wallet.star") { value(40) }
+                    jsonPath("$.data.inventoryItems[0].itemId") { value(itemId.toInt()) }
+                    jsonPath("$.data.inventoryItems[0].option.color") { value("green") }
+                }.andReturn()
+        val inventoryId = objectMapper.readTree(firstResponse.response.contentAsString)["data"]["inventoryItems"][0]["inventoryId"].asText()
+        mockMvc
+            .post("/api/v1/shop/purchases") {
+                header(header, token)
+                header("Idempotency-Key", idempotencyKey)
+                contentType = MediaType.APPLICATION_JSON
+                content = body
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.inventoryItems[0].inventoryId") { value(inventoryId) }
+                jsonPath("$.data.wallet.star") { value(40) }
+            }
+        mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.items[?(@.inventoryId=='$inventoryId')].placed[0]") { value(false) }
+        }
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.3,"y":0.6}}]}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.placements[0].inventoryId") { value(inventoryId) }
+            }
+        mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.items[?(@.inventoryId=='$inventoryId')].placed[0]") { value(true) }
         }
     }
 

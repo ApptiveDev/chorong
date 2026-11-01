@@ -2,13 +2,17 @@ package com.bawibase.chorong.domain.housing.controller
 
 import com.bawibase.chorong.common.api.ApiResponse
 import com.bawibase.chorong.config.CurrentUserId
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchResponse
 import com.bawibase.chorong.domain.housing.dto.HousingDetailResponse
 import com.bawibase.chorong.domain.housing.dto.HousingProfilePatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingResponse
 import com.bawibase.chorong.domain.housing.service.HousingService
 import io.swagger.v3.oas.annotations.Operation
+import jakarta.validation.Valid
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PatchMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
@@ -30,4 +34,11 @@ class HousingProfileController(
         @CurrentUserId userId: Long,
         @RequestBody request: HousingProfilePatchRequest,
     ): ApiResponse<HousingResponse> = ApiResponse(housing.updateProfile(userId, request.name, request.isPublic))
+
+    @Operation(operationId = "API-702", summary = "하우징 좌표 배치 전체 저장")
+    @PutMapping("/placements")
+    fun savePlacements(
+        @CurrentUserId userId: Long,
+        @Valid @RequestBody request: HousingCoordinatePlacementBatchRequest,
+    ): ApiResponse<HousingCoordinatePlacementBatchResponse> = ApiResponse(housing.saveCoordinatePlacements(userId, request))
 }

@@ -6,7 +6,12 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.FieldViolation
 import com.bawibase.chorong.domain.housing.HousingItemType
+import com.bawibase.chorong.domain.housing.HousingPlacementArea
 import com.bawibase.chorong.domain.housing.SurfaceKind
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchResponse
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementResponse
+import com.bawibase.chorong.domain.housing.dto.HousingPlacementTransformResponse
 import com.bawibase.chorong.domain.housing.dto.LayoutRequest
 import com.bawibase.chorong.domain.housing.dto.LayoutResponse
 import com.bawibase.chorong.domain.housing.dto.MeResponse
@@ -16,11 +21,13 @@ import com.bawibase.chorong.domain.housing.dto.PlacementResponse
 import com.bawibase.chorong.domain.housing.dto.PublicHousingDetailResponse
 import com.bawibase.chorong.domain.housing.dto.WalletResponse
 import com.bawibase.chorong.domain.housing.dto.toHousingResponse
+import com.bawibase.chorong.domain.housing.entity.HousingCoordinatePlacementEntity
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutPlacementEntity
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutSurfaceSkinEntity
 import com.bawibase.chorong.domain.housing.entity.HousingOwnedItemEntity
 import com.bawibase.chorong.domain.housing.entity.HousingProfileEntity
 import com.bawibase.chorong.domain.housing.entity.HousingRoomLayoutEntity
+import com.bawibase.chorong.domain.housing.repository.HousingCoordinatePlacementRepository
 import com.bawibase.chorong.domain.housing.repository.HousingLayoutPlacementRepository
 import com.bawibase.chorong.domain.housing.repository.HousingLayoutSurfaceSkinRepository
 import com.bawibase.chorong.domain.housing.repository.HousingOwnedItemRepository
@@ -39,11 +46,13 @@ import java.time.OffsetDateTime
 @Transactional
 class HousingService(
     private val catalogService: HousingCatalogService,
+    private val storeCatalog: HousingStoreCatalogService,
     private val profiles: HousingProfileRepository,
     private val ownedItems: HousingOwnedItemRepository,
     private val layouts: HousingRoomLayoutRepository,
     private val surfaceSkins: HousingLayoutSurfaceSkinRepository,
     private val placements: HousingLayoutPlacementRepository,
+    private val coordinatePlacements: HousingCoordinatePlacementRepository,
     private val walletService: UserWalletService,
     private val users: UserRepository,
     private val clock: Clock,
@@ -66,7 +75,7 @@ class HousingService(
         val profile = checkNotNull(profiles.findById(userId).orElse(null))
         return com.bawibase.chorong.domain.housing.dto.HousingDetailResponse(
             housing = profile.toHousingResponse(),
-            placements = null,
+            placements = coordinatePlacementsResponse(userId),
             avatar = null,
             activeRoomId = legacy.activeRoomId,
             legacyLayouts = legacy.layouts,
@@ -83,6 +92,7 @@ class HousingService(
         val profile = profiles.findById(userId).orElseThrow { ApiV1Exception(ApiErrorCode.HOUSING_NOT_VISIBLE) }
         return PublicHousingDetailResponse(
             housing = profile.toHousingResponse(likeCount),
+            placements = coordinatePlacementsResponse(userId),
             activeRoomId = profile.activeRoomId?.let { catalog.roomById[it]?.code },
             legacyLayouts = layoutsResponse(userId, catalog),
             ownerNickname = ownerNickname,
@@ -111,6 +121,75 @@ class HousingService(
                 PlacementResponse(slotCode, furnitureCode)
             }
         }
+    }
+
+    fun saveCoordinatePlacements(
+        userId: Long,
+        request: HousingCoordinatePlacementBatchRequest,
+    ): HousingCoordinatePlacementBatchResponse {
+        val inventoryRefs =
+            request.placements.map { placement ->
+                val rawId = placement.inventoryId.removePrefix(STORE_INVENTORY_PREFIX)
+                val id = rawId.toLongOrNull()
+                val isStoreInventory = placement.inventoryId.startsWith(STORE_INVENTORY_PREFIX)
+                if (id == null || id <= 0) null else InventoryReference(id, isStoreInventory)
+            }
+        if (inventoryRefs.any { it == null } || inventoryRefs.toSet().size != inventoryRefs.size) {
+            throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED)
+        }
+        val references = inventoryRefs.filterNotNull()
+        val ownedById = ownedItems.findAllById(references.filterNot { it.store }.map { it.id }).associateBy { it.id }
+        val storeOwnedById = storeCatalog.ownedPlacementInventory(userId, references.filter { it.store }.map { it.id })
+        val validated =
+            request.placements.zip(references).map { (placement, reference) ->
+                val owned = if (reference.store) null else ownedById[reference.id]
+                val storeOwned = if (reference.store) storeOwnedById[reference.id] else null
+                if (reference.store && storeOwned == null) throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED)
+                if (!reference.store && (owned == null || owned.userId != userId)) {
+                    throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED)
+                }
+                val expectedArea =
+                    if ((owned?.itemType == HousingItemType.FURNITURE) || storeOwned?.itemType == "FURNITURE") {
+                        HousingPlacementArea.INTERIOR
+                    } else {
+                        HousingPlacementArea.EXTERIOR
+                    }
+                if (placement.area != expectedArea) throw ApiV1Exception(ApiErrorCode.PLACEMENT_AREA_MISMATCH)
+                if (placement.transform.rotation !in setOf(0, 90, 180, 270)) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+                HousingCoordinatePlacementEntity(
+                    userId = userId,
+                    ownedItemId = owned?.id,
+                    storeInventoryId = if (reference.store) reference.id else null,
+                    area = placement.area,
+                    x = placement.transform.x,
+                    y = placement.transform.y,
+                    rotation = placement.transform.rotation,
+                    layer = placement.transform.layer,
+                )
+            }
+        coordinatePlacements.deleteAllByUserId(userId)
+        val saved = coordinatePlacements.saveAll(validated)
+        return HousingCoordinatePlacementBatchResponse(saved.mapNotNull { it.toResponse(ownedById, storeOwnedById) })
+    }
+
+    private fun coordinatePlacementsResponse(userId: Long): List<HousingCoordinatePlacementResponse> {
+        val rows = coordinatePlacements.findAllByUserIdOrderByLayerAscIdAsc(userId)
+        val ownedById = ownedItems.findAllById(rows.mapNotNull { it.ownedItemId }).associateBy { it.id }
+        val storeOwnedById = storeCatalog.ownedPlacementInventory(userId, rows.mapNotNull { it.storeInventoryId })
+        return rows.mapNotNull { it.toResponse(ownedById, storeOwnedById) }
+    }
+
+    private fun HousingCoordinatePlacementEntity.toResponse(
+        ownedById: Map<Long?, HousingOwnedItemEntity>,
+        storeOwnedById: Map<Long, com.bawibase.chorong.domain.housing.service.StorePlacementInventory>,
+    ) = (ownedItemId?.let { ownedById[it]?.itemId } ?: storeInventoryId?.let { storeOwnedById[it]?.itemId })?.let { itemId ->
+        HousingCoordinatePlacementResponse(
+            placementId = checkNotNull(id),
+            inventoryId = storeInventoryId?.let { "$STORE_INVENTORY_PREFIX$it" } ?: ownedItemId.toString(),
+            area = area,
+            transform = HousingPlacementTransformResponse(x, y, rotation, layer),
+            itemId = itemId,
+        )
     }
 
     fun updateProfile(
@@ -379,4 +458,13 @@ class HousingService(
             SurfaceKind.WALL -> HousingItemType.WALL
             SurfaceKind.FLOOR -> HousingItemType.FLOOR
         }
+
+    private data class InventoryReference(
+        val id: Long,
+        val store: Boolean,
+    )
+
+    private companion object {
+        const val STORE_INVENTORY_PREFIX = "store:"
+    }
 }

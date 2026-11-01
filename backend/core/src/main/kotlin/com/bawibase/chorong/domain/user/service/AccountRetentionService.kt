@@ -63,6 +63,7 @@ class AccountRetentionService(
         jdbc.update("DELETE FROM lesson_review_gate WHERE user_id=?", userId)
         jdbc.update("DELETE FROM housing_moderation_hide WHERE housing_user_id=?", userId)
         jdbc.update("DELETE FROM housing_room_layout WHERE user_id=?", userId)
+        jdbc.update("DELETE FROM housing_store_owned_option WHERE user_id=?", userId)
         jdbc.update("DELETE FROM housing_owned_item WHERE user_id=?", userId)
         jdbc.update(
             """UPDATE housing_profile

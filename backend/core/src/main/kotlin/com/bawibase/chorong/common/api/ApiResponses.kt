@@ -29,6 +29,13 @@ data class ApiError(
     val fields: List<FieldViolation>? = null,
     val retryAfter: Long? = null,
     val unlocksAt: Instant? = null,
+    val items: List<ApiErrorItem>? = null,
+)
+
+data class ApiErrorItem(
+    val itemId: Long,
+    val optionId: Long,
+    val code: String,
 )
 
 data class FieldViolation(
@@ -79,5 +86,6 @@ class ApiV1Exception(
         fields: List<FieldViolation>? = null,
         retryAfter: Long? = null,
         unlocksAt: Instant? = null,
-    ) : this(ApiError(code, fields = fields, retryAfter = retryAfter, unlocksAt = unlocksAt))
+        items: List<ApiErrorItem>? = null,
+    ) : this(ApiError(code, fields = fields, retryAfter = retryAfter, unlocksAt = unlocksAt, items = items))
 }

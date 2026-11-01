@@ -6,6 +6,8 @@ import com.bawibase.chorong.common.api.PageMeta
 import com.bawibase.chorong.common.api.PagedResponse
 import com.bawibase.chorong.domain.learning.LearningRewardBadge
 import com.fasterxml.jackson.annotation.JsonInclude
+import com.fasterxml.jackson.core.type.TypeReference
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -70,6 +72,7 @@ data class ConstellationData(
 @Service
 class RewardReadService(
     private val jdbc: JdbcTemplate,
+    private val objectMapper: ObjectMapper,
 ) {
     @Transactional(readOnly = true)
     fun rewards(
@@ -151,7 +154,7 @@ class RewardReadService(
                 },
                 userId,
             )
-        return InventoryData(
+        val legacyItems =
             rows
                 .asSequence()
                 .filter { it.name != null }
@@ -168,8 +171,28 @@ class RewardReadService(
                         acquiredAt = it.acquiredAt,
                         placed = it.placed,
                     )
-                }.toList(),
-        )
+                }.toList()
+        val optionType = object : TypeReference<Map<String, Any?>>() {}
+        val storeItems =
+            jdbc
+                .query(
+                    STORE_INVENTORY_SQL,
+                    { rs, _ ->
+                        InventoryItemResponse(
+                            inventoryId = "store:${rs.getLong("inventory_id")}",
+                            itemId = rs.getLong("item_id"),
+                            itemType = rs.getString("item_type"),
+                            name = rs.getString("item_name"),
+                            optionId = rs.getLong("option_id"),
+                            option = objectMapper.readValue(rs.getString("option_json"), optionType),
+                            acquiredVia = "PURCHASE",
+                            acquiredAt = rs.getTimestamp("acquired_at").toInstant(),
+                            placed = rs.getBoolean("placed"),
+                        )
+                    },
+                    userId,
+                ).filter { filter == null || it.itemType == filter }
+        return InventoryData((legacyItems + storeItems).sortedByDescending { it.acquiredAt })
     }
 
     private fun requireUser(userId: Long) {
@@ -284,14 +307,14 @@ class RewardReadService(
             """SELECT o.owned_item_id,o.item_id,o.item_type,o.created_at,
                       COALESCE(f.name,b.name,w.name,fl.name,a.name,rm.name) AS item_name,
                       COALESCE(f.is_default,b.is_default,w.is_default,fl.is_default,a.is_default,rm.is_default,FALSE) AS is_default,
-                      CASE o.item_type
+                      CASE WHEN EXISTS (SELECT 1 FROM housing_coordinate_placement cp WHERE cp.owned_item_id=o.owned_item_id) THEN TRUE ELSE CASE o.item_type
                         WHEN 'FURNITURE' THEN EXISTS (SELECT 1 FROM housing_layout_placement p JOIN housing_room_layout x ON x.layout_id=p.layout_id WHERE x.user_id=o.user_id AND p.furniture_id=o.item_id)
                         WHEN 'BACKGROUND' THEN EXISTS (SELECT 1 FROM housing_room_layout x WHERE x.user_id=o.user_id AND x.background_id=o.item_id)
                         WHEN 'AVATAR' THEN EXISTS (SELECT 1 FROM housing_room_layout x WHERE x.user_id=o.user_id AND x.avatar_id=o.item_id)
                         WHEN 'ROOM' THEN EXISTS (SELECT 1 FROM housing_profile hp WHERE hp.user_id=o.user_id AND hp.active_room_id=o.item_id)
                         WHEN 'WALL' THEN EXISTS (SELECT 1 FROM housing_layout_surface_skin s JOIN housing_room_layout x ON x.layout_id=s.layout_id WHERE x.user_id=o.user_id AND s.skin_type='WALL' AND s.skin_id=o.item_id)
                         WHEN 'FLOOR' THEN EXISTS (SELECT 1 FROM housing_layout_surface_skin s JOIN housing_room_layout x ON x.layout_id=s.layout_id WHERE x.user_id=o.user_id AND s.skin_type='FLOOR' AND s.skin_id=o.item_id)
-                        ELSE FALSE END AS placed
+                        ELSE FALSE END END AS placed
                FROM housing_owned_item o
                LEFT JOIN housing_furniture f ON o.item_type='FURNITURE' AND f.furniture_id=o.item_id
                LEFT JOIN housing_background b ON o.item_type='BACKGROUND' AND b.background_id=o.item_id
@@ -300,5 +323,15 @@ class RewardReadService(
                LEFT JOIN housing_avatar a ON o.item_type='AVATAR' AND a.avatar_id=o.item_id
                LEFT JOIN housing_room rm ON o.item_type='ROOM' AND rm.room_id=o.item_id
                WHERE o.user_id=? ORDER BY o.created_at DESC,o.owned_item_id DESC"""
+
+        private const val STORE_INVENTORY_SQL =
+            """SELECT own.inventory_id,item.item_id,item.item_type,item.name,option.option_id,
+                      option.option_json::text AS option_json,own.acquired_at,
+                      EXISTS (SELECT 1 FROM housing_coordinate_placement placement
+                              WHERE placement.store_inventory_id=own.inventory_id) AS placed
+               FROM housing_store_owned_option own
+               JOIN housing_store_option option ON option.option_id=own.option_id
+               JOIN housing_store_item item ON item.item_id=option.item_id
+               WHERE own.user_id=? ORDER BY own.acquired_at DESC,own.inventory_id DESC"""
     }
 }

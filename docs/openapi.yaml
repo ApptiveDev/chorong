@@ -2297,8 +2297,7 @@ components:
       properties:
         housing: { $ref: '#/components/schemas/Housing' }
         placements:
-          nullable: true
-          description: 기존 저장 모델은 좌표형 배치를 지원하지 않아 null입니다. 기존 슬롯 배치는 legacyLayouts에 보존합니다.
+          description: 좌표 기반 배치 목록입니다. 기존 방·슬롯 배치는 legacyLayouts에 별도로 보존합니다.
           type: array
           items: { $ref: '#/components/schemas/Placement' }
         avatar:
