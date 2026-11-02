@@ -1,6 +1,7 @@
 import type { EnabledApiId } from './catalog';
 import type { MockResponder } from './client';
 import { courses, inventory, lessons, me, room, shopItems, socialCards } from './mockData';
+import { mockVisibility } from './mockVisibility';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -12,6 +13,7 @@ type MockState = {
   inventory: typeof inventory;
   completed: Set<number>;
   rewardedLessons: Set<number>;
+  blockedUsers: { userId: number; nickname: string; blockedAt: string }[];
 };
 const state: MockState = {
   user: { ...me },
@@ -21,6 +23,7 @@ const state: MockState = {
   inventory: [...inventory],
   completed: new Set(),
   rewardedLessons: new Set(),
+  blockedUsers: [{ userId: 5, nickname: '별이', blockedAt: '2026-10-30T00:00:00Z' }],
 };
 const scenario = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
 const empty = scenario === 'empty';
@@ -78,14 +81,31 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-110':
     case 'API-301':
     case 'API-302':
-    case 'API-806':
+      return response();
+    case 'API-806': {
+      const userId = id(options, 'userId');
+      if (!state.blockedUsers.some((user) => user.userId === userId))
+        state.blockedUsers.push({
+          userId,
+          nickname: `사용자 ${userId}`,
+          blockedAt: '2026-11-02T00:00:00Z',
+        });
+      return response();
+    }
     case 'API-807':
+      state.blockedUsers = state.blockedUsers.filter(
+        (user) => user.userId !== id(options, 'userId'),
+      );
       return response();
     case 'API-108':
     case 'API-109':
       return response({ providers: ['EMAIL'] });
     case 'API-201':
-      return response({ ...state.user, wallet: state.wallet });
+      return response({
+        ...state.user,
+        wallet: state.wallet,
+        housing: { ...state.user.housing, isPublic: mockVisibility.get() },
+      });
     case 'API-202':
       state.user = {
         ...state.user,
@@ -93,7 +113,11 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         pushEnabled:
           typeof input.pushEnabled === 'boolean' ? input.pushEnabled : state.user.pushEnabled,
       };
-      return response({ ...state.user, wallet: state.wallet });
+      return response({
+        ...state.user,
+        wallet: state.wallet,
+        housing: { ...state.user.housing, isPublic: mockVisibility.get() },
+      });
     case 'API-401':
       return response({
         courses: empty
@@ -188,14 +212,36 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-602':
       return response({ rewards: [], wallet: state.wallet, onboardingCompleted: true });
     case 'API-701':
-      return response({ ...room, placements: state.placements });
-    case 'API-702':
-      state.placements = state.placements.filter((placement) =>
-        (input.placements as unknown[])?.some(
-          (item) => body(item).inventoryId === placement.inventoryId,
-        ),
-      );
+      return response({
+        ...room,
+        housing: { ...room.housing, isPublic: mockVisibility.get() },
+        placements: state.placements,
+      });
+    case 'API-702': {
+      const requested = Array.isArray(input.placements) ? input.placements : [];
+      state.placements = requested.flatMap((value, index) => {
+        const next = body(value);
+        const owned = state.inventory.find((item) => item.inventoryId === next.inventoryId);
+        if (!owned) return [];
+        const previous = state.placements.find((item) => item.inventoryId === owned.inventoryId);
+        return [
+          {
+            placementId: previous?.placementId ?? 100 + index,
+            inventoryId: owned.inventoryId,
+            area: next.area as (typeof room.placements)[number]['area'],
+            transform: next.transform as (typeof room.placements)[number]['transform'],
+            itemId: owned.itemId,
+            optionId: owned.optionId,
+            option: owned.option,
+          },
+        ];
+      });
+      state.inventory = state.inventory.map((item) => ({
+        ...item,
+        placed: state.placements.some((placement) => placement.inventoryId === item.inventoryId),
+      }));
       return response({ placements: state.placements });
+    }
     case 'API-801':
       return response(
         {
@@ -211,6 +257,16 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       );
     case 'API-802': {
       const selected = card(id(options, 'housingId')) ?? socialCards[0];
+      const socialPlacements = room.placements.map((item, index) => ({
+        ...item,
+        placementId: selected.housingId * 10 + index,
+        inventoryId: `social-${selected.housingId}-${item.itemId}`,
+        transform: {
+          ...item.transform,
+          x: selected.housingId === 2 ? 0.35 : selected.housingId === 3 ? 0.65 : 0.5,
+          y: selected.housingId === 4 ? 0.38 : 0.63,
+        },
+      }));
       return response({
         housing: {
           housingId: selected.housingId,
@@ -218,7 +274,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           isPublic: true,
           likeCount: selected.likeCount + (state.likes.has(selected.housingId) ? 1 : 0),
         },
-        placements: [],
+        placements: socialPlacements,
         avatar: { x: 0.5, y: 0.5, state: 'IDLE', placementId: null },
         ownerNickname: selected.ownerNickname,
         likedByMe: state.likes.has(selected.housingId),
@@ -239,7 +295,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-808':
       return response(
         {
-          users: empty ? [] : [{ userId: 5, nickname: '별이', blockedAt: '2026-10-30T00:00:00Z' }],
+          users: empty ? [] : state.blockedUsers,
         },
         true,
       );

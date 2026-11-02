@@ -10,6 +10,7 @@ const { createIntegrationApi } = require('../.expo/integration-tests/api');
 const { catalog } = require('../.expo/integration-tests/catalog');
 const { wallet } = require('../.expo/integration-tests/models');
 const { mockApi } = require('../.expo/integration-tests/mockApi');
+const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
 const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private', expiresIn: 3600 };
@@ -87,8 +88,38 @@ test('mock API renders linked data without using the HTTP adapter', async () => 
   assert.equal(start.contents[0].contentId, lesson.contents[0].contentId);
   assert.equal(start.contents.at(-1).quiz.quizId, lesson.contents.at(-1).quiz.quizId);
   assert.equal(housing.placements[0].inventoryId, inventory.items[0].inventoryId);
+  mockVisibility.set(false);
+  assert.equal((await api.room.me()).housing.isPublic, false);
+  mockVisibility.set(true);
+  assert.equal((await api.room.me()).housing.isPublic, true);
   assert.equal(shop.items[0].itemId, inventory.items[0].itemId);
   assert.equal(visit.housing.housingId, social.data.housings[0].housingId);
+  const placed = await api.room.save([
+    ...housing.placements.map(({ inventoryId, area, transform }) => ({
+      inventoryId,
+      area,
+      transform,
+    })),
+    {
+      inventoryId: inventory.items[1].inventoryId,
+      area: 'INTERIOR',
+      transform: { x: 0.6, y: 0.55, rotation: 0, layer: 2 },
+    },
+  ]);
+  assert.equal(placed.placements.length, 2);
+  assert.equal((await api.room.inventory()).items[1].placed, true);
+  await api.room.save([
+    {
+      inventoryId: inventory.items[0].inventoryId,
+      area: 'INTERIOR',
+      transform: housing.placements[0].transform,
+    },
+  ]);
+  assert.equal((await api.room.inventory()).items[1].placed, false);
+  const blocked = await api.social.blocks({});
+  assert.equal(blocked.data.users[0].userId, 5);
+  await api.social.unblock(5);
+  assert.equal((await api.social.blocks({})).data.users.length, 0);
   assert.equal(
     c.getSnapshot().traces.every((trace) => trace.success),
     true,

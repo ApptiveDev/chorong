@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Platform as RNPlatform, Switch, Text } from 'react-native';
 import { integrationApi as api, client } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
@@ -11,6 +12,7 @@ export default function AccountScreen() {
   return <AccountForm key={generation} />;
 }
 function AccountForm() {
+  const router = useRouter();
   const state = useIntegration(),
     task = useTask();
   const [platform, setPlatform] = useState<Platform | ''>(
@@ -42,6 +44,7 @@ function AccountForm() {
     task.run(async () => {
       try {
         await action();
+        router.replace('/quiz');
         return { status: '로그인 완료' };
       } finally {
         clearCredentials();

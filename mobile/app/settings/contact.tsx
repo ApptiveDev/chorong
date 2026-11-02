@@ -1,5 +1,5 @@
-import { Placeholder } from '../../src/components/Placeholder';
+import { LegalScreen } from '../../src/integration/user/LegalScreen';
 
 export default function Contact() {
-  return <Placeholder text="고객 문의. 준비 중." />;
+  return <LegalScreen title="문의" message="문의 채널 준비 중" />;
 }
