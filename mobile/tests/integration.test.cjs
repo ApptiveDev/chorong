@@ -9,6 +9,7 @@ const {
 const { createIntegrationApi } = require('../.expo/integration-tests/api');
 const { catalog } = require('../.expo/integration-tests/catalog');
 const { wallet } = require('../.expo/integration-tests/models');
+const { mockApi } = require('../.expo/integration-tests/mockApi');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
 const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private', expiresIn: 3600 };
@@ -58,6 +59,60 @@ function setup(persist = false, entries = new Map()) {
   );
   return { c, api: createIntegrationApi(c), entries };
 }
+test('mock API renders linked data without using the HTTP adapter', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const user = await api.account.me();
+  const { courses } = await api.learning.courses();
+  const detail = await api.learning.course(courses[0].courseId);
+  const lesson = await api.learning.lesson(detail.lessons[0].lessonId);
+  const start = await api.learning.start(lesson.lessonId, false);
+  const housing = await api.room.me();
+  const inventory = await api.room.inventory();
+  const shop = await api.room.shop();
+  const social = await api.social.explore({ sort: 'recent' });
+  const visit = await api.social.visit(social.data.housings[0].housingId);
+  assert.equal(user.wallet.star, 120);
+  assert.equal(start.contents[0].contentId, lesson.contents[0].contentId);
+  assert.equal(start.contents.at(-1).quiz.quizId, lesson.contents.at(-1).quiz.quizId);
+  assert.equal(housing.placements[0].inventoryId, inventory.items[0].inventoryId);
+  assert.equal(shop.items[0].itemId, inventory.items[0].itemId);
+  assert.equal(visit.housing.housingId, social.data.housings[0].housingId);
+  assert.equal(
+    c.getSnapshot().traces.every((trace) => trace.success),
+    true,
+  );
+});
+test('mock empty and error scenarios return without network', async () => {
+  const modulePath = require.resolve('../.expo/integration-tests/mockApi');
+  const prior = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
+  try {
+    process.env.EXPO_PUBLIC_MOCK_SCENARIO = 'empty';
+    delete require.cache[modulePath];
+    const emptyMock = require(modulePath).mockApi;
+    assert.deepEqual(emptyMock('API-401', {}).data.data.courses, []);
+    assert.deepEqual(emptyMock('API-801', { query: { sort: 'recent' } }).data.data.housings, []);
+    process.env.EXPO_PUBLIC_MOCK_SCENARIO = 'error';
+    delete require.cache[modulePath];
+    const errorMock = require(modulePath).mockApi;
+    assert.throws(() => errorMock('API-401', {}), /MOCK_ERROR/);
+  } finally {
+    if (prior === undefined) delete process.env.EXPO_PUBLIC_MOCK_SCENARIO;
+    else process.env.EXPO_PUBLIC_MOCK_SCENARIO = prior;
+    delete require.cache[modulePath];
+  }
+});
 async function login(c, status = 'ACTIVE') {
   await c.authenticate(async () => ({ ...tokens, user: { ...user, status } }));
 }

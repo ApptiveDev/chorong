@@ -8,6 +8,12 @@ const previewApi = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+if (process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
+  previewApi.defaults.adapter = async () => {
+    throw new Error('개발용 퀴즈 API는 Mock 데이터가 없습니다. 학습 화면을 사용하세요.');
+  };
+}
+
 export function parseLessonId(value: string): number | null {
   if (!/^[1-9]\d*$/.test(value.trim())) return null;
   const id = Number(value.trim());

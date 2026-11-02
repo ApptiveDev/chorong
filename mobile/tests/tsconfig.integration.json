@@ -11,5 +11,9 @@
     "rootDir": "../src/integration",
     "types": []
   },
-  "include": ["../src/integration/client.ts", "../src/integration/api.ts"]
+  "include": [
+    "../src/integration/client.ts",
+    "../src/integration/api.ts",
+    "../src/integration/mockApi.ts"
+  ]
 }

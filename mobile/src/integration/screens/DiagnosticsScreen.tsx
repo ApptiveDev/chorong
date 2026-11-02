@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Text } from 'react-native';
-import { client } from '../runtime';
+import { client, useMockApi } from '../runtime';
 import { catalog } from '../catalog';
 import { useIntegration } from '../hooks';
 import { Button, Card, Json, Nav, Page, styles } from '../ui';
@@ -19,7 +19,7 @@ export default function DiagnosticsScreen() {
         <Text>
           userId: {state.user?.userId ?? '없음'} · {state.user?.status ?? '없음'}
         </Text>
-        <Text>Mock 모드 없음 · 실제 서버 검증 대기</Text>
+        <Text>{useMockApi ? 'Mock 모드' : 'Real API 모드 · 서버 검증 대기'}</Text>
       </Card>
       <Nav href="/integration" label="기능 테스트 메뉴 열기" />
       <Card title="마지막 요청 상세">

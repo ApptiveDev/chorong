@@ -31,6 +31,8 @@ export type RequestOptions = {
   noRefresh?: boolean;
   public?: boolean;
 };
+export type MockResponse = { status: number; data: unknown; headers: Record<string, string> };
+export type MockResponder = (id: EnabledApiId, options: RequestOptions) => MockResponse;
 type State = {
   ready: boolean;
   user: UserBrief | Me | null;
@@ -113,6 +115,7 @@ export class IntegrationClient {
     private storage: SessionStorage,
     readonly uuid: () => string,
     private persistTokens: boolean,
+    private mockResponder?: MockResponder,
   ) {
     if (!baseURL) this.state.notice = 'EXPO_PUBLIC_API_URL 형식을 확인하고 앱을 다시 시작하세요.';
     this.http = axios.create({
@@ -369,18 +372,20 @@ export class IntegrationClient {
         response: null,
       };
       try {
-        const response = await this.http.request({
-          method,
-          url: endpoint,
-          params: options.query,
-          data: options.body,
-          headers: {
-            ...(useAuth && this.session
-              ? { Authorization: `Bearer ${this.session.tokens.accessToken}` }
-              : {}),
-            ...(options.key ? { 'Idempotency-Key': options.key } : {}),
-          },
-        });
+        const response = this.mockResponder
+          ? this.mockResponder(id, options)
+          : await this.http.request({
+              method,
+              url: endpoint,
+              params: options.query,
+              data: options.body,
+              headers: {
+                ...(useAuth && this.session
+                  ? { Authorization: `Bearer ${this.session.tokens.accessToken}` }
+                  : {}),
+                ...(options.key ? { 'Idempotency-Key': options.key } : {}),
+              },
+            });
         if (epoch !== this.epoch) throw new Error('인증 상태가 변경되었습니다.');
         trace.status = response.status;
         trace.requestId = response.headers['x-request-id'];
