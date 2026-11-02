@@ -17,8 +17,8 @@ import java.time.ZoneId
 data class AnswerResult(
     val attemptId: Long,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    val isCorrect: Boolean?,
-    val correctAnswer: JsonNode?,
+    val isCorrect: Boolean,
+    val correctAnswer: JsonNode,
     val explanation: String,
     val streakDays: Int,
 )
@@ -28,7 +28,6 @@ class LearningQuizService(
     private val jdbc: JdbcTemplate,
     private val quizzes: QuizService,
     private val reviewGate: ReviewGateService,
-    private val lessonReplay: LessonReplayService,
     private val studyStreak: StudyStreakService,
     private val clock: Clock,
 ) {
@@ -80,7 +79,6 @@ class LearningQuizService(
         if (!replay && progress == "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (progress !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw lessonLocked(userId, lesson.courseId)
         reviewGate.enforce(userId, lesson.lessonId)
-        if (replay) lessonReplay.assertQuizIsCurrent(userId, quizId)
 
         val result = quizzes.submitPublic(userId, quizId, answer, replay)
         if (replay) return result.toAnswerResult(studyStreak.current(userId))
@@ -139,7 +137,7 @@ class LearningQuizService(
     }
 
     private fun QuizAttemptResponse.toAnswerResult(streakDays: Int) =
-        AnswerResult(attemptId, correct, correctAnswer, explanation, streakDays)
+        AnswerResult(attemptId, checkNotNull(correct), checkNotNull(correctAnswer), explanation, streakDays)
 
     private data class LinkedLesson(
         val lessonId: Long,

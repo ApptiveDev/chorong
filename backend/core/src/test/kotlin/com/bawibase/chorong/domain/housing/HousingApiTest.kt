@@ -199,7 +199,7 @@ class HousingApiTest {
     }
 
     @Test
-    fun `v1 inventory marks absent store options as nullable fields`() {
+    fun `v1 inventory uses non-null sentinel values for items without options`() {
         val token = login("v1-inventory-null-option-${UUID.randomUUID()}@test.local")
         mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
 
@@ -213,7 +213,7 @@ class HousingApiTest {
         assertTrue(items.size() > 0)
         assertTrue(
             items.all {
-                it.has("optionId") && it["optionId"].isNull && it.has("option") && it["option"].isNull
+                it["optionId"].asLong() == 0L && it["option"].isObject && it["option"].isEmpty
             },
         )
     }
@@ -473,6 +473,8 @@ class HousingApiTest {
                 jsonPath("$.data.placements.length()") { value(1) }
                 jsonPath("$.data.placements[0].inventoryId") { value(furnitureInventoryId) }
                 jsonPath("$.data.placements[0].transform.x") { value(0.35) }
+                jsonPath("$.data.placements[0].optionId") { value(0) }
+                jsonPath("$.data.placements[0].option") { value(emptyMap<String, Any>()) }
             }
         mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
             status { isOk() }
@@ -503,6 +505,33 @@ class HousingApiTest {
                 status { isOk() }
                 jsonPath("$.data.placements.length()") { value(0) }
             }
+    }
+
+    @Test
+    fun `v1 objects can be placed indoors with layers above nine`() {
+        val token = login("v1-object-${UUID.randomUUID()}@test.local")
+        val inventoryBody = mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }
+            .andExpect { status { isOk() } }.andReturn().response.contentAsString
+        val inventoryId = objectMapper.readTree(inventoryBody)["data"]["items"]
+            .first { it["itemType"].asText() == "OBJECT" }["inventoryId"].asText()
+        mockMvc.put("/api/v1/housings/me/placements") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5,"layer":11}}]}"""
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.placements[0].area") { value("INTERIOR") }
+            jsonPath("$.data.placements[0].transform.layer") { value(11) }
+        }
+        mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.placements[0].transform.layer") { value(11) }
+        }
+        mockMvc.put("/api/v1/housings/me/placements") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5,"layer":-1}}]}"""
+        }.andExpect { status { isBadRequest() } }
     }
 
     @Test
@@ -555,7 +584,8 @@ class HousingApiTest {
         assertEquals(2, items.size())
         val furnitureItem = items.first { it["itemId"].asLong() == furnitureItemId }
         assertEquals(2, furnitureItem["options"].size())
-        assertFalse(furnitureItem.has("unlockHint"))
+        assertTrue(furnitureItem.has("unlockHint"))
+        assertTrue(furnitureItem["unlockHint"].isNull)
         assertEquals("STARDUST", furnitureItem["minPrice"]["currency"].asText())
         assertEquals(5, furnitureItem["minPrice"]["amount"].asInt())
         assertTrue(furnitureItem["options"][0]["owned"].asBoolean())

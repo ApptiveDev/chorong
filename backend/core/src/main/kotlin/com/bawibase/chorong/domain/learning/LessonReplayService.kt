@@ -90,24 +90,6 @@ class LessonReplayService(
         return ContentCompletionResult(LessonProgressState("COMPLETED", contentId, nextContentId))
     }
 
-    @Transactional
-    fun assertQuizIsCurrent(
-        userId: Long,
-        quizId: Long,
-    ) {
-        val content =
-            jdbc
-                .query(
-                    "SELECT lesson_id, content_id FROM lesson_content WHERE quiz_id=?",
-                    { rs, _ -> ReplayContent(rs.getLong("lesson_id"), rs.getLong("content_id")) },
-                    quizId,
-                ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
-        val replay = state(userId, content.lessonId, lock = true)
-        if (replay.completedAt != null || nextReplayContentId(content.lessonId, replay.lastContentId) != content.contentId) {
-            throw ApiV1Exception(ApiErrorCode.CONFLICT)
-        }
-    }
-
     private fun state(
         userId: Long,
         lessonId: Long,
@@ -159,8 +141,4 @@ class LessonReplayService(
         val completedAt: Instant?,
     )
 
-    private data class ReplayContent(
-        val lessonId: Long,
-        val contentId: Long,
-    )
 }

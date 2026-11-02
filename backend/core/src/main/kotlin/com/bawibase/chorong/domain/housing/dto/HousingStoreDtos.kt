@@ -38,7 +38,7 @@ data class HousingStoreItemResponse(
     val name: String,
     val itemType: String,
     val unlocked: Boolean,
-    @field:JsonInclude(JsonInclude.Include.NON_NULL) val unlockHint: String?,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val unlockHint: String?,
     val minPrice: HousingStorePriceResponse,
     val options: List<HousingStoreOptionResponse>,
 )

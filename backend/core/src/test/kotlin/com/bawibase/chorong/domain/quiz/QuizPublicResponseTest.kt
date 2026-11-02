@@ -37,8 +37,8 @@ class QuizPublicResponseTest {
             mapOf(
                 "choices" to
                     listOf(
-                        mapOf("id" to "a", "text" to "A"),
-                        mapOf("id" to "b", "text" to "B"),
+                        mapOf("index" to 0, "label" to "A"),
+                        mapOf("index" to 1, "label" to "B"),
                     ),
             )
         assertEquals(

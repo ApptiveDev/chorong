@@ -36,6 +36,20 @@ class QuizService(
 
     fun get(quizId: Long): QuizResponse = publicQuiz(findQuiz(quizId))
 
+    fun getPublicAttempt(userId: Long, quizId: Long, attemptId: Long): QuizAttemptResponse {
+        val attempt = attempts.findById(attemptId).orElseThrow { ApiException(ErrorCode.QUIZ_NOT_FOUND) }
+        if (attempt.userId != userId || attempt.quizId != quizId) throw ApiException(ErrorCode.QUIZ_NOT_FOUND)
+        val quiz = findQuiz(quizId)
+        return QuizAttemptResponse(
+            attemptId = attemptId,
+            graded = attempt.graded,
+            correct = attempt.correct,
+            completed = attempt.completed,
+            explanation = quiz.explanation,
+            correctAnswer = QuizPublicAnswer.correct(converter.readDefinition(quiz)),
+        )
+    }
+
     fun preview(
         quizId: Long,
         response: JsonNode,
@@ -85,7 +99,7 @@ class QuizService(
         if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
         val checked = check(quiz, response)
         val result = checked.result
-        val correctAnswer = if (publicContract && result.correct == true) QuizPublicAnswer.from(definition, checked.response) else null
+        val correctAnswer = if (publicContract) QuizPublicAnswer.correct(definition) else null
         val attempt =
             attempts.save(
                 QuizAttemptEntity(
@@ -100,9 +114,9 @@ class QuizService(
             )
         return QuizAttemptResponse(
             attemptId = checkNotNull(attempt.id),
-            graded = result.graded.takeUnless { publicContract },
-            correct = result.correct.takeUnless { publicContract },
-            completed = result.completed.takeUnless { publicContract },
+            graded = result.graded,
+            correct = result.correct,
+            completed = result.completed,
             explanation = if (quiz.interactionType == QuizInteractionType.FLIP_CARD && !result.completed) "" else quiz.explanation,
             correctAnswer = if (publicContract) correctAnswer else null,
         )

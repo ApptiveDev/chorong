@@ -17,13 +17,13 @@ import com.bawibase.chorong.domain.quiz.model.SelectionType
 import com.bawibase.chorong.domain.quiz.model.SortConfig
 import com.bawibase.chorong.domain.quiz.model.SortQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SortUserResponse
-import com.bawibase.chorong.domain.quiz.model.SwipeQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
-import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import com.bawibase.chorong.domain.quiz.model.SwipeChoice
 import com.bawibase.chorong.domain.quiz.model.SwipeConfig
+import com.bawibase.chorong.domain.quiz.model.SwipeQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
 import com.bawibase.chorong.domain.quiz.model.TapConfig
+import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -85,10 +85,10 @@ data class QuizPublicResponse(
             }
 
         private fun choices(items: List<QuizItemOption>): List<Map<String, Any?>> =
-            items.map { item ->
+            items.mapIndexed { index, item ->
                 buildMap<String, Any?> {
-                    put("id", item.id)
-                    item.text?.let { put("text", it) }
+                    put("index", index)
+                    put("label", item.text ?: item.id)
                     item.imageUrl?.let { put("imageUrl", it) }
                 }
             }
@@ -109,6 +109,19 @@ data class QuizPublicResponse(
 }
 
 object QuizPublicAnswer {
+    fun correct(quiz: QuizDefinition): JsonNode =
+        from(
+            quiz,
+            when (quiz) {
+                is MultipleChoiceQuizDefinition -> MultipleChoiceUserResponse(quiz.answer.correctOptionIds)
+                is TapQuizDefinition -> TapUserResponse(quiz.answer.correctItemIds)
+                is SwipeQuizDefinition -> SwipeUserResponse(quiz.answer.correctValue)
+                is SortQuizDefinition -> SortUserResponse(quiz.answer.correctOrder)
+                is FillBlankQuizDefinition -> FillBlankUserResponse(quiz.answer.texts)
+                else -> throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
+            },
+        )
+
     fun from(
         quiz: QuizDefinition,
         response: QuizUserResponse,

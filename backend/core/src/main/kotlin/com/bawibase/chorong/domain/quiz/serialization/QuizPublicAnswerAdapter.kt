@@ -68,7 +68,7 @@ class QuizPublicAnswerAdapter(
         itemIds: List<String>,
         index: JsonNode,
     ): String {
-        if (!index.isIntegralNumber || !index.canConvertToInt) invalidResponse()
+        if (!index.isIntegralNumber || !index.canConvertToInt()) invalidResponse()
         return itemIds.getOrNull(index.intValue()) ?: invalidResponse()
     }
 
@@ -78,7 +78,7 @@ class QuizPublicAnswerAdapter(
     ): List<Int> {
         if (!node.isArray) invalidResponse()
         return node.map { item ->
-            if (!item.isIntegralNumber || !item.canConvertToInt) invalidResponse()
+            if (!item.isIntegralNumber || !item.canConvertToInt()) invalidResponse()
             item.intValue().also { if (it !in 0 until itemCount) invalidResponse() }
         }
     }

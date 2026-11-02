@@ -62,7 +62,7 @@ data class HousingPlacementTransformRequest(
     @field:DecimalMin("0.0") @field:DecimalMax("1.0") val x: Double,
     @field:DecimalMin("0.0") @field:DecimalMax("1.0") val y: Double,
     @field:Min(0) @field:Max(270) val rotation: Int = 0,
-    @field:Min(0) @field:Max(9) val layer: Int = 0,
+    @field:Min(0) val layer: Int = 0,
 )
 
 data class HousingCoordinatePlacementBatchRequest(
@@ -75,8 +75,8 @@ data class HousingCoordinatePlacementResponse(
     val area: com.bawibase.chorong.domain.housing.HousingPlacementArea,
     val transform: HousingPlacementTransformResponse,
     val itemId: Long,
-    @field:JsonInclude(JsonInclude.Include.NON_NULL) val optionId: Long? = null,
-    @field:JsonInclude(JsonInclude.Include.NON_NULL) val option: Map<String, Any?>? = null,
+    val optionId: Long,
+    val option: Map<String, Any?>,
 )
 
 data class HousingPlacementTransformResponse(

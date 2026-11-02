@@ -132,7 +132,8 @@ class LearningApiTest {
             jsonPath("$.data.contents[1].contentType") { value("QUIZ") }
             jsonPath("$.data.contents[1].quiz.quizId") { value(quiz.id) }
             jsonPath("$.data.contents[1].quiz.type") { value("MULTIPLE_CHOICE") }
-            jsonPath("$.data.contents[1].quiz.options.choices[0].text") { value("선택지") }
+            jsonPath("$.data.contents[1].quiz.options.choices[0].label") { value("선택지") }
+            jsonPath("$.data.contents[1].quiz.options.choices[0].index") { value(0) }
             jsonPath("$.data.contents[1].quiz.hint") { value("선택") }
             jsonPath("$.data.contents[1].quiz.interactionType") { doesNotExist() }
             jsonPath("$.data.contents[1].quiz.answer") { doesNotExist() }
@@ -404,7 +405,14 @@ class LearningApiTest {
                 correctQuizId,
             ),
         )
-        postReviewAnswer(correctItemId, mapper.readTree("""{"index":0}""")).andExpect { status { isConflict() } }
+        mvc.get("/api/v1/reviews/next") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        val repeated = postReviewAnswer(correctItemId, mapper.readTree("""{"index":1}"""))
+            .andExpect { status { isOk() } }.andReturn().response.contentAsString
+        assertEquals(mapper.readTree(correctReviewResponse)["data"], mapper.readTree(repeated)["data"])
+        jdbc.update("UPDATE review_session_item SET answer_result=NULL WHERE review_item_id=?", correctItemId)
+        val legacyRepeated = postReviewAnswer(correctItemId, mapper.readTree("""{"index":1}"""))
+            .andExpect { status { isOk() } }.andReturn().response.contentAsString
+        assertEquals(mapper.readTree(correctReviewResponse)["data"], mapper.readTree(legacyRepeated)["data"])
         assertEquals(
             1,
             jdbc.queryForObject("SELECT COUNT(*) FROM quiz_attempt WHERE user_id=? AND quiz_id=?", Int::class.java, userId, correctQuizId),
@@ -415,7 +423,7 @@ class LearningApiTest {
         postReviewAnswer(wrongItemId, mapper.readTree("""{"value":false}""")).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(false) }
-            jsonPath("$.data.correctAnswer") { value(null) }
+            jsonPath("$.data.correctAnswer.value") { value(true) }
             jsonPath("$.data.excludedUntil") { value(null) }
             jsonPath("$.data.completed") { doesNotExist() }
         }
@@ -499,6 +507,10 @@ class LearningApiTest {
             status { isOk() }
             jsonPath("$.data.rewards.length()") { value(1) }
             jsonPath("$.data.wallet.star") { value(1) }
+        }
+        mvc.get("/api/v1/users/me/rewards") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.rewards[0].source") { value(emptyMap<String, Any>()) }
         }
         postReviewComplete(firstItems.reversed(), firstKey).andExpect { status { isConflict() } }
         postReviewComplete(firstItems, UUID.randomUUID().toString()).andExpect {
@@ -593,7 +605,7 @@ class LearningApiTest {
         postAnswer(quizIds.first(), wrong).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(false) }
-            jsonPath("$.data.correctAnswer") { value(null) }
+            jsonPath("$.data.correctAnswer.index") { value(0) }
             jsonPath("$.data.streakDays") { value(0) }
         }
         assertEquals("WRONG", reviewStatus(quizIds.first()))
@@ -712,6 +724,30 @@ class LearningApiTest {
         )
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM quiz_attempt WHERE user_id=?", Int::class.java, userId))
         assertEquals(true, jdbc.queryForObject("SELECT replay FROM quiz_attempt WHERE user_id=?", Boolean::class.java, userId))
+    }
+
+    @Test
+    fun `replay accepts successive answers without content completion calls`() {
+        val (_, lessonId) = createUnlockedLesson("replay without completion")
+        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','intro')", lessonId)
+        val quizIds = listOf(seedFixture(fixture, lessonId, 1), seedFixture(fixture, lessonId, 2))
+        jdbc.update("UPDATE lesson_progress SET status='COMPLETED', completed_at=now() WHERE user_id=? AND lesson_id=?", userId, lessonId)
+        mvc.post("/api/v1/lessons/$lessonId/start") {
+            header(HttpHeaders.AUTHORIZATION, auth)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"replay":true}"""
+        }.andExpect { status { isOk() } }
+        quizIds.forEach { quizId ->
+            postAnswer(quizId, mapper.readTree("""{"index":0}"""), replay = true).andExpect {
+                status { isOk() }
+                jsonPath("$.data.isCorrect") { value(true) }
+            }
+        }
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM quiz_attempt WHERE user_id=? AND replay", Int::class.java, userId))
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM reward_ledger WHERE user_id=?", Int::class.java, userId))
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM quiz_review_pool WHERE user_id=?", Int::class.java, userId))
+        assertEquals("COMPLETED", jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId))
     }
 
     @Test

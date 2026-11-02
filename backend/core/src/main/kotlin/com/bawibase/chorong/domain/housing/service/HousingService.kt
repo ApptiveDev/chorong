@@ -176,13 +176,10 @@ class HousingService(
                 if (!reference.store && (owned == null || owned.userId != userId)) {
                     throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED)
                 }
-                val expectedArea =
-                    if ((owned?.itemType == HousingItemType.FURNITURE) || storeOwned?.itemType == "FURNITURE") {
-                        HousingPlacementArea.INTERIOR
-                    } else {
-                        HousingPlacementArea.EXTERIOR
-                    }
-                if (placement.area != expectedArea) throw ApiV1Exception(ApiErrorCode.PLACEMENT_AREA_MISMATCH)
+                val furniture = owned?.itemType == HousingItemType.FURNITURE || storeOwned?.itemType == "FURNITURE"
+                if (furniture && placement.area != HousingPlacementArea.INTERIOR) {
+                    throw ApiV1Exception(ApiErrorCode.PLACEMENT_AREA_MISMATCH)
+                }
                 if (placement.transform.rotation !in setOf(0, 90, 180, 270)) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
                 HousingCoordinatePlacementEntity(
                     userId = userId,
@@ -219,8 +216,8 @@ class HousingService(
             area = area,
             transform = HousingPlacementTransformResponse(x, y, rotation, layer),
             itemId = itemId,
-            optionId = storeInventory?.optionId,
-            option = storeInventory?.option,
+            optionId = storeInventory?.optionId ?: NO_HOUSING_OPTION_ID,
+            option = storeInventory?.option ?: emptyMap(),
         )
     }
 
@@ -500,3 +497,5 @@ class HousingService(
         const val STORE_INVENTORY_PREFIX = "store:"
     }
 }
+
+private const val NO_HOUSING_OPTION_ID = 0L

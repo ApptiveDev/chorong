@@ -31,7 +31,7 @@ data class RewardRecordResponse(
     val amount: Long? = null,
     val itemId: Long? = null,
     val badge: LearningRewardBadge? = null,
-    val source: RewardSource? = null,
+    val source: RewardSource = RewardSource(),
     val grantedAt: Instant,
 )
 
@@ -44,10 +44,8 @@ data class InventoryItemResponse(
     val itemId: Long,
     val itemType: String,
     val name: String,
-    @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    val optionId: Long? = null,
-    @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    val option: Any? = null,
+    val optionId: Long,
+    val option: Map<String, Any?>,
     val acquiredVia: String,
     val acquiredAt: Instant,
     val placed: Boolean,
@@ -169,6 +167,8 @@ class RewardReadService(
                         itemId = it.itemId,
                         itemType = if (it.itemType == "FURNITURE") FURNITURE else OBJECT,
                         name = checkNotNull(it.name),
+                        optionId = NO_OPTION_ID,
+                        option = emptyMap(),
                         acquiredVia = if (it.starter) "STARTER" else "PURCHASE",
                         acquiredAt = it.acquiredAt,
                         placed = it.placed,
@@ -255,6 +255,7 @@ class RewardReadService(
         private const val DEFAULT_PAGE_SIZE = 20
         private const val MAX_PAGE_SIZE = 100
         private const val MAX_CURSOR_LENGTH = 128
+        private const val NO_OPTION_ID = 0L
         private const val FURNITURE = "FURNITURE"
         private const val OBJECT = "OBJECT"
         private val INVENTORY_TYPES = setOf(FURNITURE, OBJECT)
@@ -282,12 +283,7 @@ class RewardReadService(
                 val constellationId = rs.getLong("badge_constellation_id").let { if (rs.wasNull()) null else it }
                 val courseTitle = rs.getString("course_title")
                 val lessonTitle = rs.getString("lesson_title")
-                val source =
-                    if (courseId != null || lessonId != null || courseTitle != null || lessonTitle != null) {
-                        RewardSource(courseId, lessonId, courseTitle, lessonTitle)
-                    } else {
-                        null
-                    }
+                val source = RewardSource(courseId, lessonId, courseTitle, lessonTitle)
                 val grantedAt = rs.getTimestamp("created_at").toInstant()
                 RewardRow(
                     rewardLedgerId = rs.getLong("reward_ledger_id"),
