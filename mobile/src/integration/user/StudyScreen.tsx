@@ -274,7 +274,7 @@ const s = StyleSheet.create({
   scrollContent: { flexGrow: 1, justifyContent: 'center', gap: 14, paddingVertical: 12 },
   body: { color: '#273a52', fontSize: 14, lineHeight: 21 },
   media: { height: 260, width: '100%' },
-  footer: { gap: 10, paddingBottom: 12 },
+  footer: { gap: 8, paddingBottom: 8 },
   hint: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
   actions: { flexDirection: 'row', gap: 8 },
   action: {
