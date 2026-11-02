@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Nav, styles } from '../ui';
 import { useIntegration, type useTask } from '../hooks';
@@ -33,17 +33,24 @@ export function UserScreen({
     </>
   );
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'right', 'left']}>
+    <SafeAreaView
+      style={screenStyles.safe}
+      edges={scroll ? ['top', 'right', 'left'] : ['top', 'right', 'bottom', 'left']}
+    >
       {scroll ? (
         <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
           {content}
         </ScrollView>
       ) : (
-        <View style={[styles.page, { flex: 1, paddingBottom: 0 }]}>{content}</View>
+        <View style={screenStyles.fixedPage}>{content}</View>
       )}
     </SafeAreaView>
   );
 }
+const screenStyles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#fff' },
+  fixedPage: { flex: 1, minHeight: 0, paddingHorizontal: 18, paddingTop: 12, gap: 8 },
+});
 export function UserStatus({ task }: { task: ReturnType<typeof useTask> }) {
   const message = task.error?.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '');
   return (
