@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { api } from './api';
 import type { QuizPreviewResult, QuizResponse, QuizSummary } from '../types/quiz';
+import { checkMockQuiz, mockQuizForLesson } from './mock-lesson-quizzes';
 
 const previewApi = axios.create({
   baseURL: api.defaults.baseURL,
@@ -8,9 +9,10 @@ const previewApi = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-if (process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
+const useMock = process.env.EXPO_PUBLIC_USE_MOCK === 'true';
+if (useMock) {
   previewApi.defaults.adapter = async () => {
-    throw new Error('개발용 퀴즈 API는 Mock 데이터가 없습니다. 학습 화면을 사용하세요.');
+    throw new Error('Mock 퀴즈는 네트워크를 사용하지 않습니다.');
   };
 }
 
@@ -22,32 +24,36 @@ export function parseLessonId(value: string): number | null {
 
 export const quizApi = {
   list: (lessonId: number, signal?: AbortSignal) =>
-    previewApi
-      .get<QuizSummary[]>('/api/dev/quizzes', { params: { lessonId }, signal })
-      .then(({ data }) => {
-        if (
-          !Array.isArray(data) ||
-          data.some(
-            (q) =>
-              !q ||
-              !Number.isSafeInteger(q.quizId) ||
-              q.quizId <= 0 ||
-              !Number.isSafeInteger(q.lessonId) ||
-              q.lessonId <= 0 ||
-              typeof q.question !== 'string' ||
-              typeof q.instruction !== 'string' ||
-              typeof q.difficulty !== 'string' ||
-              typeof q.interactionType !== 'string',
-          )
-        ) {
-          throw new Error('퀴즈 목록 형식을 확인할 수 없습니다.');
-        }
-        return data;
-      }),
+    useMock
+      ? Promise.resolve(mockQuizForLesson(lessonId))
+      : previewApi
+          .get<QuizSummary[]>('/api/dev/quizzes', { params: { lessonId }, signal })
+          .then(({ data }) => {
+            if (
+              !Array.isArray(data) ||
+              data.some(
+                (q) =>
+                  !q ||
+                  !Number.isSafeInteger(q.quizId) ||
+                  q.quizId <= 0 ||
+                  !Number.isSafeInteger(q.lessonId) ||
+                  q.lessonId <= 0 ||
+                  typeof q.question !== 'string' ||
+                  typeof q.instruction !== 'string' ||
+                  typeof q.difficulty !== 'string' ||
+                  typeof q.interactionType !== 'string',
+              )
+            ) {
+              throw new Error('퀴즈 목록 형식을 확인할 수 없습니다.');
+            }
+            return data;
+          }),
   check: (quizId: number, response: QuizResponse) =>
-    previewApi
-      .post<QuizPreviewResult>(`/api/dev/quizzes/${quizId}/check`, { response })
-      .then((r) => r.data),
+    useMock
+      ? Promise.resolve(checkMockQuiz(quizId, response))
+      : previewApi
+          .post<QuizPreviewResult>(`/api/dev/quizzes/${quizId}/check`, { response })
+          .then((r) => r.data),
 };
 
 export function quizErrorMessage(error: unknown): string {

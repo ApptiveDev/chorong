@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useTask } from '../hooks';
-import { Button, Choices, Field, styles } from '../ui';
+import { Field, styles } from '../ui';
 import { UserStatus } from './Screen';
 
 type Choice = { index: number; label: string };
@@ -68,9 +68,11 @@ export function QuizCard({
       {quiz.hint ? <Text style={styles.text}>힌트: {quiz.hint}</Text> : null}
       {quiz.type === 'MULTIPLE_CHOICE' &&
         choices?.map((c) => (
-          <Button
+          <QuizAction
             key={c.index}
-            title={`${selected === c.index ? '선택됨 · ' : ''}${c.label}`}
+            label={c.label}
+            selected={selected === c.index}
+            secondary
             disabled={disabled || !!task.result || task.busy}
             onPress={() => setSelected(c.index)}
           />
@@ -78,18 +80,33 @@ export function QuizCard({
       {quiz.type === 'FILL_BLANK' ? (
         <Field label="빈칸 답 (한 줄에 하나씩)" value={text} onChange={setText} multiline />
       ) : null}
-      {quiz.type === 'OX' ? <Choices values={['O', 'X']} value={ox} onChange={setOx} /> : null}
+      {quiz.type === 'OX' ? (
+        <View style={quizStyles.row}>
+          {(['O', 'X'] as const).map((value) => (
+            <QuizAction
+              key={value}
+              label={value}
+              secondary
+              selected={ox === value}
+              disabled={disabled || !!task.result || task.busy}
+              onPress={() => setOx(value)}
+            />
+          ))}
+        </View>
+      ) : null}
       {quiz.type === 'ORDERING' && items
         ? order.map((index, position) => (
             <View key={index} style={[styles.card, { flexDirection: 'row', alignItems: 'center' }]}>
               <Text style={{ flex: 1 }}>{items.find((item) => item.index === index)?.label}</Text>
-              <Button
-                title="위로"
+              <QuizAction
+                label="위로"
+                secondary
                 disabled={position === 0 || disabled}
                 onPress={() => move(position, -1)}
               />
-              <Button
-                title="아래로"
+              <QuizAction
+                label="아래로"
+                secondary
                 disabled={position === order.length - 1 || disabled}
                 onPress={() => move(position, 1)}
               />
@@ -101,8 +118,8 @@ export function QuizCard({
           선택지 형식 확인 대기. 개발자 진단 화면에서 서버 응답을 확인하세요.
         </Text>
       ) : null}
-      <Button
-        title="답안 제출"
+      <QuizAction
+        label="정답 확인"
         disabled={disabled || task.busy || !!task.result || contractMissing}
         onPress={() => void task.run(() => submit(answer()), onGraded)}
       />
@@ -121,3 +138,51 @@ export function QuizCard({
     </View>
   );
 }
+
+function QuizAction({
+  label,
+  onPress,
+  disabled = false,
+  secondary = false,
+  selected = false,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  secondary?: boolean;
+  selected?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        quizStyles.action,
+        secondary && quizStyles.secondary,
+        selected && quizStyles.selected,
+        disabled && quizStyles.disabled,
+      ]}
+    >
+      <Text style={[quizStyles.actionText, secondary && quizStyles.secondaryText]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const quizStyles = StyleSheet.create({
+  row: { flexDirection: 'row', gap: 8 },
+  action: {
+    minHeight: 44,
+    borderRadius: 5,
+    padding: 12,
+    backgroundColor: '#273a52',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
+  secondaryText: { color: '#273a52' },
+  selected: { borderColor: '#273a52', backgroundColor: '#eef2f5' },
+  disabled: { opacity: 0.45 },
+});

@@ -125,6 +125,65 @@ test('mock API renders linked data without using the HTTP adapter', async () => 
     true,
   );
 });
+test('ten new topics keep course, lesson, card, and quiz IDs linked through the API', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const { courses } = await api.learning.courses();
+  assert.equal(courses.length, 4);
+  const constellation = await api.benefits.constellations();
+  assert.equal(constellation.constellations.length, 4);
+  const expectedIds = [41, 51, 61, 71, 81, 91, 101, 111, 121, 131];
+  const grouped = [];
+  const ids = new Set();
+  for (const [courseIndex, course] of courses.entries()) {
+    const detail = await api.learning.course(course.courseId);
+    assert.equal(detail.title, course.title);
+    assert.equal(detail.lessons.length, [4, 4, 4, 3][courseIndex]);
+    assert.deepEqual(
+      detail.lessons.map((lesson) => lesson.order),
+      detail.lessons.map((_, index) => index + 1),
+    );
+    grouped.push(...detail.lessons.map((lesson) => lesson.lessonId));
+    for (const summary of detail.lessons.filter((lesson) =>
+      expectedIds.includes(lesson.lessonId),
+    )) {
+      const lessonId = summary.lessonId;
+      const lesson = await api.learning.lesson(lessonId);
+      const start = await api.learning.start(lessonId, false);
+      assert.equal(lesson.courseId, course.courseId);
+      assert.deepEqual(start.contents, lesson.contents);
+      assert.equal(lesson.contents.filter((content) => content.contentType === 'TEXT').length, 4);
+      assert.equal(lesson.contents.at(-1).contentType, 'QUIZ');
+      assert.equal(lesson.contents.at(-1).quiz.quizId, lessonId * 10 + 1);
+      lesson.contents.forEach((content, index) => {
+        assert.equal(content.order, index + 1);
+        assert.equal(content.contentId, lessonId * 100 + index + 1);
+        assert.equal(ids.has(content.contentId), false);
+        ids.add(content.contentId);
+        if (content.contentType === 'TEXT') {
+          assert.ok(content.body.length >= 60 && content.body.length <= 120);
+        }
+      });
+    }
+  }
+  assert.deepEqual(
+    grouped.filter((id) => expectedIds.includes(id)).sort((a, b) => a - b),
+    expectedIds,
+  );
+  assert.equal(grouped.length, 15);
+  assert.equal(ids.size, 50);
+});
 test('mock empty and error scenarios return without network', async () => {
   const modulePath = require.resolve('../.expo/integration-tests/mockApi');
   const prior = process.env.EXPO_PUBLIC_MOCK_SCENARIO;

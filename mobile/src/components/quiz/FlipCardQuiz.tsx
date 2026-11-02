@@ -153,5 +153,5 @@ export function FlipCardQuiz({
 }
 const cardStyles = StyleSheet.create({
   card: { width: '47%', minHeight: 110, justifyContent: 'center' },
-  matched: { backgroundColor: '#dcfce7', borderColor: '#16a34a' },
+  matched: { backgroundColor: '#eef2f5', borderColor: '#273a52' },
 });

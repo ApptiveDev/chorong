@@ -74,7 +74,7 @@ export function SliderQuiz({
       >
         <View
           pointerEvents="none"
-          style={{ height: 6, backgroundColor: '#9ca3af', borderRadius: 3 }}
+          style={{ height: 6, backgroundColor: '#aab8c8', borderRadius: 3 }}
         />
         <View
           pointerEvents="none"
@@ -85,7 +85,7 @@ export function SliderQuiz({
             width: 22,
             height: 22,
             borderRadius: 11,
-            backgroundColor: '#2563eb',
+            backgroundColor: '#273a52',
           }}
         />
       </View>

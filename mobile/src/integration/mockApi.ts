@@ -361,26 +361,15 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({
         constellations: empty
           ? []
-          : [
-              {
-                constellationId: 1,
-                courseId: 1,
-                name: '작은곰자리',
-                starCount: 2,
-                earnedStars: 1,
-                badgeEarned: false,
-                imageUrl: null,
-              },
-              {
-                constellationId: 2,
-                courseId: 2,
-                name: '오리온자리',
-                starCount: 2,
-                earnedStars: 0,
-                badgeEarned: false,
-                imageUrl: null,
-              },
-            ],
+          : courses.map((course) => ({
+              constellationId: course.constellation!.constellationId,
+              courseId: course.courseId,
+              name: course.constellation!.name,
+              starCount: course.totalLessons,
+              earnedStars: course.completedLessons,
+              badgeEarned: false,
+              imageUrl: null,
+            })),
       });
     case 'API-907':
       return response({

@@ -1,16 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import {
-  FlatList,
-  Image,
-  Keyboard,
-  Linking,
-  ScrollView,
-  Text,
-  View,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
   Content,
   LessonStartResponse,
@@ -18,11 +9,12 @@ import type {
   QuizAnswer,
   AnswerResult,
 } from '../models';
-import { integrationApi as api } from '../runtime';
+import { integrationApi as api, useMockApi } from '../runtime';
 import { useTask, useIntegration } from '../hooks';
-import { Button, Card, positiveId, styles } from '../ui';
+import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
 import { QuizCard } from './QuizCard';
+import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 
 export default function StudyScreen() {
   const { generation } = useIntegration();
@@ -32,27 +24,16 @@ function Study() {
   const params = useLocalSearchParams<{ lessonId: string; replay?: string; title?: string }>(),
     router = useRouter(),
     task = useTask();
-  const list = useRef<FlatList<Content>>(null);
   const [start, setStart] = useState<LessonStartResponse | null>(null),
-    [position, setPosition] = useState(0),
-    [height, setHeight] = useState(1);
+    [position, setPosition] = useState(0);
   const [answered, setAnswered] = useState<Set<number>>(new Set()),
     [completed, setCompleted] = useState<Set<number>>(new Set());
   const [lessonDone, setLessonDone] = useState(false),
     [reward, setReward] = useState<LessonCompleteResponse | null>(null);
   const [refreshNotice, setRefreshNotice] = useState(''),
     [wallet, setWallet] = useState<{ star: number; stardust: number } | null>(null);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
   useEffect(() => {
     let active = true;
     void task.run(async () => {
@@ -80,29 +61,8 @@ function Study() {
       active = false;
     };
   }, [lessonId, replay]);
-  useEffect(() => {
-    if (start && height > 1) list.current?.scrollToIndex({ index: position, animated: false });
-  }, [start, height]);
   const contents = start?.contents ?? [],
     current = contents[position];
-  const readyToAdvance = !current
-    ? false
-    : replay
-      ? current.contentType !== 'QUIZ' || answered.has(current.contentId)
-      : completed.has(current.contentId);
-  const jump = (next: number) => {
-    if (next < 0 || next >= contents.length || (next > position && !readyToAdvance)) {
-      list.current?.scrollToIndex({ index: position, animated: true });
-      return;
-    }
-    setPosition(next);
-    list.current?.scrollToIndex({ index: next, animated: true });
-  };
-  const onScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (height <= 1) return;
-    const target = Math.round(event.nativeEvent.contentOffset.y / height);
-    if (target !== position) jump(target);
-  };
   const refreshAfterDone = async () => {
     try {
       await api.learning.progress();
@@ -134,20 +94,35 @@ function Study() {
       await refreshAfterDone();
       return result;
     });
+  const advance = async () => {
+    if (!current || task.busy || lessonDone) return;
+    if (current.contentType === 'QUIZ' && !answered.has(current.contentId)) return;
+    if (!replay && !completed.has(current.contentId)) {
+      const result = await completeContent(current);
+      if (!result) return;
+      if (result.lessonCompleted) return;
+    }
+    if (position < contents.length - 1) setPosition(position + 1);
+    else if (!replay) await completeLesson();
+  };
+  const last = position === contents.length - 1;
   return (
     <UserScreen title={params.title ?? '학습'} scroll={false}>
-      <Button title="뒤로가기" onPress={() => router.back()} />
-      <Text style={styles.text}>
+      <Pressable accessibilityRole="button" style={s.back} onPress={() => router.back()}>
+        <Ionicons name="chevron-back" size={18} color="#273a52" />
+        <Text style={s.backText}>레슨 목록</Text>
+      </Pressable>
+      <Text style={s.progress}>
         {start?.reviewRequired
           ? '선행 복습이 필요합니다.'
-          : `${position + 1}/${contents.length || 0} · ${start?.progress.status ?? '시작 중'}`}
+          : `${position + 1} / ${contents.length || 0}`}
       </Text>
       <UserStatus task={task} />
       {start?.reviewRequired ? (
         <>
           <Text style={styles.text}>복습을 마친 뒤 이 레슨을 다시 시작하세요.</Text>
-          <Button
-            title="복습하기"
+          <StudyAction
+            label="복습하기"
             onPress={() =>
               router.push({ pathname: '/review', params: { lessonId: String(lessonId) } })
             }
@@ -156,135 +131,164 @@ function Study() {
       ) : null}
       {start && !start.reviewRequired ? (
         <>
-          <View style={{ flex: 1 }} onLayout={(e) => setHeight(e.nativeEvent.layout.height)}>
-            <FlatList
-              ref={list}
-              data={contents}
-              keyExtractor={(item) => String(item.contentId)}
-              renderItem={({ item, index }) => (
-                <View style={{ height, paddingVertical: 12 }}>
-                  <ScrollView
-                    nestedScrollEnabled
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={{
-                      minHeight: height - 24,
-                      justifyContent: 'center',
-                      gap: 14,
-                      paddingHorizontal: 2,
-                    }}
-                  >
-                    <Text style={styles.text}>
-                      콘텐츠 {index + 1} / {contents.length}
-                    </Text>
-                    {item.body ? <Text style={styles.subtitle}>{item.body}</Text> : null}
-                    {item.contentType === 'IMAGE' && item.mediaUrl ? (
-                      <Image
-                        source={{ uri: item.mediaUrl }}
-                        style={{ height: 260, width: '100%' }}
-                        resizeMode="contain"
-                      />
-                    ) : null}
-                    {item.contentType === 'VIDEO' && item.mediaUrl ? (
-                      <Button
-                        title="영상 열기"
-                        onPress={() => void Linking.openURL(item.mediaUrl!).catch(() => {})}
-                      />
-                    ) : null}
-                    {item.contentType === 'QUIZ' && item.quiz ? (
-                      <QuizCard
-                        key={item.contentId}
-                        quiz={item.quiz}
-                        disabled={answered.has(item.contentId)}
-                        submit={(answer: QuizAnswer) =>
-                          api.learning.answer(item.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={(_result: AnswerResult) =>
-                          setAnswered((previous) => new Set(previous).add(item.contentId))
-                        }
-                      />
-                    ) : null}
-                    {item.contentType === 'QUIZ' && !item.quiz ? (
-                      <Text style={styles.error}>퀴즈 내용을 불러오지 못했습니다.</Text>
-                    ) : null}
-                    {!replay && !completed.has(item.contentId) ? (
-                      <Button
-                        title="학습 완료"
-                        disabled={
-                          task.busy ||
-                          (item.contentType === 'QUIZ' && !answered.has(item.contentId))
-                        }
-                        onPress={() => void completeContent(item)}
-                      />
-                    ) : null}
-                    {completed.has(item.contentId) ? (
-                      <Text style={styles.text}>학습 완료됨</Text>
-                    ) : null}
-                    {replay ? (
-                      <Text style={styles.text}>
-                        다시 학습 중입니다. 진행도와 보상은 변경하지 않습니다.
-                      </Text>
-                    ) : null}
-                  </ScrollView>
-                </View>
-              )}
-              pagingEnabled
-              snapToInterval={height}
-              decelerationRate="fast"
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={!keyboardVisible}
-              getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
-              onMomentumScrollEnd={onScrollEnd}
-              onScrollEndDrag={onScrollEnd}
-              onScrollToIndexFailed={() =>
-                list.current?.scrollToOffset({ offset: position * height, animated: false })
-              }
-            />
+          <View style={s.content}>
+            {current?.contentType === 'TEXT' ? (
+              <View style={s.explanation}>
+                <Text style={s.explanationText}>{current.body}</Text>
+              </View>
+            ) : current ? (
+              <ScrollView
+                key={current.contentId}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={s.scrollContent}
+              >
+                {current.body ? <Text style={s.body}>{current.body}</Text> : null}
+                {current.contentType === 'IMAGE' && current.mediaUrl ? (
+                  <Image source={{ uri: current.mediaUrl }} style={s.media} resizeMode="contain" />
+                ) : null}
+                {current.contentType === 'VIDEO' && current.mediaUrl ? (
+                  <StudyAction
+                    label="영상 열기"
+                    onPress={() => void Linking.openURL(current.mediaUrl!).catch(() => {})}
+                  />
+                ) : null}
+                {current.contentType === 'QUIZ' && current.quiz ? (
+                  useMockApi ? (
+                    <LessonQuizWireframe
+                      key={current.contentId}
+                      lessonId={lessonId}
+                      quiz={current.quiz}
+                      disabled={answered.has(current.contentId)}
+                      submitLegacy={(answer: QuizAnswer) =>
+                        api.learning.answer(current.quiz!.quizId, answer, replay)
+                      }
+                      onAnswered={() =>
+                        setAnswered((previous) => new Set(previous).add(current.contentId))
+                      }
+                    />
+                  ) : (
+                    <QuizCard
+                      key={current.contentId}
+                      quiz={current.quiz}
+                      disabled={answered.has(current.contentId)}
+                      submit={(answer: QuizAnswer) =>
+                        api.learning.answer(current.quiz!.quizId, answer, replay)
+                      }
+                      onGraded={(_result: AnswerResult) =>
+                        setAnswered((previous) => new Set(previous).add(current.contentId))
+                      }
+                    />
+                  )
+                ) : null}
+                {current.contentType === 'QUIZ' && !current.quiz ? (
+                  <Text style={styles.error}>퀴즈 내용을 불러오지 못했습니다.</Text>
+                ) : null}
+              </ScrollView>
+            ) : (
+              <View style={s.explanation}>
+                <Text style={s.progress}>표시할 콘텐츠가 없습니다.</Text>
+              </View>
+            )}
           </View>
-          <View style={{ gap: 8, paddingBottom: 12 }}>
-            {current && !readyToAdvance && !lessonDone ? (
-              <Text style={styles.text}>
-                {current.contentType === 'QUIZ'
-                  ? '답안을 제출하고 채점 결과를 확인하세요.'
-                  : '학습 완료를 누른 뒤 위로 넘기세요.'}
-              </Text>
+          <View style={s.footer}>
+            {current?.contentType === 'QUIZ' && !answered.has(current.contentId) ? (
+              <Text style={s.hint}>답안을 확인한 뒤 다음으로 이동하세요.</Text>
             ) : null}
-            <View style={styles.row}>
-              <Button title="이전" disabled={position === 0} onPress={() => jump(position - 1)} />
-              <Button
-                title="다음"
-                disabled={position >= contents.length - 1 || !readyToAdvance}
-                onPress={() => jump(position + 1)}
-              />
-            </View>
-            {position === contents.length - 1 &&
-            completed.has(current?.contentId ?? -1) &&
-            !lessonDone &&
-            !replay ? (
-              <Button
-                title="레슨 완료"
-                disabled={task.busy}
-                onPress={() => void completeLesson()}
-              />
+            {replay ? (
+              <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
             ) : null}
             {lessonDone ? (
-              <Card title="레슨 완료">
-                <Text style={styles.text}>
+              <View style={s.reward}>
+                <Text style={s.body}>
                   {reward
                     ? `보상 ${reward.rewards.length}건 · 별 ${reward.wallet.star} · 별가루 ${reward.wallet.stardust}`
                     : '레슨 완료 결과를 받았습니다.'}
                 </Text>
                 {wallet ? (
-                  <Text style={styles.text}>
+                  <Text style={s.body}>
                     현재 잔액: 별 {wallet.star} · 별가루 {wallet.stardust}
                   </Text>
                 ) : null}
-                {refreshNotice ? <Text style={styles.text}>{refreshNotice}</Text> : null}
-                <Button title="코스로 돌아가기" onPress={() => router.back()} />
-              </Card>
+                {refreshNotice ? <Text style={s.hint}>{refreshNotice}</Text> : null}
+              </View>
             ) : null}
+            <View style={s.actions}>
+              <StudyAction
+                label="이전"
+                secondary
+                disabled={position === 0 || task.busy}
+                onPress={() => setPosition(position - 1)}
+              />
+              <StudyAction
+                label={lessonDone || (replay && last) ? '레슨 목록' : last ? '레슨 완료' : '다음'}
+                disabled={
+                  !current ||
+                  task.busy ||
+                  (!lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId))
+                }
+                onPress={
+                  lessonDone || (replay && last) ? () => router.back() : () => void advance()
+                }
+              />
+            </View>
           </View>
         </>
       ) : null}
     </UserScreen>
   );
 }
+
+function StudyAction({
+  label,
+  onPress,
+  secondary = false,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  secondary?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[s.action, secondary && s.secondary, disabled && s.disabled]}
+    >
+      <Text style={[s.actionText, secondary && s.secondaryText]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const s = StyleSheet.create({
+  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2 },
+  backText: { color: '#273a52', fontSize: 12 },
+  progress: { color: '#7b8795', fontSize: 12 },
+  content: { flex: 1, minHeight: 0 },
+  explanation: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  explanationText: { color: '#273a52', fontSize: 17, lineHeight: 28, textAlign: 'center' },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', gap: 14, paddingVertical: 12 },
+  body: { color: '#273a52', fontSize: 14, lineHeight: 21 },
+  media: { height: 260, width: '100%' },
+  footer: { gap: 10, paddingBottom: 12 },
+  hint: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
+  actions: { flexDirection: 'row', gap: 8 },
+  action: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 5,
+    backgroundColor: '#273a52',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  actionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
+  secondaryText: { color: '#273a52' },
+  disabled: { opacity: 0.45 },
+  reward: { padding: 12, borderRadius: 6, backgroundColor: '#eef2f5', gap: 4 },
+});
