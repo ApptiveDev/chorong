@@ -15,6 +15,7 @@ import com.bawibase.chorong.domain.housing.repository.HousingProfileRepository
 import com.bawibase.chorong.domain.housing.service.HousingCatalogService
 import com.bawibase.chorong.domain.housing.service.HousingService
 import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
 import com.bawibase.chorong.domain.user.repository.UserAuthRepository
@@ -79,7 +80,7 @@ class GuestAuthService(
             token.accessToken,
             token.refreshToken,
             token.expiresIn,
-            UserBrief(auth.userId, user.nickname, user.status),
+            UserBrief(auth.userId, UserNicknamePolicy.displayName(user.nickname, user.status), user.status),
             isNew = existing == null,
         )
     }

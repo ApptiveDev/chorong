@@ -5,6 +5,7 @@ import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.domain.quiz.QuizInteractionType
 import com.bawibase.chorong.domain.quiz.dto.QuizAttemptResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizPreviewResponse
+import com.bawibase.chorong.domain.quiz.dto.QuizPublicAnswer
 import com.bawibase.chorong.domain.quiz.dto.QuizResponse
 import com.bawibase.chorong.domain.quiz.entity.QuizAttemptEntity
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
@@ -12,6 +13,7 @@ import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
 import com.bawibase.chorong.domain.quiz.repository.QuizAttemptRepository
 import com.bawibase.chorong.domain.quiz.repository.QuizItemRepository
 import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
+import com.bawibase.chorong.domain.quiz.serialization.QuizPublicAnswerAdapter
 import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.fasterxml.jackson.databind.JsonNode
 import org.springframework.stereotype.Service
@@ -25,6 +27,7 @@ class QuizService(
     private val users: UserRepository,
     private val grader: QuizGrader,
     private val converter: QuizModelConverter,
+    private val publicAnswerAdapter: QuizPublicAnswerAdapter,
 ) {
     fun list(lessonId: Long): List<QuizResponse> {
         validateId(lessonId, "lessonId")
@@ -53,12 +56,36 @@ class QuizService(
         quizId: Long,
         response: JsonNode,
         replay: Boolean = false,
+    ): QuizAttemptResponse = submitInternal(userId, quizId, response, replay, publicAnswer = false, publicContract = false)
+
+    @Transactional
+    fun submitPublic(
+        userId: Long,
+        quizId: Long,
+        answer: JsonNode,
+        replay: Boolean = false,
     ): QuizAttemptResponse {
+        return submitInternal(userId, quizId, answer, replay, publicAnswer = true, publicContract = true)
+    }
+
+    private fun submitInternal(
+        userId: Long,
+        quizId: Long,
+        submittedAnswer: JsonNode,
+        replay: Boolean,
+        publicAnswer: Boolean,
+        publicContract: Boolean,
+    ): QuizAttemptResponse {
+        validateId(quizId, "quizId")
+        val quiz = findQuiz(quizId)
+        val definition = converter.readDefinition(quiz)
+        grader.validate(definition)
+        val response = if (publicAnswer) publicAnswerAdapter.adapt(definition, submittedAnswer) else submittedAnswer
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
-        val quiz = findQuiz(quizId)
         val checked = check(quiz, response)
         val result = checked.result
+        val correctAnswer = if (publicContract && result.correct == true) QuizPublicAnswer.from(definition, checked.response) else null
         val attempt =
             attempts.save(
                 QuizAttemptEntity(
@@ -73,10 +100,11 @@ class QuizService(
             )
         return QuizAttemptResponse(
             attemptId = checkNotNull(attempt.id),
-            graded = result.graded,
-            correct = result.correct,
-            completed = result.completed,
+            graded = result.graded.takeUnless { publicContract },
+            correct = result.correct.takeUnless { publicContract },
+            completed = result.completed.takeUnless { publicContract },
             explanation = if (quiz.interactionType == QuizInteractionType.FLIP_CARD && !result.completed) "" else quiz.explanation,
+            correctAnswer = if (publicContract) correctAnswer else null,
         )
     }
 

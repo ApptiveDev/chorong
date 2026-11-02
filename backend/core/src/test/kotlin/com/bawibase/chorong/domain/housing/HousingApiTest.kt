@@ -189,9 +189,261 @@ class HousingApiTest {
             jsonPath("$.data.housing.isPublic") { value(false) }
             jsonPath("$.data.housing.likeCount") { value(0) }
             jsonPath("$.data.placements.length()") { value(0) }
-            jsonPath("$.data.avatar") { value(null) }
+            jsonPath("$.data.avatar.x") { value(0.5) }
+            jsonPath("$.data.avatar.y") { value(0.5) }
+            jsonPath("$.data.avatar.state") { value("IDLE") }
+            jsonPath("$.data.avatar.placementId") { value(null) }
             jsonPath("$.data.activeRoomId") { value("room_basic") }
             jsonPath("$.data.legacyLayouts.room_basic.avatarId") { value("av_cat") }
+        }
+    }
+
+    @Test
+    fun `v1 inventory marks absent store options as nullable fields`() {
+        val token = login("v1-inventory-null-option-${UUID.randomUUID()}@test.local")
+        mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
+
+        val inventory =
+            mockMvc
+                .get("/api/v1/users/me/inventory") { header(header, token) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        val items = objectMapper.readTree(inventory)["data"]["items"]
+        assertTrue(items.size() > 0)
+        assertTrue(
+            items.all {
+                it.has("optionId") && it["optionId"].isNull && it.has("option") && it["option"].isNull
+            },
+        )
+    }
+
+    @Test
+    fun `v1 home and public housing return the same saved avatar state`() {
+        val ownerEmail = "v1-avatar-owner-${UUID.randomUUID()}@test.local"
+        val ownerToken = login(ownerEmail)
+        val viewerToken = login("v1-avatar-viewer-${UUID.randomUUID()}@test.local")
+        val ownerId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, ownerEmail)).userId
+        mockMvc.get("/api/v1/housings/me") { header(header, ownerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.avatar.x") { value(0.5) }
+            jsonPath("$.data.avatar.y") { value(0.5) }
+            jsonPath("$.data.avatar.state") { value("IDLE") }
+        }
+        jdbc.update(
+            "INSERT INTO housing_avatar_state(user_id,x,y,state,placement_id) VALUES (?,0.23,0.81,'SIT',NULL)",
+            ownerId,
+        )
+        mockMvc.patch("/api/v1/housings/me") {
+            header(header, ownerToken)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"isPublic":true}"""
+        }.andExpect { status { isOk() } }
+
+        mockMvc.get("/api/v1/housings/me") { header(header, ownerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.avatar.x") { value(0.23) }
+            jsonPath("$.data.avatar.y") { value(0.81) }
+            jsonPath("$.data.avatar.state") { value("SIT") }
+            jsonPath("$.data.avatar.placementId") { value(null) }
+        }
+        mockMvc.get("/api/v1/housings/$ownerId") { header(header, viewerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.avatar.x") { value(0.23) }
+            jsonPath("$.data.avatar.y") { value(0.81) }
+            jsonPath("$.data.avatar.state") { value("SIT") }
+            jsonPath("$.data.avatar.placementId") { value(null) }
+        }
+    }
+
+    @Test
+    fun `v1 avatar patch validates and persists avatar state and owned placement`() {
+        val email = "v1-avatar-patch-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val inventoryBody =
+            mockMvc
+                .get("/api/v1/users/me/inventory") { header(header, token) }
+                .andReturn()
+                .response.contentAsString
+        val furnitureInventoryId =
+            objectMapper.readTree(inventoryBody)["data"]["items"]
+                .first { it["itemType"].asText() == "FURNITURE" }["inventoryId"].asText()
+        val placementsBody =
+            mockMvc.put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$furnitureInventoryId","area":"INTERIOR","transform":{"x":0.3,"y":0.4}}]}"""
+            }.andExpect { status { isOk() } }.andReturn().response.contentAsString
+        val placementId = objectMapper.readTree(placementsBody)["data"]["placements"][0]["placementId"].asLong()
+        val otherToken = login("v1-avatar-other-${UUID.randomUUID()}@test.local")
+        val otherInventoryBody =
+            mockMvc
+                .get("/api/v1/users/me/inventory") { header(header, otherToken) }
+                .andReturn()
+                .response.contentAsString
+        val otherFurnitureInventoryId =
+            objectMapper.readTree(otherInventoryBody)["data"]["items"]
+                .first { it["itemType"].asText() == "FURNITURE" }["inventoryId"].asText()
+        val otherPlacementBody =
+            mockMvc.put("/api/v1/housings/me/placements") {
+                header(header, otherToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$otherFurnitureInventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5}}]}"""
+            }.andReturn().response.contentAsString
+        val otherPlacementId = objectMapper.readTree(otherPlacementBody)["data"]["placements"][0]["placementId"].asLong()
+
+        mockMvc.patch("/api/v1/housings/me/avatar") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"x":0.25,"y":0.75,"state":"SLEEP","placementId":$placementId}"""
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.x") { value(0.25) }
+            jsonPath("$.data.y") { value(0.75) }
+            jsonPath("$.data.state") { value("SLEEP") }
+            jsonPath("$.data.placementId") { value(placementId) }
+        }
+        mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.avatar.x") { value(0.25) }
+            jsonPath("$.data.avatar.y") { value(0.75) }
+            jsonPath("$.data.avatar.state") { value("SLEEP") }
+            jsonPath("$.data.avatar.placementId") { value(placementId) }
+        }
+        assertEquals(
+            1,
+            jdbc.queryForObject("SELECT COUNT(*) FROM housing_avatar_state WHERE user_id=?", Int::class.java, userId),
+        )
+
+        mockMvc.patch("/api/v1/housings/me/avatar") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"x":0.5,"y":0.5,"state":"IDLE","placementId":999999999}"""
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("PLACEMENT_NOT_FOUND") }
+        }
+        mockMvc.patch("/api/v1/housings/me/avatar") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"x":0.5,"y":0.5,"state":"IDLE","placementId":$otherPlacementId}"""
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("PLACEMENT_NOT_FOUND") }
+        }
+        mockMvc.patch("/api/v1/housings/me/avatar") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"x":1.01,"y":0.5,"state":"IDLE"}"""
+        }.andExpect { status { isBadRequest() } }
+        mockMvc.patch("/api/v1/housings/me/avatar") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"x":0.5,"y":0.5,"state":"UNKNOWN"}"""
+        }.andExpect { status { isBadRequest() } }
+    }
+
+    @Test
+    fun `v1 housing placements include store option in save and both detail responses`() {
+        val email = "v1-placement-option-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('Option chair','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset)
+                       VALUES (?, '{"color":"blue"}', 'STAR', 1, 'chair-blue') RETURNING option_id""",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        val inventoryId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_owned_option(user_id,option_id) VALUES (?,?) RETURNING inventory_id",
+                    Long::class.java,
+                    userId,
+                    optionId,
+                ),
+            )
+        val saveBody =
+            mockMvc.put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"store:$inventoryId","area":"INTERIOR","transform":{"x":0.4,"y":0.6}}]}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.placements[0].optionId") { value(optionId) }
+                jsonPath("$.data.placements[0].option.color") { value("blue") }
+            }.andReturn().response.contentAsString
+        val savedPlacement = objectMapper.readTree(saveBody)["data"]["placements"][0]
+        val housingId = userId
+        mockMvc.patch("/api/v1/housings/me") {
+            header(header, token)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"isPublic":true}"""
+        }.andExpect { status { isOk() } }
+
+        val ownerResponse =
+            mockMvc
+                .get("/api/v1/housings/me") { header(header, token) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        val viewerToken = login("v1-placement-option-viewer-${UUID.randomUUID()}@test.local")
+        val publicResponse =
+            mockMvc
+                .get("/api/v1/housings/$housingId") { header(header, viewerToken) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+
+        listOf(ownerResponse, publicResponse).forEach { body ->
+            val placement = objectMapper.readTree(body)["data"]["placements"][0]
+            assertEquals(savedPlacement["placementId"], placement["placementId"])
+            assertEquals(optionId, placement["optionId"].asLong())
+            assertEquals("blue", placement["option"]["color"].asText())
+        }
+    }
+
+    @Test
+    fun `public housing APIs return fallback nickname when owner has none`() {
+        val ownerEmail = "v1-no-nickname-owner-${UUID.randomUUID()}@test.local"
+        val ownerToken = login(ownerEmail)
+        mockMvc.get("/api/housing/me") { header(header, ownerToken) }.andExpect { status { isOk() } }
+        val ownerId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, ownerEmail)).userId
+        jdbc.update("UPDATE app_user SET nickname=NULL WHERE user_id=?", ownerId)
+        mockMvc.patch("/api/v1/housings/me") {
+            header(header, ownerToken)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"isPublic":true}"""
+        }.andExpect { status { isOk() } }
+
+        val viewerEmail = "v1-no-nickname-viewer-${UUID.randomUUID()}@test.local"
+        val viewerToken = login(viewerEmail)
+        mockMvc.get("/api/housing/me") { header(header, viewerToken) }.andExpect { status { isOk() } }
+        mockMvc.patch("/api/v1/housings/me") {
+            header(header, viewerToken)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"isPublic":true}"""
+        }.andExpect { status { isOk() } }
+
+        mockMvc.get("/api/v1/housings/$ownerId") { header(header, viewerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.ownerNickname") { value("알 수 없음") }
+        }
+        mockMvc.get("/api/v1/housings/explore") { header(header, viewerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.housings[?(@.housingId==$ownerId)].ownerNickname") { value("알 수 없음") }
         }
     }
 
@@ -303,6 +555,7 @@ class HousingApiTest {
         assertEquals(2, items.size())
         val furnitureItem = items.first { it["itemId"].asLong() == furnitureItemId }
         assertEquals(2, furnitureItem["options"].size())
+        assertFalse(furnitureItem.has("unlockHint"))
         assertEquals("STARDUST", furnitureItem["minPrice"]["currency"].asText())
         assertEquals(5, furnitureItem["minPrice"]["amount"].asInt())
         assertTrue(furnitureItem["options"][0]["owned"].asBoolean())
@@ -390,10 +643,20 @@ class HousingApiTest {
                 jsonPath("$.data.inventoryItems[0].inventoryId") { value(inventoryId) }
                 jsonPath("$.data.wallet.star") { value(40) }
             }
-        mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }.andExpect {
-            status { isOk() }
-            jsonPath("$.data.items[?(@.inventoryId=='$inventoryId')].placed[0]") { value(false) }
-        }
+        val inventoryResponse =
+            mockMvc
+                .get("/api/v1/users/me/inventory") { header(header, token) }
+                .andExpect {
+                    status { isOk() }
+                    jsonPath("$.data.items[?(@.inventoryId=='$inventoryId')].placed[0]") { value(false) }
+                }.andReturn()
+                .response.contentAsString
+        val purchasedItem =
+            objectMapper
+                .readTree(inventoryResponse)["data"]["items"]
+                .first { it["inventoryId"].asText() == inventoryId }
+        assertEquals(optionId, purchasedItem["optionId"].asLong())
+        assertEquals("green", purchasedItem["option"]["color"].asText())
         mockMvc
             .put("/api/v1/housings/me/placements") {
                 header(header, token)
@@ -453,6 +716,45 @@ class HousingApiTest {
                 status { isForbidden() }
                 jsonPath("$.error.code") { value("MEMBER_ONLY") }
             }
+    }
+
+    @Test
+    fun `public renamed housing appears in explore and public detail`() {
+        val ownerEmail = "public-owner-${UUID.randomUUID()}@test.local"
+        val ownerToken = login(ownerEmail)
+        mockMvc.get("/api/housing/me") { header(header, ownerToken) }.andExpect { status { isOk() } }
+        val ownerId = auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, ownerEmail)!!.user.id
+        val housingName = "초롱 공개 하우스"
+
+        mockMvc
+            .patch("/api/v1/housings/me") {
+                header(header, ownerToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"name":"$housingName","isPublic":true}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.name") { value(housingName) }
+                jsonPath("$.data.isPublic") { value(true) }
+            }
+
+        val viewerToken = login("public-viewer-${UUID.randomUUID()}@test.local")
+        mockMvc.get("/api/housing/me") { header(header, viewerToken) }.andExpect { status { isOk() } }
+        mockMvc
+            .patch("/api/v1/housings/me") {
+                header(header, viewerToken)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"isPublic":true}"""
+            }.andExpect { status { isOk() } }
+
+        mockMvc.get("/api/v1/housings/explore") { header(header, viewerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.housings[?(@.housingId==$ownerId)].name") { value(housingName) }
+        }
+        mockMvc.get("/api/v1/housings/$ownerId") { header(header, viewerToken) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.housing.name") { value(housingName) }
+            jsonPath("$.data.housing.isPublic") { value(true) }
+        }
     }
 
     @Test

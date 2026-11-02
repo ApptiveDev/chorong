@@ -16,10 +16,9 @@ import java.time.ZoneId
 
 data class AnswerResult(
     val attemptId: Long,
-    val graded: Boolean,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    val correct: Boolean?,
-    val completed: Boolean,
+    val isCorrect: Boolean?,
+    val correctAnswer: JsonNode?,
     val explanation: String,
     val streakDays: Int,
 )
@@ -39,7 +38,7 @@ class LearningQuizService(
     fun submit(
         userId: Long,
         quizId: Long,
-        response: JsonNode,
+        answer: JsonNode,
         replay: Boolean,
     ): AnswerResult {
         if (userId <= 0 || quizId <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
@@ -64,7 +63,7 @@ class LearningQuizService(
                         userId,
                     ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
             if (!onboardingAvailable) throw ApiV1Exception(ApiErrorCode.CONFLICT)
-            val result = quizzes.submit(userId, quizId, response, false)
+            val result = quizzes.submitPublic(userId, quizId, answer, false)
             return result.toAnswerResult(studyStreak.current(userId))
         }
 
@@ -83,7 +82,7 @@ class LearningQuizService(
         reviewGate.enforce(userId, lesson.lessonId)
         if (replay) lessonReplay.assertQuizIsCurrent(userId, quizId)
 
-        val result = quizzes.submit(userId, quizId, response, replay)
+        val result = quizzes.submitPublic(userId, quizId, answer, replay)
         if (replay) return result.toAnswerResult(studyStreak.current(userId))
 
         jdbc.update(
@@ -140,7 +139,7 @@ class LearningQuizService(
     }
 
     private fun QuizAttemptResponse.toAnswerResult(streakDays: Int) =
-        AnswerResult(attemptId, graded, correct, completed, explanation, streakDays)
+        AnswerResult(attemptId, correct, correctAnswer, explanation, streakDays)
 
     private data class LinkedLesson(
         val lessonId: Long,

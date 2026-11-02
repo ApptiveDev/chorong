@@ -2,7 +2,7 @@ package com.bawibase.chorong.domain.learning
 
 import com.bawibase.chorong.common.api.ApiResponse
 import com.bawibase.chorong.config.CurrentUserId
-import com.bawibase.chorong.domain.quiz.dto.QuizResponse
+import com.bawibase.chorong.domain.quiz.dto.QuizPublicResponse
 import com.fasterxml.jackson.databind.JsonNode
 import io.swagger.v3.oas.annotations.Operation
 import org.springframework.http.ResponseEntity
@@ -50,7 +50,7 @@ data class LearningContent(
     val contentType: String,
     val body: String?,
     val mediaUrl: String?,
-    val quiz: QuizResponse?,
+    val quiz: QuizPublicResponse?,
 )
 
 data class LessonDetail(
@@ -102,7 +102,7 @@ data class LearningProgressSummary(
 )
 
 data class LearningAnswerRequest(
-    val response: JsonNode,
+    val answer: JsonNode,
     val replay: Boolean = false,
 )
 
@@ -189,7 +189,7 @@ class LearningController(
         @CurrentUserId userId: Long,
         @PathVariable reviewItemId: Long,
         @RequestBody request: LearningAnswerRequest,
-    ): ApiResponse<ReviewAnswerResponse> = ApiResponse(reviewAnswers.submit(userId, reviewItemId, request.response))
+    ): ApiResponse<ReviewAnswerResponse> = ApiResponse(reviewAnswers.submit(userId, reviewItemId, request.answer))
 
     @PostMapping("/reviews/complete")
     @Operation(operationId = "API-503", summary = "Complete review session and grant reward")
@@ -223,5 +223,5 @@ class LearningController(
         @CurrentUserId userId: Long,
         @PathVariable quizId: Long,
         @RequestBody request: LearningAnswerRequest,
-    ): ApiResponse<AnswerResult> = ApiResponse(learningQuizzes.submit(userId, quizId, request.response, request.replay))
+    ): ApiResponse<AnswerResult> = ApiResponse(learningQuizzes.submit(userId, quizId, request.answer, request.replay))
 }

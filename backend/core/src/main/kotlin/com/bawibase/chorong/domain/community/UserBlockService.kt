@@ -4,7 +4,8 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.PageMeta
 import com.bawibase.chorong.common.api.PagedResponse
-import com.fasterxml.jackson.annotation.JsonInclude
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.UserStatus
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -12,10 +13,9 @@ import java.sql.Timestamp
 import java.time.Instant
 import java.util.Base64
 
-@JsonInclude(JsonInclude.Include.NON_NULL)
 data class BlockedUser(
     val userId: Long,
-    val nickname: String?,
+    val nickname: String,
     val blockedAt: Instant,
 )
 
@@ -177,7 +177,12 @@ class UserBlockService(
                 BlockRow(
                     blockId = rs.getLong("block_id"),
                     blockedAt = blockedAt,
-                    user = BlockedUser(rs.getLong("blocked_user_id"), rs.getString("nickname"), blockedAt),
+                    user =
+                        BlockedUser(
+                            rs.getLong("blocked_user_id"),
+                            UserNicknamePolicy.displayName(rs.getString("nickname"), UserStatus.ACTIVE),
+                            blockedAt,
+                        ),
                 )
             }
     }

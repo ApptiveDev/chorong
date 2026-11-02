@@ -15,7 +15,7 @@ import java.util.Base64
 
 data class HousingExploreCard(
     val housingId: Long,
-    val ownerNickname: String?,
+    val ownerNickname: String,
     val name: String,
     val likeCount: Int,
     val likedByMe: Boolean,
@@ -119,7 +119,7 @@ class HousingExploreService(
                     userId,
                     userId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.HOUSING_NOT_VISIBLE)
-        return housing.publicDetail(housingId, owner.nickname, owner.likedByMe, owner.likeCount)
+        return housing.publicDetail(housingId, owner.nickname ?: UNKNOWN_OWNER_NICKNAME, owner.likedByMe, owner.likeCount)
     }
 
     private fun requirePublicSelf(userId: Long) {
@@ -186,7 +186,8 @@ class HousingExploreService(
         val modifiedAt: Instant,
         val likedByMe: Boolean,
     ) {
-        fun toCard(preview: List<PlacementResponse>) = HousingExploreCard(userId, nickname, name, likeCount, likedByMe, preview = preview)
+        fun toCard(preview: List<PlacementResponse>) =
+            HousingExploreCard(userId, nickname ?: UNKNOWN_OWNER_NICKNAME, name, likeCount, likedByMe, preview = preview)
     }
 
     companion object {
@@ -196,6 +197,7 @@ class HousingExploreService(
         private const val DEFAULT_PAGE_SIZE = 20
         private const val MAX_PAGE_SIZE = 100
         private const val MAX_CURSOR_LENGTH = 128
+        private const val UNKNOWN_OWNER_NICKNAME = "알 수 없음"
 
         private const val BASE_SQL =
             """SELECT u.user_id,u.nickname,p.name,p.modified_at,l.like_count,l.liked_by_me

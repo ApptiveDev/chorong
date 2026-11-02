@@ -44,7 +44,9 @@ data class InventoryItemResponse(
     val itemId: Long,
     val itemType: String,
     val name: String,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val optionId: Long? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val option: Any? = null,
     val acquiredVia: String,
     val acquiredAt: Instant,

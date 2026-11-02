@@ -9,4 +9,5 @@ enum class QuizInteractionType {
     MATCHING,
     FLIP_CARD,
     MULTIPLE_CHOICE,
+    FILL_BLANK,
 }

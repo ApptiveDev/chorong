@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 초롱 서비스 API
-  version: 0.3.0
+  version: 0.2.0
   description: |
     초롱 서비스 명세서 L3의 API 명세를 OpenAPI로 옮긴 문서입니다.
     - `operationId`는 L3 명세서의 API 번호(API-101 …)와 같습니다.
@@ -10,11 +10,6 @@ info:
     - 시간은 ISO 8601 UTC. 목록은 `cursor`/`size` 커서 페이지네이션(`meta.nextCursor`).
     - 상태를 바꾸는 POST 일부는 `Idempotency-Key` 헤더를 받으며 24시간 내 같은 키는 같은 응답을 돌려줍니다.
     - 에러 응답 본문은 `{ "error": { "code": "...", "message": "..." } }` 이고, 코드 목록은 L3의 ERR 표를 따릅니다.
-    - 이 문서는 신규 /api/v1 계약입니다. 기존 /api 경로의 요청·응답·상태 코드는 유지합니다.
-    - 퀴즈는 기존 8종의 interactionType·config·response 계약을 사용합니다.
-      정답 객체는 조회·채점 응답에 포함하지 않습니다. FLIP_CARD는 모든 짝이 맞아야 완료입니다.
-    - 신규 학습·복습 결과는 data 아래에 attemptId·graded·correct·completed·explanation·streakDays를 담습니다.
-      기존 개발자 도구와 제출 API의 응답은 바꾸지 않습니다.
 servers:
   - url: https://api-chorong.bawibase.com/api/v1
     description: production
@@ -54,9 +49,6 @@ paths:
       description: |
         F-01-01, F-02-05, F-07-01. 같은 `deviceUuid`가 이미 있으면 기존 게스트 계정을 돌려주고,
         없으면 users · user_auth · auth_guest · 하우징 · 아바타 · 지갑을 함께 생성합니다.
-        UUID는 정규 36자 형식이며 대소문자를 구분하지 않습니다. platform은 IOS 또는 ANDROID입니다.
-        isNew는 이 요청이 계정을 생성했을 때만 true입니다. 기존 자산은 초기화하지 않습니다.
-        기본 에셋 누락 시 신규 생성 전체를 되돌리고 CONFLICT를 반환합니다.
       security: []
       requestBody:
         required: true
@@ -77,22 +69,12 @@ paths:
                 $ref: '#/components/schemas/AuthResponse'
         '400': { $ref: '#/components/responses/ValidationFailed' }
 
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '409':
-          description: CONFLICT. 초기 에셋을 구성할 수 없거나 기존 UUID가 여러 계정과 겹침.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-
   /auth/email/signup:
     post:
       tags: [auth]
       operationId: API-102
       summary: 이메일 회원가입 – 인증코드 발송
-      description: |
-        인증된 게스트 또는 회원이 요청합니다. 게스트 인증 완료는 회원 전환이며, 회원 인증 완료는 같은 회원에 EMAIL 수단을 추가합니다. 이메일은 소문자로 정규화하며 6자리 코드의 유효기간은 10분입니다.
-        같은 이메일은 계정과 관계없이 60초 안에 재발송할 수 없습니다. 재발송은 이전 미사용 세션을 무효화합니다.
-        실제 메일 발송기는 아직 연결되지 않았습니다. 발송 실패 시 세션을 생성하지 않고 500을 반환합니다.
+      description: F-01-02. 6자리 코드, 10분 유효, 재발송 60초 제한(ERR-08). 이미 가입된 이메일은 ERR-10.
       requestBody:
         required: true
         content:
@@ -121,23 +103,12 @@ paths:
                       verificationId: { type: string }
                       expiresAt: { type: string, format: date-time }
         '400': { $ref: '#/components/responses/ValidationFailed' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403':
-          description: FORBIDDEN. 게스트 계정이 아닙니다.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409':
           description: ERR-10 EMAIL_ALREADY_REGISTERED
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
         '429': { $ref: '#/components/responses/RateLimited' }
-        '500':
-          description: INTERNAL. 메일 발송 실패 또는 발송기 미설정.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /auth/email/verify:
     post:
@@ -145,10 +116,9 @@ paths:
       operationId: API-103
       summary: 이메일 인증코드 확인 (가입 완료)
       description: |
-        게스트 토큰으로 호출하면 현재 게스트 계정에 EMAIL 수단을 붙이고 status를 ACTIVE로 바꿉니다.
-        회원 토큰으로 호출하면 현재 회원 계정에 EMAIL 수단을 추가합니다. 해당 이메일이 이미 다른 회원 계정에
-        있으면 ERR-14. 코드 불일치·만료·사용·무효화·소유자 불일치는 ERR-15입니다.
-        인증 세션에서 코드를 5회 잘못 입력하면 세션을 무효화합니다. 기기 식별을 위해 현재 액세스 토큰에 세션 정보가 필요합니다.
+        F-01-02, F-02-03. 게스트 토큰으로 호출하면 현재 게스트 계정에 이메일 수단을 붙이고
+        status를 ACTIVE로 바꿉니다(가입하고 내 정보 저장하기). 해당 이메일이 이미 다른 회원 계정에
+        있으면 ERR-14. 코드 불일치·만료는 ERR-15.
       requestBody:
         required: true
         content:
@@ -170,7 +140,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
           description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
           content:
@@ -182,10 +151,7 @@ paths:
       tags: [auth]
       operationId: API-104
       summary: 이메일 로그인
-      description: |
-        F-01-03. 연속 5회 실패하면 다섯 번째 요청부터 15분간 423 ACCOUNT_LOCKED와 retryAfter(초)를 반환합니다.
-        구 password 로그인과 실패 횟수·잠금을 공유합니다. 잠금이 만료되면 다음 시도부터 다시 검사합니다.
-        이메일 대소문자는 구분하지 않으며 성공하면 실패 횟수를 초기화합니다.
+      description: F-01-03. 연속 5회 실패 시 15분 잠금(ERR-12, `retryAfter`).
       security: []
       requestBody:
         required: true
@@ -204,7 +170,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
-        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '423':
           description: ERR-12 ACCOUNT_LOCKED
@@ -220,8 +185,6 @@ paths:
       description: |
         F-01-04, F-02-03. `(provider, providerUid)` 일치 계정이 있으면 로그인, 없으면 신규 가입.
         게스트 토큰으로 호출하면 전환 가입(이미 다른 회원 계정에 있는 수단이면 ERR-14).
-        google은 idToken, kakao는 accessToken, apple은 idToken과 authorizationCode를 받습니다. Google은 서명·issuer·audience·만료·sub를 검증합니다. 이메일로 계정을 합치지 않습니다.
-        GOOGLE_OAUTH_CLIENT_IDS, KAKAO_OAUTH_APP_ID, APPLE_OAUTH_CLIENT_ID·TEAM_ID·KEY_ID·PRIVATE_KEY 설정이 필요합니다. Apple은 ES256 서명과 authorization code 교환을 확인합니다.
       security:
         - {}
         - guest: []
@@ -251,20 +214,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
-        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403':
-          description: FORBIDDEN. 게스트가 아닌 계정의 전환 요청.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '409':
-          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER 또는 초기 에셋 누락 CONFLICT.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-        '500':
-          description: INTERNAL. Google client ID 미설정 또는 공개키 조회 실패.
+          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -274,10 +226,7 @@ paths:
       tags: [auth]
       operationId: API-106
       summary: 토큰 갱신 (refresh 회전)
-      description: |
-        F-01-05. refreshToken과 deviceUuid가 일치해야 합니다. 회전한 토큰은 다시 쓸 수 없습니다.
-        폐기된 토큰 재사용은 AUTH_TOKEN_REUSED이며 해당 유저의 모든 refresh 토큰을 폐기합니다.
-        만료된 미폐기 토큰은 AUTH_TOKEN_EXPIRED이며 다른 토큰을 폐기하지 않습니다.
+      description: F-01-05. 이미 revoke된 refresh 재사용은 ERR-04이며 해당 유저의 모든 토큰이 revoke됩니다.
       security: []
       requestBody:
         required: true
@@ -298,9 +247,8 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/TokenPair' }
-        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401':
-          description: UNAUTHORIZED / AUTH_TOKEN_EXPIRED / AUTH_TOKEN_REUSED
+          description: ERR-01 / ERR-04 AUTH_TOKEN_REUSED
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -310,10 +258,7 @@ paths:
       tags: [auth]
       operationId: API-107
       summary: 로그아웃
-      description: |
-        F-01-06. 현재 액세스 토큰의 세션에 연결된 기기의 refresh 토큰과 Push 등록을 폐기합니다.
-        all=true면 전체 기기의 refresh 토큰과 Push 등록을 폐기합니다. 세션 정보가 없는 기존 액세스 토큰은
-        all=false에 사용할 수 없으므로 재로그인 또는 토큰 갱신이 필요합니다.
+      description: F-01-06. 현재 디바이스의 refresh 토큰 revoke, `all=true`면 전체 디바이스. Push 토큰도 삭제.
       requestBody:
         content:
           application/json:
@@ -331,8 +276,8 @@ paths:
       operationId: API-108
       summary: 로그인 수단 연동
       description: |
-        회원만 연동할 수 있습니다. 다른 계정에 연결된 수단이면 상대 계정 정보를 노출하지 않고 ERR-11로 거절합니다.
-        email은 API-103 성공 후 반환된 verificationId, google은 idToken, kakao는 accessToken, apple은 idToken과 authorizationCode를 받습니다.
+        F-01-07. 해당 수단이 다른 계정에 이미 연결되어 있으면 존재 여부만 알리고 중단(ERR-11, 상대 계정 정보 없음).
+        요청 본문은 provider별 자격 증명(API-102~105와 동일). `email` provider는 인증코드 확인까지 끝낸 `verificationId`를 보냅니다.
       security:
         - member: []
       parameters:
@@ -350,7 +295,7 @@ paths:
                 verificationId: { type: string }
       responses:
         '200':
-          description: 연동된 수단 목록. 이메일은 EMAIL로 표시합니다.
+          description: 연동된 수단 목록
           content:
             application/json:
               schema:
@@ -379,7 +324,7 @@ paths:
         - $ref: '#/components/parameters/LinkProvider'
       responses:
         '200':
-          description: 남은 수단 목록. 이메일은 EMAIL로 표시합니다.
+          description: 남은 수단 목록
           content:
             application/json:
               schema:
@@ -419,7 +364,7 @@ paths:
       tags: [users]
       operationId: API-202
       summary: 내 정보 수정 (닉네임, 학습 알림 on/off)
-      description: F-02-02, F-03-03, F-15-05. GUEST와 ACTIVE 모두 수정할 수 있다. 생략하거나 null인 항목은 변경하지 않으며, 변경할 값이 하나 이상 필요하다. nickname은 null로 지울 수 없다.
+      description: F-02-02, F-03-03, F-15-05.
       requestBody:
         required: true
         content:
@@ -427,8 +372,8 @@ paths:
             schema:
               type: object
               properties:
-                nickname: { type: string, minLength: 2, maxLength: 12, nullable: true }
-                pushEnabled: { type: boolean, nullable: true }
+                nickname: { type: string, minLength: 2, maxLength: 12 }
+                pushEnabled: { type: boolean }
       responses:
         '200':
           description: 갱신된 내 정보
@@ -439,15 +384,13 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
     delete:
       tags: [auth]
       operationId: API-110
       summary: 회원 탈퇴
       description: |
-        F-01-09. 요청 즉시 status=WITHDRAWN으로 바꾸고 모든 refresh token을 폐기합니다. 로그인 수단·이메일 인증 세션·Push 등록을 삭제하고 하우징을 비공개로 전환합니다.
-        reason은 선택 항목이며 최대 255자까지 보관합니다. email·nickname과 나머지 데이터는 deletionAfter(탈퇴 시각+90일) 이후 배치 삭제 대상입니다.
-        기존 access token은 다음 요청부터 거절합니다.
+        F-01-09. 즉시 status=WITHDRAWN, 토큰·로그인 수단·Push 토큰 삭제, 하우징 비공개.
+        개인정보(email, nickname)와 나머지 데이터는 90일 후 배치 삭제.
       security:
         - member: []
       requestBody:
@@ -459,8 +402,6 @@ paths:
                 reason: { type: string, maxLength: 255 }
       responses:
         '204': { description: 탈퇴 완료 }
-        '400': { $ref: '#/components/responses/ValidationFailed' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/MemberOnly' }
 
   # ---------------------------------------------------------------- API-3xx 알림
@@ -469,9 +410,7 @@ paths:
       tags: [push]
       operationId: API-301
       summary: Push 디바이스 토큰 등록/갱신
-      description: |
-        F-03-01. 현재 access token의 sid에 연결된 refresh 세션과 deviceUuid가 일치해야 합니다.
-        `(deviceUuid)` 기준 upsert이며 다른 계정으로 로그인한 뒤 같은 기기에서 등록하면 소유자를 현재 계정으로 이전합니다.
+      description: F-03-01. `(deviceUuid)` 기준 upsert.
       requestBody:
         required: true
         content:
@@ -482,18 +421,17 @@ paths:
               properties:
                 deviceUuid: { type: string, format: uuid }
                 platform: { $ref: '#/components/schemas/Platform' }
-                pushToken: { type: string, minLength: 1, maxLength: 8192 }
+                pushToken: { type: string }
       responses:
         '204': { description: 등록됨 }
         '400': { $ref: '#/components/responses/ValidationFailed' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /push/devices/{deviceUuid}:
     delete:
       tags: [push]
       operationId: API-302
       summary: Push 디바이스 토큰 삭제
-      description: 소유한 기기의 Push 토큰을 삭제합니다. 다른 계정 소유이거나 이미 없는 기기면 변경 없이 204를 반환합니다.
+      description: F-03-02.
       parameters:
         - name: deviceUuid
           in: path
@@ -501,7 +439,6 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '204': { description: 삭제됨 }
-        '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- API-4xx 학습
   /courses:
@@ -579,8 +516,7 @@ paths:
         F-04-04, F-04-07, F-04-10, F-05-05.
         1) 해금 검사(미해금 ERR-20, `unlocksAt` 포함) → 2) 복습 세트가 만들어지면 `reviewRequired=true`로
         먼저 돌려주고 레슨 진입은 복습 완료 후 → 3) UNLOCKED이면 IN_PROGRESS로.
-        오늘 복습 완료 세션이 있거나 후보가 5개 미만이면 복습 없이 진입합니다.
-        `replay=true`는 COMPLETED 레슨을 다시 풉니다. 다시 풀기 진행은 별도 저장하며 보상은 지급하지 않습니다.
+        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 보상 없음).
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -592,7 +528,7 @@ paths:
                 replay: { type: boolean, default: false }
       responses:
         '200':
-          description: 레슨 시작 결과. 복습 필수 시 reviewRequired=true와 복습 세트를 반환하고 콘텐츠는 비웁니다.
+          description: 레슨 시작 결과
           content:
             application/json:
               schema:
@@ -604,15 +540,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   /contents/{contentId}/complete:
     post:
       tags: [learning]
       operationId: API-405
       summary: 컨텐츠 완료 보고 (이어하기 위치 갱신)
       description: |
-        F-04-05, F-04-09. 일반 학습은 마지막 컨텐츠에서 레슨 완료 처리와 보상 지급까지 같은 트랜잭션으로 수행하고
-        `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다. 다시 풀기는 별도 진척을 저장하고 마지막 콘텐츠까지 완료한 뒤 학습일을 갱신하며 보상은 주지 않습니다.
-        복습 미완료 상태면 ERR-21입니다.
+        F-04-05, F-04-09. 마지막 컨텐츠면 레슨 완료 처리와 보상 지급까지 수행하고
+        `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다. 복습 미완료 상태면 ERR-21.
       parameters:
         - name: contentId
           in: path
@@ -632,9 +568,7 @@ paths:
                       progress: { $ref: '#/components/schemas/LessonProgress' }
                       lessonCompleted: { type: boolean }
                       completion:
-                        allOf:
-                          - $ref: '#/components/schemas/LessonCompleteResponse'
-                        nullable: true
+                        $ref: '#/components/schemas/LessonCompleteResponse'
         '409':
           description: ERR-21 REVIEW_REQUIRED
           content:
@@ -647,13 +581,8 @@ paths:
       operationId: API-406
       summary: 퀴즈 답안 제출·채점
       description: |
-        F-04-06, F-05-02, F-06-03, F-03-04. 기존 8종 계약으로 채점하고 결과·해설과 답안을 기록합니다.
-        정답 객체는 반환하지 않습니다. FLIP_CARD 미완료 상태의 해설은 빈 문자열입니다.
-        해금된 레슨의 퀴즈만 제출할 수 있습니다. 오늘 복습을 요구받은 경우 복습을 완료해야 답안을 제출할 수 있습니다.
-        완료된 레슨은 `replay=true`로 다시 풀 수 있으며, replay 시작 후 현재 콘텐츠 순서에 맞는 퀴즈만 답할 수 있습니다.
-        일반 레슨 답안은 완료 시 복습 풀(WRONG/CORRECT)을 갱신합니다. CORRECT 항목은 다음 KST 자정부터 복습 후보가 됩니다.
-        학습일·연속일은 퀴즈 제출이 아닌 레슨·복습·replay 전체 완료 시 갱신합니다. FLIP_CARD 부분 제출은 완료로 보지 않습니다.
-        replay 답안은 이력만 저장하며 복습 풀과 레슨 보상을 바꾸지 않습니다.
+        F-04-06, F-05-02, F-06-03, F-03-04. 채점 후 정답·해설을 돌려주고 답안을 기록합니다.
+        레슨 학습(`replay=false`)이면 복습 풀(WRONG/CORRECT)을 갱신하고, 학습일·연속일을 갱신합니다.
       parameters:
         - name: quizId
           in: path
@@ -665,9 +594,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [response]
+              required: [answer]
               properties:
-                response: { $ref: '#/components/schemas/QuizUserResponse' }
+                answer: { $ref: '#/components/schemas/QuizAnswer' }
                 replay: { type: boolean, default: false }
       responses:
         '200':
@@ -678,19 +607,7 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/AnswerResult' }
-        '409':
-          description: 복습 미완료 또는 현재 콘텐츠 순서와 맞지 않는 답안
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
-        '403': { $ref: '#/components/responses/LessonLocked' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409':
-          description: 저장된 퀴즈 데이터 오류 또는 replay 상태 충돌
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /lessons/{lessonId}/complete:
     post:
@@ -699,8 +616,7 @@ paths:
       summary: 레슨 완료 (보상 지급)
       description: |
         F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03. 최초 완료 1회만 보상.
-        API-405가 마지막 콘텐츠를 완료하면 이 처리를 자동 실행합니다. 이 API는 호환용 완료 요청이며 이미 완료된 레슨에 추가 보상을 주지 않습니다.
-        코스의 모든 레슨이 완료되면 별자리 배지를 지급합니다.
+        코스의 모든 레슨이 완료되면 코스 보상과 별자리 뱃지도 함께 지급.
       parameters:
         - $ref: '#/components/parameters/LessonId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -714,7 +630,7 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/LessonCompleteResponse' }
         '409':
-          description: ERR-07 (마지막 컨텐츠 미완료) / ERR-21 / 같은 멱등 키에 다른 요청 본문
+          description: ERR-07 (마지막 컨텐츠 미완료) / ERR-21
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -785,7 +701,6 @@ paths:
       description: |
         F-05-03, F-05-06. 정답이면 다음 날 00:00 KST까지 재출제 제외(`excludedUntil`),
         오답이면 WRONG 풀로 이동하고 바로 재출제 가능.
-        기존 8종 response로 채점합니다. FLIP_CARD의 부분 제출은 세트 항목 완료·당일 제외로 처리하지 않습니다.
       parameters:
         - name: reviewItemId
           in: path
@@ -797,9 +712,9 @@ paths:
           application/json:
             schema:
               type: object
-              required: [response]
+              required: [answer]
               properties:
-                response: { $ref: '#/components/schemas/QuizUserResponse' }
+                answer: { $ref: '#/components/schemas/QuizAnswer' }
       responses:
         '200':
           description: 채점 결과
@@ -819,14 +734,12 @@ paths:
                             nullable: true
         '404': { $ref: '#/components/responses/NotFound' }
 
-        '409': { $ref: '#/components/responses/QuizDataInvalid' }
-
   /reviews/complete:
     post:
       tags: [review]
       operationId: API-503
       summary: 복습 세션 완료 (보상)
-      description: F-05-04, F-11-02. 5문항이 오늘 모두 제출됐는지 확인합니다. 완료 시 학습일·연속일을 갱신하고 하루 최대 3세션까지 보상합니다.
+      description: F-05-04, F-11-02. 5문항이 모두 오늘 제출된 것인지 확인 후 보상(하루 3세션까지).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -852,11 +765,6 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/RewardResponse' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
-        '409':
-          description: 같은 멱등 키에 다른 요청 본문
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   # ---------------------------------------------------------------- API-6xx 온보딩
   /onboarding:
@@ -864,7 +772,7 @@ paths:
       tags: [onboarding]
       operationId: API-601
       summary: 온보딩 퀴즈 조회
-      description: F-06-03. 미완료 사용자에게 유일한 ONBOARDING 레슨과 정답·해설을 제외한 퀴즈 콘텐츠를 반환한다. 완료 또는 건너뛴 계정은 다시 조회할 수 없다.
+      description: F-06-03. `category=ONBOARDING` 코스의 유일한 레슨과 퀴즈 컨텐츠.
       responses:
         '200':
           description: 온보딩 레슨
@@ -877,11 +785,6 @@ paths:
                     type: object
                     properties:
                       lesson: { $ref: '#/components/schemas/LessonDetail' }
-        '409':
-          description: 온보딩을 이미 완료했거나 건너뜀
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /onboarding/complete:
     post:
@@ -889,8 +792,8 @@ paths:
       operationId: API-602
       summary: 온보딩 완료 또는 건너뛰기
       description: |
-        F-06-04, F-06-05, F-11-06. `skipped=false`는 모든 퀴즈를 완료한 뒤 STARDUST 50개를 한 번 지급하고 KST 학습일·연속일을 갱신한다. `skipped=true`는 보상 없이 완료 처리하며 학습일을 갱신하지 않는다.
-        두 경우 모두 다시 진행할 수 없다. 사용자·operation·키·본문이 같은 재요청은 저장된 응답을 반환한다.
+        F-06-04, F-06-05, F-11-06. `skipped=false`면 50 별가루 지급(1회), `skipped=true`면 보상 없이 완료 처리.
+        건너뛴 뒤 다시 진행할 수 없습니다.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -916,11 +819,6 @@ paths:
                       - type: object
                         properties:
                           onboardingCompleted: { type: boolean }
-        '409':
-          description: 일반 완료 요건 미충족 또는 같은 멱등 키에 다른 요청 본문
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   # ---------------------------------------------------------------- API-7xx 하우징·아바타
   /housings/me:
@@ -951,7 +849,7 @@ paths:
               type: object
               properties:
                 name: { type: string, minLength: 1, maxLength: 20 }
-                isPublic: { type: boolean, description: 회원만 변경할 수 있습니다. }
+                isPublic: { type: boolean }
       responses:
         '200':
           description: 하우징
@@ -1045,7 +943,7 @@ paths:
       operationId: API-801
       summary: 공개 하우징 탐색 (우주 탐험)
       description: |
-        F-09-01. 호출자 하우징이 비공개면 ERR-40. 본인, 양방향 차단 관계, ACTIVE가 아닌 사용자는 목록에서 제외한다. `recent`는 공개 하우징 프로필 수정 시각과 사용자 ID 내림차순이다. 현재 좋아요 저장소가 없어 `popular`는 `recent`와 같은 순서를 사용한다.
+        F-09-01. 호출자 하우징이 비공개면 ERR-40. 본인·차단 관계·정지 중·탈퇴 유저는 제외.
       security:
         - member: []
       parameters:
@@ -1083,7 +981,7 @@ paths:
       tags: [community]
       operationId: API-802
       summary: 다른 유저 하우징 구경
-      description: F-09-03, F-08-02. 본인·비공개·양방향 차단·ACTIVE가 아닌 대상은 ERR-42(사유 비노출).
+      description: F-09-03, F-08-02. 비공개·차단·정지·탈퇴 대상은 ERR-42(사유 비노출).
       security:
         - member: []
       parameters:
@@ -1101,7 +999,7 @@ paths:
                       - $ref: '#/components/schemas/HousingDetail'
                       - type: object
                         properties:
-                          ownerNickname: { type: string, nullable: true }
+                          ownerNickname: { type: string }
                           likedByMe: { type: boolean }
         '403':
           description: ERR-40 / ERR-41
@@ -1119,7 +1017,7 @@ paths:
       tags: [community]
       operationId: API-803
       summary: 좋아요
-      description: F-09-04. 공개·ACTIVE 하우징에 멱등 처리한다. 본인 하우징은 ERR-43, 비공개·차단 대상은 ERR-42다.
+      description: F-09-04. 멱등. 본인 하우징 ERR-43.
       security:
         - member: []
       parameters:
@@ -1147,7 +1045,7 @@ paths:
       tags: [community]
       operationId: API-804
       summary: 좋아요 취소
-      description: F-09-04. 공개·ACTIVE 하우징에 멱등 처리한다. 본인 하우징은 ERR-43, 비공개·차단 대상은 ERR-42다.
+      description: F-09-04. 멱등.
       security:
         - member: []
       parameters:
@@ -1161,16 +1059,6 @@ paths:
                 type: object
                 properties:
                   data: { $ref: '#/components/schemas/LikeState' }
-        '400':
-          description: ERR-43 SELF_TARGET
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
-        '404':
-          description: ERR-42 HOUSING_NOT_VISIBLE
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /reports:
     post:
@@ -1178,10 +1066,8 @@ paths:
       operationId: API-805
       summary: 신고
       description: |
-        F-09-06. ACTIVE 회원만 ACTIVE 하우징을 신고할 수 있습니다. reason은 INAPPROPRIATE_NAME, ABUSE,
-        SPAM, OTHER 중 하나이며 detail은 선택 사항으로 최대 255자입니다. 같은 신고자의
-        반복 신고는 임계 인원을 늘리지 않습니다. 최근 24시간 내 서로 다른 신고자 3명에 도달하면
-        30일간 모든 사용자에게 숨기며, 숨김 중 추가 신고는 종료 시각을 연장하지 않습니다. 대상에게 알리지 않습니다.
+        F-09-06. 24시간 내 서로 다른 3명 이상이 같은 하우징(유저)을 신고하면 해당 유저는 30일간
+        모든 유저에게서 숨겨집니다. 대상에게는 알리지 않습니다.
       security:
         - member: []
       requestBody:
@@ -1212,18 +1098,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
-        '404':
-          description: 대상 사용자 없음 또는 활성 상태 아님
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /blocks:
     get:
       tags: [community]
       operationId: API-808
       summary: 차단한 사용자 목록
-      description: F-09-07, F-15-05. ACTIVE 회원의 차단만 반환한다. 최근 차단 순으로 페이지 조회하며 차단 대상이 탈퇴하면 목록에서 제외한다.
+      description: F-09-07, F-15-05.
       security:
         - member: []
       parameters:
@@ -1246,7 +1127,7 @@ paths:
                           type: object
                           properties:
                             userId: { type: integer, format: int64 }
-                            nickname: { type: string, nullable: true }
+                            nickname: { type: string }
                             blockedAt: { type: string, format: date-time }
                   meta: { $ref: '#/components/schemas/PageMeta' }
 
@@ -1255,7 +1136,7 @@ paths:
       tags: [community]
       operationId: API-806
       summary: 사용자 차단
-      description: F-09-07. ACTIVE 회원을 차단한다. 차단 방향과 무관하게 탐색·상세 조회에서 서로 제외한다. 이미 차단한 대상의 재요청은 성공 처리한다. 본인 ERR-43.
+      description: F-09-07. 양방향으로 탐색·조회에서 제외. 본인 ERR-43.
       security:
         - member: []
       parameters:
@@ -1271,7 +1152,7 @@ paths:
       tags: [community]
       operationId: API-807
       summary: 차단 풀기
-      description: F-09-07. 이미 해제된 관계를 다시 해제해도 성공 처리한다.
+      description: F-09-07.
       security:
         - member: []
       parameters:
@@ -1419,7 +1300,7 @@ paths:
       tags: [shop]
       operationId: API-905
       summary: 보상 지급 내역
-      description: F-11-05. 지급 시각 내림차순으로 조회한다. cursor는 응답에서 받은 불투명 커서이며 size 기본값은 20, 최대 100이다.
+      description: F-11-05.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Size'
@@ -1444,7 +1325,7 @@ paths:
       tags: [shop]
       operationId: API-906
       summary: 별자리 목록과 획득 현황
-      description: F-13-04. 코스에 연결된 별자리와 사용자별 레슨 STAR 획득 수 및 코스 배지 획득 여부를 반환한다.
+      description: F-13-04.
       responses:
         '200':
           description: 별자리
@@ -1465,7 +1346,7 @@ paths:
       tags: [shop]
       operationId: API-907
       summary: 인벤토리 조회
-      description: F-14-01. 기존 하우징 보유 자산을 조회한다. FURNITURE는 가구만, OBJECT는 가구 이외 자산을 반환한다.
+      description: F-14-01.
       parameters:
         - name: itemType
           in: query
@@ -1503,8 +1384,8 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: 24시간 내 같은 사용자·operation·키와 같은 요청 본문은 저장한 응답을 반환합니다. 본문이 다르면 409이며 실패 응답은 저장하지 않아 재시도할 수 있습니다.
-      schema: { type: string, minLength: 1, maxLength: 64 }
+      description: 24시간 내 같은 키는 같은 응답
+      schema: { type: string, maxLength: 64 }
     Cursor:
       name: cursor
       in: query
@@ -1569,19 +1450,8 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
-    LessonLocked:
-      description: ERR-20 LESSON_LOCKED. 다음 해금 가능 시각은 unlocksAt에 반환한다.
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
     RateLimited:
       description: ERR-08 RATE_LIMITED
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorResponse' }
-
-    QuizDataInvalid:
-      description: QUIZ_DATA_INVALID. 저장된 config·answer가 잘못되었다. 정답 데이터는 포함하지 않는다.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -1615,7 +1485,6 @@ components:
                 - LAST_AUTH_METHOD
                 - ACCOUNT_EXISTS_FOR_PROVIDER
                 - VERIFICATION_INVALID
-                - QUIZ_DATA_INVALID
                 - LESSON_LOCKED
                 - REVIEW_REQUIRED
                 - INVENTORY_ITEM_NOT_OWNED
@@ -1688,8 +1557,8 @@ components:
       enum: [TEXT, IMAGE, VIDEO, QUIZ]
     QuizType:
       type: string
-      description: 기존 8종 interactionType. docs/QUIZ_API.md 기준.
-      enum: [SLIDER, SWIPE, TAP, DRAG_DROP, SORT, MATCHING, FLIP_CARD, MULTIPLE_CHOICE]
+      description: ENUM-05
+      enum: [MULTIPLE_CHOICE, FILL_BLANK, OX, ORDERING]
     LessonStatus:
       type: string
       description: ENUM-06. LOCKED는 진행 행이 없는 레슨(응답 전용)
@@ -1736,12 +1605,12 @@ components:
         refreshToken: { type: string }
         expiresIn:
           type: integer
-          description: access 토큰 수명(초). JWT_ACCESS_TTL 설정값.
+          description: access 토큰 수명(초), 3600
     UserBrief:
       type: object
       properties:
         userId: { type: integer, format: int64 }
-        nickname: { type: [string, 'null'] }
+        nickname: { type: string }
         status: { $ref: '#/components/schemas/UserStatus' }
     AuthResponse:
       type: object
@@ -1757,15 +1626,14 @@ components:
                   description: 이 호출로 계정이 새로 만들어졌는지
     Wallet:
       type: object
-      required: [star, stardust]
       properties:
-        star: { type: integer, format: int64, minimum: 0 }
-        stardust: { type: integer, format: int64, minimum: 0 }
+        star: { type: integer, format: int64 }
+        stardust: { type: integer, format: int64 }
     Me:
       type: object
       properties:
         userId: { type: integer, format: int64 }
-        nickname: { type: string, nullable: true }
+        nickname: { type: string }
         status: { $ref: '#/components/schemas/UserStatus' }
         providers:
           type: array
@@ -1831,43 +1699,19 @@ components:
               items: { $ref: '#/components/schemas/LessonSummary' }
     QuizPublic:
       type: object
-      description: 기존 공개 퀴즈 계약. config는 interactionType에 대응한다. 정답·해설은 제외한다.
-      required: [quizId, lessonId, question, instruction, interactionType, config, difficulty, quizOrder]
-      additionalProperties: false
+      description: 정답·해설을 제외한 퀴즈
       properties:
-        quizId: { type: integer, format: int64, minimum: 1 }
-        lessonId: { type: integer, format: int64, minimum: 1 }
+        quizId: { type: integer, format: int64 }
+        type: { $ref: '#/components/schemas/QuizType' }
         question: { type: string }
-        instruction: { type: string }
-        interactionType: { $ref: '#/components/schemas/QuizType' }
-        config: { $ref: '#/components/schemas/QuizConfig' }
-        difficulty: { type: string, minLength: 1, maxLength: 30 }
-        quizOrder: { type: integer, minimum: 0 }
-      oneOf:
-        - properties:
-            interactionType: { const: SLIDER }
-            config: { $ref: '#/components/schemas/SliderConfig' }
-        - properties:
-            interactionType: { const: SWIPE }
-            config: { $ref: '#/components/schemas/SwipeConfig' }
-        - properties:
-            interactionType: { const: TAP }
-            config: { $ref: '#/components/schemas/TapConfig' }
-        - properties:
-            interactionType: { const: DRAG_DROP }
-            config: { $ref: '#/components/schemas/DragDropConfig' }
-        - properties:
-            interactionType: { const: SORT }
-            config: { $ref: '#/components/schemas/SortConfig' }
-        - properties:
-            interactionType: { const: MATCHING }
-            config: { $ref: '#/components/schemas/MatchingConfig' }
-        - properties:
-            interactionType: { const: FLIP_CARD }
-            config: { $ref: '#/components/schemas/FlipCardConfig' }
-        - properties:
-            interactionType: { const: MULTIPLE_CHOICE }
-            config: { $ref: '#/components/schemas/MultipleChoiceConfig' }
+        options:
+          type: object
+          nullable: true
+          description: MULTIPLE_CHOICE `{choices:[...]}`, ORDERING `{items:[...]}`
+          additionalProperties: true
+        hint:
+          type: string
+          nullable: true
     Content:
       type: object
       properties:
@@ -1919,240 +1763,40 @@ components:
         contents:
           type: array
           items: { $ref: '#/components/schemas/Content' }
-    QuizNonBlank:
-      type: string
-      minLength: 1
-      pattern: '\S'
-    QuizItemOption:
+    QuizAnswer:
       type: object
-      additionalProperties: false
-      required: [id]
-      properties:
-        id: { $ref: '#/components/schemas/QuizNonBlank' }
-        text: { $ref: '#/components/schemas/QuizNonBlank' }
-        imageUrl: { $ref: '#/components/schemas/QuizNonBlank' }
-      anyOf:
-        - required: [text]
-        - required: [imageUrl]
-    QuizItems:
-      type: array
-      minItems: 1
-      description: 항목 ID는 배열 안에서 유일해야 한다.
-      items: { $ref: '#/components/schemas/QuizItemOption' }
-    QuizCommonConfig:
-      type: object
-      description: 선택 필드는 생략 가능하지만 null은 허용하지 않는다. 지정한 값은 그대로 반환한다.
-      properties:
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean, enum: [true] }
-        showHint: { type: boolean, enum: [false] }
-    SliderConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-      required: [min, max, step]
-      properties:
-        min: { type: number }
-        max: { type: number }
-        step: { type: number, exclusiveMinimum: 0 }
-        initialValue: { type: number }
-        unit: { type: string }
-        showValue: { type: boolean }
-      description: min < max이며 값은 min에서 step 간격이다. 단위는 빈 문자열도 허용한다.
-    SwipeChoice:
-      type: object
-      additionalProperties: false
-      required: [value, label]
-      properties:
-        value: { $ref: '#/components/schemas/QuizNonBlank' }
-        label: { $ref: '#/components/schemas/QuizNonBlank' }
-    SwipeConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-      required: [left, right]
-      properties:
-        left: { $ref: '#/components/schemas/SwipeChoice' }
-        right: { $ref: '#/components/schemas/SwipeChoice' }
-    QuizSelectionConfig:
-      type: object
-      required: [selectionType]
-      properties:
-        selectionType: { type: string, enum: [SINGLE, MULTIPLE] }
-        maxSelections: { type: integer, minimum: 1, maximum: 2147483647 }
-      description: SINGLE은 한 개, MULTIPLE은 하나 이상 선택한다. SINGLE의 maxSelections는 1만 허용한다.
-      allOf:
-        - if:
-            properties:
-              selectionType: { const: SINGLE }
-          then:
-            properties:
-              maxSelections: { const: 1 }
-    TapConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-        - $ref: '#/components/schemas/QuizSelectionConfig'
-      required: [items]
-      properties:
-        items: { $ref: '#/components/schemas/QuizItems' }
-    MultipleChoiceConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-        - $ref: '#/components/schemas/QuizSelectionConfig'
-      required: [options]
-      properties:
-        options: { $ref: '#/components/schemas/QuizItems' }
-    DragDropConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-      required: [items, targets]
-      properties:
-        items: { $ref: '#/components/schemas/QuizItems' }
-        targets: { $ref: '#/components/schemas/QuizItems' }
-    SortConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-      required: [items]
-      properties:
-        items: { $ref: '#/components/schemas/QuizItems' }
-    MatchingConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-      required: [leftItems, rightItems]
-      properties:
-        leftItems: { $ref: '#/components/schemas/QuizItems' }
-        rightItems: { $ref: '#/components/schemas/QuizItems' }
-    FlipCardConfig:
-      type: object
-      unevaluatedProperties: false
-      allOf:
-        - $ref: '#/components/schemas/QuizCommonConfig'
-      required: [cards]
-      properties:
-        cards:
-          allOf:
-            - $ref: '#/components/schemas/QuizItems'
-          minItems: 2
-      description: cards는 짝수 개다. 정답 짝은 config에 포함하지 않는다.
-    QuizConfig:
-      description: interactionType에 대응하는 config. 선택 필드와 엄격한 검증은 docs/QUIZ_API.md를 따른다.
-      anyOf:
-        - $ref: '#/components/schemas/SliderConfig'
-        - $ref: '#/components/schemas/SwipeConfig'
-        - $ref: '#/components/schemas/TapConfig'
-        - $ref: '#/components/schemas/DragDropConfig'
-        - $ref: '#/components/schemas/SortConfig'
-        - $ref: '#/components/schemas/MatchingConfig'
-        - $ref: '#/components/schemas/FlipCardConfig'
-        - $ref: '#/components/schemas/MultipleChoiceConfig'
-    QuizIds:
-      type: array
-      minItems: 1
-      uniqueItems: true
-      items: { $ref: '#/components/schemas/QuizNonBlank' }
-    QuizIdMap:
-      type: object
-      minProperties: 1
-      propertyNames: { $ref: '#/components/schemas/QuizNonBlank' }
-      additionalProperties: { $ref: '#/components/schemas/QuizNonBlank' }
-    SliderUserResponse:
-      type: object
-      additionalProperties: false
-      required: [value]
-      properties:
-        value: { type: number }
-    SwipeUserResponse:
-      type: object
-      additionalProperties: false
-      required: [value]
-      properties:
-        value: { $ref: '#/components/schemas/QuizNonBlank' }
-    TapUserResponse:
-      type: object
-      additionalProperties: false
-      required: [selectedItemIds]
-      properties:
-        selectedItemIds: { $ref: '#/components/schemas/QuizIds' }
-    MultipleChoiceUserResponse:
-      type: object
-      additionalProperties: false
-      required: [selectedOptionIds]
-      properties:
-        selectedOptionIds: { $ref: '#/components/schemas/QuizIds' }
-    DragDropUserResponse:
-      type: object
-      additionalProperties: false
-      required: [placements]
-      properties:
-        placements: { $ref: '#/components/schemas/QuizIdMap' }
-    SortUserResponse:
-      type: object
-      additionalProperties: false
-      required: [order]
-      properties:
-        order: { $ref: '#/components/schemas/QuizIds' }
-    MatchingUserResponse:
-      type: object
-      additionalProperties: false
-      required: [matches]
-      properties:
-        matches: { $ref: '#/components/schemas/QuizIdMap' }
-    QuizCardPair:
-      type: object
-      additionalProperties: false
-      required: [firstCardId, secondCardId]
-      properties:
-        firstCardId: { $ref: '#/components/schemas/QuizNonBlank' }
-        secondCardId: { $ref: '#/components/schemas/QuizNonBlank' }
-    FlipCardUserResponse:
-      type: object
-      additionalProperties: false
-      required: [pairs]
-      properties:
-        pairs:
-          type: array
-          minItems: 1
-          items: { $ref: '#/components/schemas/QuizCardPair' }
-      description: 카드는 한 번만 사용한다. 짝 안의 순서와 짝 배열의 순서는 무관하다.
-    QuizUserResponse:
       description: |
-        URL의 문제로 유형을 결정한다. interactionType은 제출하지 않는다.
-        docs/QUIZ_API.md의 타입·ID·선택 수·범위 검증을 적용한다.
-        숫자 문자열·Boolean 자동 변환과 내부 추가 필드를 허용하지 않는다.
+        퀴즈 유형별 형식(ENUM-05):
+        MULTIPLE_CHOICE `{index}` · FILL_BLANK `{texts:[...]}` · OX `{value}` · ORDERING `{order:[...]}`
+      additionalProperties: true
       oneOf:
-        - $ref: '#/components/schemas/SliderUserResponse'
-        - $ref: '#/components/schemas/SwipeUserResponse'
-        - $ref: '#/components/schemas/TapUserResponse'
-        - $ref: '#/components/schemas/DragDropUserResponse'
-        - $ref: '#/components/schemas/SortUserResponse'
-        - $ref: '#/components/schemas/MatchingUserResponse'
-        - $ref: '#/components/schemas/FlipCardUserResponse'
-        - $ref: '#/components/schemas/MultipleChoiceUserResponse'
+        - type: object
+          required: [index]
+          properties:
+            index: { type: integer }
+        - type: object
+          required: [texts]
+          properties:
+            texts:
+              type: array
+              items: { type: string }
+        - type: object
+          required: [value]
+          properties:
+            value: { type: boolean }
+        - type: object
+          required: [order]
+          properties:
+            order:
+              type: array
+              items: { type: integer }
     AnswerResult:
       type: object
-      required: [attemptId, graded, correct, completed, explanation, streakDays]
       properties:
         attemptId: { type: integer, format: int64 }
-        graded: { type: boolean }
-        correct: { type: [boolean, 'null'] }
-        completed:
-          type: boolean
-          description: 유효한 답안은 true. FLIP_CARD는 모든 짝이 맞아야 true다.
-        explanation:
-          type: string
-          description: FLIP_CARD 미완료는 빈 문자열. 정답 객체는 포함하지 않는다.
+        isCorrect: { type: boolean }
+        correctAnswer: { $ref: '#/components/schemas/QuizAnswer' }
+        explanation: { type: string }
         streakDays: { type: integer }
     Reward:
       type: object
@@ -2236,7 +1880,8 @@ components:
         y: { type: number, minimum: 0, maximum: 1 }
         rotation:
           type: integer
-          enum: [0, 90, 180, 270]
+          minimum: 0
+          maximum: 270
           default: 0
         layer:
           type: integer
@@ -2256,9 +1901,15 @@ components:
         - type: object
           properties:
             placementId: { type: integer, format: int64 }
-            itemId: { type: integer }
-            optionId: { type: integer, format: int64 }
-            option: { $ref: '#/components/schemas/ItemOption' }
+            itemId: { type: integer, format: int64 }
+            optionId:
+              type: integer
+              format: int64
+              description: Omitted when the item has no option.
+            option:
+              allOf:
+                - { $ref: '#/components/schemas/ItemOption' }
+              description: Omitted when the item has no option.
     Avatar:
       type: object
       properties:
@@ -2273,10 +1924,24 @@ components:
       type: object
       properties:
         housingId: { type: integer, format: int64 }
-        name: { type: string, minLength: 1, maxLength: 20 }
+        name: { type: string }
         isPublic: { type: boolean }
         likeCount: { type: integer }
-    HousingLayout:
+    HousingDetail:
+      type: object
+      properties:
+        housing: { $ref: '#/components/schemas/Housing' }
+        placements:
+          type: array
+          items: { $ref: '#/components/schemas/Placement' }
+        avatar: { $ref: '#/components/schemas/Avatar' }
+        activeRoomId:
+          type: string
+          nullable: true
+        legacyLayouts:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/Layout' }
+    Layout:
       type: object
       properties:
         backgroundId: { type: string }
@@ -2286,36 +1951,21 @@ components:
         avatarId: { type: string }
         placements:
           type: array
-          items:
-            type: object
-            properties:
-              slotId: { type: string }
-              furnitureId: { type: string }
-        updatedAt: { type: string, format: date-time, nullable: true }
-    HousingDetail:
+          items: { $ref: '#/components/schemas/LayoutPlacement' }
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    LayoutPlacement:
       type: object
       properties:
-        housing: { $ref: '#/components/schemas/Housing' }
-        placements:
-          description: 좌표 기반 배치 목록입니다. 기존 방·슬롯 배치는 legacyLayouts에 별도로 보존합니다.
-          type: array
-          items: { $ref: '#/components/schemas/Placement' }
-        avatar:
-          nullable: true
-          description: 기존 저장 모델에는 아바타 배치 상세가 없어 null입니다. 방별 avatarId는 legacyLayouts에 보존합니다.
-          allOf:
-            - $ref: '#/components/schemas/Avatar'
-        activeRoomId: { type: string, nullable: true }
-        legacyLayouts:
-          type: object
-          description: 방별 배경, 표면 스킨, 아바타 ID, 슬롯·가구 배치를 기존 코드 형식으로 보존합니다.
-          additionalProperties:
-            $ref: '#/components/schemas/HousingLayout'
+        slotId: { type: string }
+        furnitureId: { type: string }
     HousingCard:
       type: object
       properties:
         housingId: { type: integer, format: int64 }
-        ownerNickname: { type: string, nullable: true }
+        ownerNickname: { type: string }
         name: { type: string }
         likeCount: { type: integer }
         likedByMe: { type: boolean }
@@ -2369,14 +2019,11 @@ components:
       type: object
       properties:
         inventoryId: { type: string }
-        itemId: { type: integer, format: int64 }
-        optionId: { type: integer, format: int64, nullable: true }
+        itemId: { type: integer }
+        optionId: { type: integer, format: int64 }
         itemType: { $ref: '#/components/schemas/ItemType' }
         name: { type: string }
-        option:
-          allOf:
-            - $ref: '#/components/schemas/ItemOption'
-          nullable: true
+        option: { $ref: '#/components/schemas/ItemOption' }
         acquiredVia: { $ref: '#/components/schemas/AcquiredVia' }
         acquiredAt: { type: string, format: date-time }
         placed: { type: boolean }

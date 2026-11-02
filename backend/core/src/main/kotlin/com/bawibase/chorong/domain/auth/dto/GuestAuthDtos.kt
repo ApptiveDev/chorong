@@ -25,6 +25,6 @@ data class GuestAuthData(
 
 data class UserBrief(
     val userId: Long,
-    val nickname: String?,
+    val nickname: String,
     val status: UserStatus,
 )

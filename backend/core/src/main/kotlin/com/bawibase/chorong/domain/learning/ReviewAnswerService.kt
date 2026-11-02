@@ -17,13 +17,14 @@ import java.time.ZoneId
 
 data class ReviewAnswerResponse(
     val attemptId: Long,
-    val graded: Boolean,
-    val correct: Boolean?,
-    val completed: Boolean,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS)
+    val isCorrect: Boolean?,
     val explanation: String,
     val streakDays: Int,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val excludedUntil: Instant?,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS)
+    val correctAnswer: JsonNode?,
 )
 
 @Service
@@ -38,7 +39,7 @@ class ReviewAnswerService(
     fun submit(
         userId: Long,
         reviewItemId: Long,
-        response: JsonNode,
+        answer: JsonNode,
     ): ReviewAnswerResponse {
         if (userId <= 0 || reviewItemId <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
         val now = clock.instant()
@@ -66,7 +67,7 @@ class ReviewAnswerService(
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
         if (item.completed) throw ApiV1Exception(ApiErrorCode.CONFLICT)
 
-        val result = quizzes.submit(userId, item.quizId, response)
+        val result = quizzes.submitPublic(userId, item.quizId, answer)
         var excludedUntil: Instant? = null
         if (result.completed) {
             val answeredAt = Timestamp.from(now)
@@ -95,12 +96,11 @@ class ReviewAnswerService(
         val streakDays = jdbc.queryForObject("SELECT streak_days FROM app_user WHERE user_id=?", Int::class.java, userId) ?: 0
         return ReviewAnswerResponse(
             result.attemptId,
-            result.graded,
             result.correct,
-            result.completed,
             result.explanation,
             streakDays,
             excludedUntil,
+            result.correctAnswer,
         )
     }
 

@@ -4,6 +4,7 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.domain.auth.dto.GuestAuthData
 import com.bawibase.chorong.domain.auth.dto.UserBrief
 import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserPasswordEntity
@@ -127,7 +128,7 @@ class EmailVerifyService(
                     token.accessToken,
                     token.refreshToken,
                     token.expiresIn,
-                    UserBrief(userId, user.nickname, user.status),
+                    UserBrief(userId, UserNicknamePolicy.displayName(user.nickname, user.status), user.status),
                     isNew = false,
                 ),
         )

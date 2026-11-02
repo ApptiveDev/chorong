@@ -5,6 +5,7 @@ import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.domain.auth.dto.MeResponse
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
@@ -146,7 +147,7 @@ class AuthService(
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         return MeResponse(
             userId = userId,
-            nickname = user.nickname,
+            nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             email = user.email,
             providers = auths.findAllByUserId(userId).map { it.provider }.sortedBy { it.ordinal },
         )

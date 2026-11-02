@@ -2,6 +2,8 @@ package com.bawibase.chorong.domain.housing.controller
 
 import com.bawibase.chorong.common.api.ApiResponse
 import com.bawibase.chorong.config.CurrentUserId
+import com.bawibase.chorong.domain.housing.dto.AvatarResponse
+import com.bawibase.chorong.domain.housing.dto.HousingAvatarPatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchResponse
 import com.bawibase.chorong.domain.housing.dto.HousingDetailResponse
@@ -34,6 +36,13 @@ class HousingProfileController(
         @CurrentUserId userId: Long,
         @RequestBody request: HousingProfilePatchRequest,
     ): ApiResponse<HousingResponse> = ApiResponse(housing.updateProfile(userId, request.name, request.isPublic))
+
+    @Operation(operationId = "API-704", summary = "아바타 위치와 상태 저장")
+    @PatchMapping("/avatar")
+    fun updateAvatar(
+        @CurrentUserId userId: Long,
+        @Valid @RequestBody request: HousingAvatarPatchRequest,
+    ): ApiResponse<AvatarResponse> = ApiResponse(housing.updateAvatar(userId, request))
 
     @Operation(operationId = "API-702", summary = "하우징 좌표 배치 전체 저장")
     @PutMapping("/placements")

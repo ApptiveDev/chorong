@@ -3,6 +3,7 @@ package com.bawibase.chorong.domain.auth.service
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.auth.dto.UserBrief
 import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserPasswordRepository
@@ -88,7 +89,10 @@ class PasswordLoginService(
         credential.failedCount = 0
         credential.lockedUntil = null
         val token = tokens.issue(auth.userId, deviceUuid)
-        return PasswordLoginResult(token = token, user = UserBrief(auth.userId, user.nickname, user.status))
+        return PasswordLoginResult(
+            token = token,
+            user = UserBrief(auth.userId, UserNicknamePolicy.displayName(user.nickname, user.status), user.status),
+        )
     }
 
     companion object {

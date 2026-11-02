@@ -126,6 +126,7 @@ class GuestAuthApiTest {
         val id = data["user"]["userId"].asLong()
         assertTrue(data["isNew"].asBoolean())
         assertEquals("GUEST", data["user"]["status"].asText())
+        assertEquals("게스트", data["user"]["nickname"].asText())
         assertFalse(data.has("created"))
         assertEquals(id.toString(), decoder.decode(data["accessToken"].asText()).subject)
         assertTrue(data["expiresIn"].asLong() > 0)
@@ -153,6 +154,13 @@ class GuestAuthApiTest {
             .andExpect {
                 status { isOk() }
                 jsonPath("$.userId") { value(id) }
+                jsonPath("$.nickname") { value("게스트") }
+            }
+        mvc
+            .get("/api/v1/users/me") { header(HttpHeaders.AUTHORIZATION, "Bearer ${data["accessToken"].asText()}") }
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.data.nickname") { value("게스트") }
             }
     }
 

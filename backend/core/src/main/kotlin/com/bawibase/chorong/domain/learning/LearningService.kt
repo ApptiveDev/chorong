@@ -2,6 +2,7 @@ package com.bawibase.chorong.domain.learning
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.domain.quiz.dto.QuizPublicResponse
 import com.bawibase.chorong.domain.quiz.service.QuizService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -159,7 +160,7 @@ class LearningService(
                         rs.getString("content_type"),
                         rs.getString("body"),
                         rs.getString("media_url"),
-                        quizId?.let { quizService.get(it) },
+                        quizId?.let { QuizPublicResponse.from(quizService.get(it)) },
                     )
                 },
                 lessonId,

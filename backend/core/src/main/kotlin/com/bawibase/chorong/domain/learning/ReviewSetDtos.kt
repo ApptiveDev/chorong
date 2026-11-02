@@ -1,10 +1,10 @@
 package com.bawibase.chorong.domain.learning
 
-import com.bawibase.chorong.domain.quiz.dto.QuizResponse
+import com.bawibase.chorong.domain.quiz.dto.QuizPublicResponse
 
 data class ReviewItemResponse(
     val reviewItemId: Long,
-    val quiz: QuizResponse,
+    val quiz: QuizPublicResponse,
 )
 
 data class ReviewSetResponse(

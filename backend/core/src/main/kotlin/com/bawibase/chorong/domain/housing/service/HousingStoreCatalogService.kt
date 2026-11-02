@@ -17,6 +17,8 @@ import java.util.Locale
 data class StorePlacementInventory(
     val itemId: Long,
     val itemType: String,
+    val optionId: Long,
+    val option: Map<String, Any?>,
 )
 
 @Service
@@ -55,13 +57,24 @@ class HousingStoreCatalogService(
         val parameters = arrayOf<Any>(userId, *inventoryIds.toTypedArray())
         return jdbc
             .query(
-                """SELECT own.inventory_id, item.item_id, item.item_type
+                """SELECT own.inventory_id, item.item_id, item.item_type,
+                          option.option_id, option.option_json::text AS option_json
                    FROM housing_store_owned_option own
                    JOIN housing_store_option option ON option.option_id=own.option_id
                    JOIN housing_store_item item ON item.item_id=option.item_id
                    WHERE own.user_id=? AND own.inventory_id IN ($placeholders)""",
                 { rs, _ ->
-                    rs.getLong("inventory_id") to StorePlacementInventory(rs.getLong("item_id"), rs.getString("item_type"))
+                    rs.getLong("inventory_id") to
+                        StorePlacementInventory(
+                            itemId = rs.getLong("item_id"),
+                            itemType = rs.getString("item_type"),
+                            optionId = rs.getLong("option_id"),
+                            option =
+                                objectMapper.readValue(
+                                    rs.getString("option_json"),
+                                    object : TypeReference<Map<String, Any?>>() {},
+                                ),
+                        )
                 },
                 *parameters,
             ).toMap()

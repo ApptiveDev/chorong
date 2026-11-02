@@ -24,7 +24,7 @@ data class UserMeHousing(
 
 data class UserMeResponse(
     val userId: Long,
-    val nickname: String?,
+    val nickname: String,
     val status: String,
     val providers: List<String>,
     val wallet: WalletBalances,
@@ -85,7 +85,7 @@ class UserMeService(
             ) ?: 0
         return UserMeResponse(
             userId = userId,
-            nickname = user.nickname,
+            nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             status = user.status.name,
             providers = providers,
             wallet = WalletBalances(wallet.star, wallet.stardust),

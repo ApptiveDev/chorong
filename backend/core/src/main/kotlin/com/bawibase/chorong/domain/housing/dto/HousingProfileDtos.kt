@@ -21,7 +21,7 @@ data class HousingResponse(
 data class HousingDetailResponse(
     val housing: HousingResponse,
     val placements: List<HousingCoordinatePlacementResponse>,
-    @field:JsonInclude(JsonInclude.Include.ALWAYS) val avatar: Any?,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val avatar: AvatarResponse,
     val activeRoomId: String?,
     val legacyLayouts: Map<String, LayoutResponse>,
 )
@@ -29,11 +29,27 @@ data class HousingDetailResponse(
 data class PublicHousingDetailResponse(
     val housing: HousingResponse,
     val placements: List<HousingCoordinatePlacementResponse> = emptyList(),
-    @field:JsonInclude(JsonInclude.Include.ALWAYS) val avatar: Any? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val avatar: AvatarResponse,
     val activeRoomId: String?,
     val legacyLayouts: Map<String, LayoutResponse>,
-    val ownerNickname: String?,
+    val ownerNickname: String,
     val likedByMe: Boolean,
+)
+
+data class AvatarResponse(
+    val x: Double,
+    val y: Double,
+    val state: AvatarState,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val placementId: Long?,
+)
+
+enum class AvatarState { IDLE, SIT, SLEEP }
+
+data class HousingAvatarPatchRequest(
+    @field:NotNull @field:DecimalMin("0.0") @field:DecimalMax("1.0") val x: Double,
+    @field:NotNull @field:DecimalMin("0.0") @field:DecimalMax("1.0") val y: Double,
+    @field:NotNull val state: AvatarState,
+    val placementId: Long? = null,
 )
 
 data class HousingCoordinatePlacementRequest(
@@ -59,6 +75,8 @@ data class HousingCoordinatePlacementResponse(
     val area: com.bawibase.chorong.domain.housing.HousingPlacementArea,
     val transform: HousingPlacementTransformResponse,
     val itemId: Long,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val optionId: Long? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val option: Map<String, Any?>? = null,
 )
 
 data class HousingPlacementTransformResponse(

@@ -39,3 +39,11 @@ expo-env.d.ts
 web-build/
 /mobile/ios
 /mobile/android
+
+# Local access notes and credentials
+/.local/
+
+# Local API comparison notes
+/openapi0_2.yaml
+/해야할일.md
+/diff.md

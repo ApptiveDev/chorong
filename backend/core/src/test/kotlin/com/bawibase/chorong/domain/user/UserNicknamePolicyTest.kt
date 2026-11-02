@@ -6,6 +6,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class UserNicknamePolicyTest {
+    @Test fun `display name supplies a contract value when nickname is missing`() {
+        assertEquals("게스트", UserNicknamePolicy.displayName(null, UserStatus.GUEST))
+        assertEquals("사용자", UserNicknamePolicy.displayName(null, UserStatus.ACTIVE))
+        assertEquals("민지", UserNicknamePolicy.displayName("민지", UserStatus.GUEST))
+    }
+
     @Test fun `accepts boundary lengths without changing supplied text`() {
         for (value in listOf("초롱", "가".repeat(12), " 별 ", "𐐀".repeat(12))) {
             assertEquals(value, UserNicknamePolicy.validate(value))

@@ -8,8 +8,11 @@ import com.bawibase.chorong.common.api.FieldViolation
 import com.bawibase.chorong.domain.housing.HousingItemType
 import com.bawibase.chorong.domain.housing.HousingPlacementArea
 import com.bawibase.chorong.domain.housing.SurfaceKind
+import com.bawibase.chorong.domain.housing.dto.AvatarResponse
+import com.bawibase.chorong.domain.housing.dto.AvatarState
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchResponse
+import com.bawibase.chorong.domain.housing.dto.HousingAvatarPatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementResponse
 import com.bawibase.chorong.domain.housing.dto.HousingPlacementTransformResponse
 import com.bawibase.chorong.domain.housing.dto.LayoutRequest
@@ -21,12 +24,14 @@ import com.bawibase.chorong.domain.housing.dto.PlacementResponse
 import com.bawibase.chorong.domain.housing.dto.PublicHousingDetailResponse
 import com.bawibase.chorong.domain.housing.dto.WalletResponse
 import com.bawibase.chorong.domain.housing.dto.toHousingResponse
+import com.bawibase.chorong.domain.housing.entity.HousingAvatarStateEntity
 import com.bawibase.chorong.domain.housing.entity.HousingCoordinatePlacementEntity
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutPlacementEntity
 import com.bawibase.chorong.domain.housing.entity.HousingLayoutSurfaceSkinEntity
 import com.bawibase.chorong.domain.housing.entity.HousingOwnedItemEntity
 import com.bawibase.chorong.domain.housing.entity.HousingProfileEntity
 import com.bawibase.chorong.domain.housing.entity.HousingRoomLayoutEntity
+import com.bawibase.chorong.domain.housing.repository.HousingAvatarStateRepository
 import com.bawibase.chorong.domain.housing.repository.HousingCoordinatePlacementRepository
 import com.bawibase.chorong.domain.housing.repository.HousingLayoutPlacementRepository
 import com.bawibase.chorong.domain.housing.repository.HousingLayoutSurfaceSkinRepository
@@ -53,6 +58,7 @@ class HousingService(
     private val surfaceSkins: HousingLayoutSurfaceSkinRepository,
     private val placements: HousingLayoutPlacementRepository,
     private val coordinatePlacements: HousingCoordinatePlacementRepository,
+    private val avatarStates: HousingAvatarStateRepository,
     private val walletService: UserWalletService,
     private val users: UserRepository,
     private val clock: Clock,
@@ -76,7 +82,7 @@ class HousingService(
         return com.bawibase.chorong.domain.housing.dto.HousingDetailResponse(
             housing = profile.toHousingResponse(),
             placements = coordinatePlacementsResponse(userId),
-            avatar = null,
+            avatar = avatarState(userId),
             activeRoomId = legacy.activeRoomId,
             legacyLayouts = legacy.layouts,
         )
@@ -84,7 +90,7 @@ class HousingService(
 
     fun publicDetail(
         userId: Long,
-        ownerNickname: String?,
+        ownerNickname: String,
         likedByMe: Boolean,
         likeCount: Int,
     ): PublicHousingDetailResponse {
@@ -93,11 +99,33 @@ class HousingService(
         return PublicHousingDetailResponse(
             housing = profile.toHousingResponse(likeCount),
             placements = coordinatePlacementsResponse(userId),
+            avatar = avatarState(userId),
             activeRoomId = profile.activeRoomId?.let { catalog.roomById[it]?.code },
             legacyLayouts = layoutsResponse(userId, catalog),
             ownerNickname = ownerNickname,
             likedByMe = likedByMe,
         )
+    }
+
+    private fun avatarState(userId: Long): AvatarResponse {
+        val state = avatarStates.findById(userId).orElse(null)
+        return if (state == null) {
+            AvatarResponse(x = 0.5, y = 0.5, state = AvatarState.IDLE, placementId = null)
+        } else {
+            AvatarResponse(state.x, state.y, state.state, state.placementId)
+        }
+    }
+
+    fun updateAvatar(userId: Long, request: HousingAvatarPatchRequest): AvatarResponse {
+        if (request.placementId != null && !coordinatePlacements.existsByIdAndUserId(request.placementId, userId)) {
+            throw ApiV1Exception(ApiErrorCode.PLACEMENT_NOT_FOUND)
+        }
+        val state = avatarStates.findById(userId).orElseGet { HousingAvatarStateEntity(userId) }
+        state.x = request.x
+        state.y = request.y
+        state.state = request.state
+        state.placementId = request.placementId
+        return avatarStates.save(state).let { AvatarResponse(it.x, it.y, it.state, it.placementId) }
     }
 
     fun publicPreviews(
@@ -182,13 +210,17 @@ class HousingService(
     private fun HousingCoordinatePlacementEntity.toResponse(
         ownedById: Map<Long?, HousingOwnedItemEntity>,
         storeOwnedById: Map<Long, com.bawibase.chorong.domain.housing.service.StorePlacementInventory>,
-    ) = (ownedItemId?.let { ownedById[it]?.itemId } ?: storeInventoryId?.let { storeOwnedById[it]?.itemId })?.let { itemId ->
-        HousingCoordinatePlacementResponse(
+    ): HousingCoordinatePlacementResponse? {
+        val storeInventory = storeInventoryId?.let { storeOwnedById[it] }
+        val itemId = ownedItemId?.let { ownedById[it]?.itemId } ?: storeInventory?.itemId ?: return null
+        return HousingCoordinatePlacementResponse(
             placementId = checkNotNull(id),
             inventoryId = storeInventoryId?.let { "$STORE_INVENTORY_PREFIX$it" } ?: ownedItemId.toString(),
             area = area,
             transform = HousingPlacementTransformResponse(x, y, rotation, layer),
             itemId = itemId,
+            optionId = storeInventory?.optionId,
+            option = storeInventory?.option,
         )
     }
 

@@ -2,6 +2,7 @@ package com.bawibase.chorong.domain.learning
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.domain.quiz.dto.QuizPublicResponse
 import com.bawibase.chorong.domain.quiz.service.QuizService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
@@ -91,7 +92,7 @@ class ReviewSetService(
                     "SELECT review_item_id, quiz_id FROM review_session_item WHERE review_session_id=? ORDER BY item_order",
                     { rs, _ -> ItemRow(rs.getLong("review_item_id"), rs.getLong("quiz_id")) },
                     sessionId,
-                ).map { ReviewItemResponse(it.reviewItemId, quizzes.get(it.quizId)) }
+                ).map { ReviewItemResponse(it.reviewItemId, QuizPublicResponse.from(quizzes.get(it.quizId))) }
         return ReviewSetResponse(items, rewardEligible = rewardEligible(userId, today))
     }
 

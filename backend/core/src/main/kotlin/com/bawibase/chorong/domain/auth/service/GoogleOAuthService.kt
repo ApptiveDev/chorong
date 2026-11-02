@@ -9,6 +9,7 @@ import com.bawibase.chorong.domain.auth.dto.UserBrief
 import com.bawibase.chorong.domain.housing.service.HousingCatalogService
 import com.bawibase.chorong.domain.housing.service.HousingService
 import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
@@ -93,7 +94,13 @@ class GoogleOAuthService(
         } else if (currentUserId != null && existing == null) {
             log.info("auth.linked userId={} provider={}", id, provider)
         }
-        return GuestAuthData(token.accessToken, token.refreshToken, token.expiresIn, UserBrief(id, user.nickname, user.status), created)
+        return GuestAuthData(
+            token.accessToken,
+            token.refreshToken,
+            token.expiresIn,
+            UserBrief(id, UserNicknamePolicy.displayName(user.nickname, user.status), user.status),
+            created,
+        )
     }
 
     private fun addIdentity(
