@@ -38,6 +38,7 @@ jobs:
         working-directory: mobile
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.DEV_EXPO_PUBLIC_API_URL }}
+          EXPO_PUBLIC_USE_MOCK: 'true'
         run: pnpm build:web
 
       - name: 빌드 아티팩트 업로드
