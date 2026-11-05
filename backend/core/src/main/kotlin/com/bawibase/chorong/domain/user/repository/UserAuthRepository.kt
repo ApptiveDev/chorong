@@ -11,4 +11,11 @@ interface UserAuthRepository : JpaRepository<UserAuthEntity, Long> {
     ): UserAuthEntity?
 
     fun findAllByUserId(userId: Long): List<UserAuthEntity>
+
+    fun deleteAllByUserId(userId: Long): Int
+
+    fun findAllByProviderAndProviderUidIgnoreCase(
+        provider: AuthProvider,
+        providerUid: String,
+    ): List<UserAuthEntity>
 }

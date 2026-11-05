@@ -101,11 +101,11 @@ class QuizPreviewApiTest {
     }
 
     @Test
-    fun `all eight types can be checked anonymously without creating users or attempts`() {
+    fun `all nine types can be checked anonymously without creating users or attempts`() {
         val beforeUsers = users.count()
         val beforeAttempts = attempts.count()
         val examples = fixtures()
-        assertEquals(8, examples.map { it["interactionType"].asText() }.toSet().size)
+        assertEquals(9, examples.map { it["interactionType"].asText() }.toSet().size)
         for (fixture in examples) {
             val quiz = seed(fixture)
             val result = check(checkNotNull(quiz.id), fixture["correctResponse"])

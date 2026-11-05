@@ -454,5 +454,21 @@
         "realism"
       ]
     }
+  },
+  {
+    "caseId": "fill_blank",
+    "question": "르네상스는 어떤 시대인가요?",
+    "instruction": "빈칸에 답을 입력하세요.",
+    "interactionType": "FILL_BLANK",
+    "config": {},
+    "answer": {
+      "texts": ["Renaissance"]
+    },
+    "quizOrder": 12,
+    "difficulty": "기초",
+    "explanation": "정답은 Renaissance입니다.",
+    "correctResponse": {
+      "texts": ["Renaissance"]
+    }
   }
 ]

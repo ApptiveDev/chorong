@@ -62,7 +62,7 @@ data class TokenResponse(
 
 data class MeResponse(
     val userId: Long,
-    val nickname: String?,
+    val nickname: String,
     val email: String?,
     val providers: List<AuthProvider>,
 )

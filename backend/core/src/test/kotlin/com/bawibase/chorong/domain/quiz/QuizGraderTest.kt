@@ -73,6 +73,9 @@ class QuizGraderTest {
             Triple("multiple_choice_single", """{"selectedOptionIds":["france"]}""", false),
             Triple("multiple_choice_multiple", """{"selectedOptionIds":["realism","perspective","humanism"]}""", true),
             Triple("multiple_choice_multiple", """{"selectedOptionIds":["cubism"]}""", false),
+            Triple("fill_blank", """{"texts":["renaissance"]}""", true),
+            Triple("fill_blank", """{"texts":["  Renaissance "]}""", true),
+            Triple("fill_blank", """{"texts":["Baroque"]}""", false),
             Triple("sort", """{"order":["renaissance","industrial","french_revolution"]}""", true),
             Triple("sort", """{"order":["industrial","renaissance","french_revolution"]}""", false),
             Triple("drag_drop", """{"placements":{"aristotle":"ancient","newton":"modern","einstein":"contemporary"}}""", true),
@@ -101,6 +104,9 @@ class QuizGraderTest {
             "multiple_choice_single" to """{"selectedOptionIds":["italy","france"]}""",
             "multiple_choice_single" to """{"selectedOptionIds":["italy"],"isCorrect":true}""",
             "multiple_choice_multiple" to """{"selectedOptionIds":["humanism","humanism"]}""",
+            "fill_blank" to """{"texts":[]}""",
+            "fill_blank" to """{"texts":[" "]}""",
+            "fill_blank" to """{"texts":["Renaissance"],"extra":true}""",
             "slider_range" to """{"value":"1760"}""",
             "slider_range" to """{"value":true}""",
             "slider_range" to """{"value":null}""",
@@ -200,6 +206,8 @@ class QuizGraderTest {
                 Triple("multiple_choice_single", "multiple correct ids") {
                     it.answer = mapOf("correctOptionIds" to listOf("italy", "france"))
                 },
+                Triple("fill_blank", "empty answer") { it.answer = mapOf("texts" to emptyList<String>()) },
+                Triple("fill_blank", "blank answer") { it.answer = mapOf("texts" to listOf(" ")) },
                 Triple("sort", "missing answer ids") {
                     it.answer = mapOf("correctOrder" to listOf("renaissance"))
                 },
@@ -412,6 +420,7 @@ class QuizGraderTest {
             "sort",
             "matching",
             "flip_card",
+            "fill_blank",
         ).flatMap { caseId ->
             listOf("allowRetry" to false, "showHint" to true).map { (option, value) ->
                 dynamicTest("$caseId $option") {

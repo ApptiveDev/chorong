@@ -5,6 +5,7 @@ import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.domain.auth.dto.MeResponse
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.AuthProvider
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
@@ -39,8 +40,6 @@ data class SocialIdentity(
     }
 }
 
-private class PasswordLoginFailedException : ApiException(ErrorCode.LOGIN_FAILED)
-
 @Service
 @Transactional
 class AuthService(
@@ -51,13 +50,16 @@ class AuthService(
     private val passwordEncoder: PasswordEncoder,
     private val tokenService: TokenService,
     private val clock: Clock,
+    private val guests: GuestAccountCoordinator,
+    private val emails: EmailIdentityCoordinator,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     /** 비회원 가입. 기기 UUID 를 GUEST 인증 수단으로 등록한다. 이미 등록된 UUID 면 409. */
     fun guestSignUp(deviceUuid: String): TokenResponse {
-        val uuid = deviceUuid.trim()
-        if (auths.findByProviderAndProviderUid(AuthProvider.GUEST, uuid) != null) {
+        val uuid = guests.normalize(deviceUuid)
+        guests.lock(uuid)
+        if (guests.find(uuid) != null) {
             throw ApiException(ErrorCode.DEVICE_ALREADY_REGISTERED)
         }
         val auth =
@@ -72,9 +74,9 @@ class AuthService(
 
     /** 비회원 로그인. 등록되지 않은 기기 UUID 면 401. */
     fun guestLogin(deviceUuid: String): TokenResponse {
-        val uuid = deviceUuid.trim()
+        val uuid = guests.normalize(deviceUuid)
         val auth =
-            auths.findByProviderAndProviderUid(AuthProvider.GUEST, uuid)
+            guests.find(uuid)
                 ?: throw ApiException(ErrorCode.GUEST_NOT_FOUND)
         return tokenService.issue(activeUserId(auth.userId), uuid)
     }
@@ -85,7 +87,8 @@ class AuthService(
         deviceUuid: String?,
     ): TokenResponse {
         val loginId = normalizeEmail(email)
-        if (auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, loginId) != null) {
+        emails.lock(loginId)
+        if (auths.findAllByProviderAndProviderUidIgnoreCase(AuthProvider.PASSWORD, loginId).isNotEmpty()) {
             throw ApiException(ErrorCode.EMAIL_ALREADY_USED)
         }
         val auth =
@@ -103,34 +106,6 @@ class AuthService(
         )
         log.info("user.created userId={} provider={}", auth.userId, AuthProvider.PASSWORD)
         return tokenService.issue(auth.userId, deviceUuid, created = true)
-    }
-
-    @Transactional(noRollbackFor = [PasswordLoginFailedException::class])
-    fun passwordLogin(
-        email: String,
-        rawPassword: String,
-        deviceUuid: String?,
-    ): TokenResponse {
-        val auth =
-            auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, normalizeEmail(email))
-                ?: throw ApiException(ErrorCode.LOGIN_FAILED)
-        val credential = passwords.findById(checkNotNull(auth.id)).orElseThrow { ApiException(ErrorCode.LOGIN_FAILED) }
-        val now = OffsetDateTime.now(clock)
-        credential.lockedUntil?.let { if (it.isAfter(now)) throw ApiException(ErrorCode.ACCOUNT_LOCKED) }
-
-        if (!passwordEncoder.matches(rawPassword, credential.passwordHash)) {
-            credential.failedCount += 1
-            if (credential.failedCount >= MAX_FAILED) {
-                credential.lockedUntil = now.plusMinutes(LOCK_MINUTES)
-                credential.failedCount = 0
-                log.warn("auth.locked userId={} until={}", auth.userId, credential.lockedUntil)
-            }
-            log.debug("auth.login_failed provider={}", AuthProvider.PASSWORD)
-            throw PasswordLoginFailedException()
-        }
-        credential.failedCount = 0
-        credential.lockedUntil = null
-        return tokenService.issue(activeUserId(auth.userId), deviceUuid)
     }
 
     /**
@@ -153,6 +128,7 @@ class AuthService(
         val auth =
             if (currentUserId != null) {
                 activeUserId(currentUserId)
+                users.findById(currentUserId).orElseThrow().status = UserStatus.ACTIVE
                 auths.save(UserAuthEntity(userId = currentUserId, provider = identity.provider, providerUid = identity.providerUid))
             } else {
                 createUserWithAuth(identity.provider, identity.providerUid, email = identity.email, nickname = identity.displayName)
@@ -171,7 +147,7 @@ class AuthService(
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         return MeResponse(
             userId = userId,
-            nickname = user.nickname,
+            nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             email = user.email,
             providers = auths.findAllByUserId(userId).map { it.provider }.sortedBy { it.ordinal },
         )
@@ -188,13 +164,18 @@ class AuthService(
         email: String? = null,
         nickname: String? = null,
     ): UserAuthEntity {
-        val user = users.save(UserEntity(nickname = nickname, email = email))
+        val user =
+            users.save(
+                UserEntity(nickname = nickname, email = email).apply {
+                    status = if (provider == AuthProvider.GUEST) UserStatus.GUEST else UserStatus.ACTIVE
+                },
+            )
         return auths.save(UserAuthEntity(userId = checkNotNull(user.id), provider = provider, providerUid = providerUid))
     }
 
     private fun activeUserId(userId: Long): Long {
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
-        if (user.status != UserStatus.ACTIVE) throw ApiException(ErrorCode.USER_WITHDRAWN)
+        if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
         return userId
     }
 
@@ -205,10 +186,5 @@ class AuthService(
         profileJson = identity.profile
     }
 
-    private fun normalizeEmail(email: String) = email.trim().lowercase()
-
-    companion object {
-        const val MAX_FAILED = 5
-        const val LOCK_MINUTES = 10L
-    }
+    private fun normalizeEmail(email: String) = emails.normalize(email)
 }

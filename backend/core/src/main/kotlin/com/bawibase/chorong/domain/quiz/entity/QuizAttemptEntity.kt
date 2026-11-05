@@ -29,6 +29,8 @@ class QuizAttemptEntity(
     var correct: Boolean?,
     @Column(nullable = false)
     var completed: Boolean,
+    @Column(nullable = false)
+    var replay: Boolean = false,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

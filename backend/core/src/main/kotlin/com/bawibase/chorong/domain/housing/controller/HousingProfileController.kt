@@ -1,0 +1,53 @@
+package com.bawibase.chorong.domain.housing.controller
+
+import com.bawibase.chorong.common.api.ApiResponse
+import com.bawibase.chorong.config.CurrentUserId
+import com.bawibase.chorong.domain.housing.dto.AvatarResponse
+import com.bawibase.chorong.domain.housing.dto.HousingAvatarPatchRequest
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchResponse
+import com.bawibase.chorong.domain.housing.dto.HousingDetailResponse
+import com.bawibase.chorong.domain.housing.dto.HousingProfilePatchRequest
+import com.bawibase.chorong.domain.housing.dto.HousingResponse
+import com.bawibase.chorong.domain.housing.service.HousingService
+import io.swagger.v3.oas.annotations.Operation
+import jakarta.validation.Valid
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
+import org.springframework.web.bind.annotation.PutMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RestController
+
+@RestController
+@RequestMapping("/api/v1/housings/me")
+class HousingProfileController(
+    private val housing: HousingService,
+) {
+    @Operation(operationId = "API-701", summary = "내 하우징 조회")
+    @GetMapping
+    fun me(
+        @CurrentUserId userId: Long,
+    ): ApiResponse<HousingDetailResponse> = ApiResponse(housing.v1Me(userId))
+
+    @Operation(operationId = "API-703", summary = "하우징 이름 또는 공개 여부 변경")
+    @PatchMapping
+    fun update(
+        @CurrentUserId userId: Long,
+        @RequestBody request: HousingProfilePatchRequest,
+    ): ApiResponse<HousingResponse> = ApiResponse(housing.updateProfile(userId, request.name, request.isPublic))
+
+    @Operation(operationId = "API-704", summary = "아바타 위치와 상태 저장")
+    @PatchMapping("/avatar")
+    fun updateAvatar(
+        @CurrentUserId userId: Long,
+        @Valid @RequestBody request: HousingAvatarPatchRequest,
+    ): ApiResponse<AvatarResponse> = ApiResponse(housing.updateAvatar(userId, request))
+
+    @Operation(operationId = "API-702", summary = "하우징 좌표 배치 전체 저장")
+    @PutMapping("/placements")
+    fun savePlacements(
+        @CurrentUserId userId: Long,
+        @Valid @RequestBody request: HousingCoordinatePlacementBatchRequest,
+    ): ApiResponse<HousingCoordinatePlacementBatchResponse> = ApiResponse(housing.saveCoordinatePlacements(userId, request))
+}

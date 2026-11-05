@@ -12,6 +12,13 @@ sealed interface QuizConfig {
     val showHint: Boolean?
 }
 
+@Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+data class FillBlankConfig(
+    override val shuffle: Boolean? = null,
+    override val allowRetry: Boolean? = null,
+    override val showHint: Boolean? = null,
+) : QuizConfig
+
 @Schema(requiredProperties = ["min", "max", "step"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 data class SliderConfig(
     val min: BigDecimal,

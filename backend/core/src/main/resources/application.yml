@@ -87,6 +87,20 @@ server:
   forward-headers-strategy: framework
 
 app:
+  account-retention:
+    enabled: ${ACCOUNT_RETENTION_ENABLED:false}
+    interval-ms: ${ACCOUNT_RETENTION_INTERVAL_MS:86400000}
+    batch-size: ${ACCOUNT_RETENTION_BATCH_SIZE:100}
+  oauth:
+    google:
+      client-ids: ${GOOGLE_OAUTH_CLIENT_IDS:}
+    kakao:
+      app-id: ${KAKAO_OAUTH_APP_ID:}
+    apple:
+      client-id: ${APPLE_OAUTH_CLIENT_ID:}
+      team-id: ${APPLE_OAUTH_TEAM_ID:}
+      key-id: ${APPLE_OAUTH_KEY_ID:}
+      private-key: ${APPLE_OAUTH_PRIVATE_KEY:}
   quiz-preview:
     # 개발 스키마 chorong_dev에서만 적용한다. 운영 스키마에서는 항상 차단한다.
     enabled: ${QUIZ_PREVIEW_ENABLED:true}
