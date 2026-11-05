@@ -323,7 +323,7 @@ class RewardReadService(
                WHERE o.user_id=? ORDER BY o.created_at DESC,o.owned_item_id DESC"""
 
         private const val STORE_INVENTORY_SQL =
-            """SELECT own.inventory_id,item.item_id,item.item_type,item.name,option.option_id,
+            """SELECT own.inventory_id,item.item_id,item.item_type,item.name AS item_name,option.option_id,
                       option.option_json::text AS option_json,own.acquired_at,
                       EXISTS (SELECT 1 FROM housing_coordinate_placement placement
                               WHERE placement.store_inventory_id=own.inventory_id) AS placed
