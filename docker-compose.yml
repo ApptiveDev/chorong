@@ -34,7 +34,7 @@ services:
       POSTGRES_USER: dev
       POSTGRES_PASSWORD: dev
       DB_SCHEMA: chorong_dev
-      CORS_ORIGINS: "http://localhost:8081,http://localhost:19006"
+      CORS_ORIGINS: "http://localhost:8081,http://localhost:8082,http://localhost:19006"
       APP_ENV: local
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
