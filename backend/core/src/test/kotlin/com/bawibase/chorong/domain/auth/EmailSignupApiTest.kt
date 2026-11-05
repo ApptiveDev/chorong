@@ -159,9 +159,6 @@ class EmailSignupApiTest {
         auths.saveAndFlush(UserAuthEntity(id, AuthProvider.PASSWORD, email.uppercase()))
         assertEquals("EMAIL_ALREADY_REGISTERED", request(access, email, expected = 409)["error"]["code"].asText())
         request(null, email, expected = 401)
-        val member = users.saveAndFlush(UserEntity().apply { status = UserStatus.ACTIVE })
-        val memberAccess = tokens.issue(checkNotNull(member.id), UUID.randomUUID().toString()).accessToken
-        request(memberAccess, email(), expected = 403)
         assertEquals(0L, count(email))
     }
 

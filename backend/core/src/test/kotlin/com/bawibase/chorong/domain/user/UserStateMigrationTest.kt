@@ -41,8 +41,9 @@ class UserStateMigrationTest {
         jdbc.update("INSERT INTO $schema.housing_owned_item(user_id,item_type,item_id) VALUES (10,'BACKGROUND',1)")
         val mapper = ObjectMapper()
         val input = checkNotNull(javaClass.getResourceAsStream("/quiz/quiz-items.json"))
-        val fixtures = input.use { mapper.readTree(it) }
-        assertEquals(11, fixtures.size())
+        // FILL_BLANK 는 V34 에서 추가된 유형이라 V8 스키마의 제약에 맞지 않는다.
+        val fixtures = input.use { mapper.readTree(it) }.filter { it["interactionType"].asText() != "FILL_BLANK" }
+        assertEquals(11, fixtures.size)
         for (fixture in fixtures) {
             jdbc.update(
                 """INSERT INTO $schema.quiz_item(quiz_id,lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)

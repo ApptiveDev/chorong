@@ -64,7 +64,8 @@ class QuizPublicAnswerAdapterTest {
             adapter.adapt(
                 FillBlankQuizDefinition(
                     FillBlankConfig(),
-                    com.bawibase.chorong.domain.quiz.model.FillBlankAnswer(listOf("answer")),
+                    com.bawibase.chorong.domain.quiz.model
+                        .FillBlankAnswer(listOf("answer")),
                 ),
                 mapper.readTree("""{"texts":["answer"]}"""),
             ),
@@ -85,7 +86,7 @@ class QuizPublicAnswerAdapterTest {
     }
 
     private fun assertInvalidResponse(block: () -> Unit) {
-        val exception = assertFailsWith<ApiException>(block)
+        val exception = assertFailsWith<ApiException> { block() }
         assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, exception.code)
     }
 
@@ -98,7 +99,11 @@ class QuizPublicAnswerAdapterTest {
             )
         assertEquals(
             mapper.readTree("""{"index":1}"""),
-            QuizPublicAnswer.from(quiz, com.bawibase.chorong.domain.quiz.model.MultipleChoiceUserResponse(listOf("b"))),
+            QuizPublicAnswer.from(
+                quiz,
+                com.bawibase.chorong.domain.quiz.model
+                    .MultipleChoiceUserResponse(listOf("b")),
+            ),
         )
         assertEquals(
             mapper.readTree("""{"order":[1,0]}"""),
@@ -107,7 +112,8 @@ class QuizPublicAnswerAdapterTest {
                     SortConfig(listOf(QuizItemOption("a", "A"), QuizItemOption("b", "B"))),
                     SortAnswer(listOf("b", "a")),
                 ),
-                com.bawibase.chorong.domain.quiz.model.SortUserResponse(listOf("b", "a")),
+                com.bawibase.chorong.domain.quiz.model
+                    .SortUserResponse(listOf("b", "a")),
             ),
         )
     }

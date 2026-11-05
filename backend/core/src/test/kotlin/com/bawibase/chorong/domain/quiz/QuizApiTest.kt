@@ -626,7 +626,7 @@ class QuizApiTest {
         assertTrue(operation["parameters"].none { it["name"].asText() == "userId" })
         assertEquals(setOf("response"), docs["components"]["schemas"]["QuizAttemptRequest"]["properties"].fieldNames().asSequence().toSet())
         assertEquals(
-            setOf("attemptId", "graded", "correct", "completed", "explanation"),
+            setOf("attemptId", "graded", "correct", "completed", "explanation", "correctAnswer"),
             docs["components"]["schemas"]["QuizAttemptResponse"]["properties"].fieldNames().asSequence().toSet(),
         )
     }
@@ -761,7 +761,7 @@ class QuizApiTest {
         assertEquals(configs.keys, alternatives(config), resolve(config).toString())
         for ((name, required) in configs) {
             val schema = resolve(schemas[name])
-            assertEquals(required, schema["required"].map { it.asText() }.toSet(), name)
+            assertEquals(required, schema["required"]?.map { it.asText() }?.toSet() ?: emptySet<String>(), name)
             assertEquals(false, schema["additionalProperties"]?.asBoolean(), name)
             assertTrue(schema.has("properties"), "$name: $schema")
             val properties = schema["properties"]

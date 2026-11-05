@@ -132,8 +132,8 @@ class UserAuthorizationTest {
                 jsonPath("$.error.code") { value("MEMBER_ONLY") }
             }
         }
-        // 내 하우징 읽기는 회원 전용 규칙에서 제외한다. 아직 컨트롤러가 없으므로 404다.
-        mvc.get("/api/v1/housings/me") { header(HttpHeaders.AUTHORIZATION, "Bearer $token") }.andExpect { status { isNotFound() } }
+        // 내 하우징 읽기는 회원 전용 규칙에서 제외한다. 게스트도 200이다.
+        mvc.get("/api/v1/housings/me") { header(HttpHeaders.AUTHORIZATION, "Bearer $token") }.andExpect { status { isOk() } }
         mvc.delete("/api/v1/users/me") { header(HttpHeaders.AUTHORIZATION, "Bearer $token") }.andExpect {
             status { isForbidden() }
             jsonPath("$.error.code") { value("MEMBER_ONLY") }

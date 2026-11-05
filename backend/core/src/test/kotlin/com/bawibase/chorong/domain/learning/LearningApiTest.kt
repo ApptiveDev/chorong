@@ -194,12 +194,11 @@ class LearningApiTest {
         mvc.post("/api/v1/contents/${contentIds[2]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.progress.resumeContentId") { doesNotExist() }
-            jsonPath("$.data.lessonCompleted") { value(false) }
+            jsonPath("$.data.lessonCompleted") { value(true) }
         }
         mvc.get("/api/v1/users/me/progress") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.current.lessonId") { value(lessonId) }
-            jsonPath("$.data.current.status") { value("IN_PROGRESS") }
+            jsonPath("$.data.current.lessonId") { doesNotExist() }
         }
         jdbc.update("UPDATE lesson_progress SET status='COMPLETED',completed_at=now() WHERE user_id=? AND lesson_id=?", userId, lessonId)
         mvc
@@ -231,7 +230,15 @@ class LearningApiTest {
                 header("Idempotency-Key", key)
             }.andExpect { status { isConflict() } }
         val contentId = jdbc.queryForObject("SELECT content_id FROM lesson_content WHERE lesson_id=?", Long::class.java, lessonId)
-        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.lessonCompleted") { value(true) }
+            jsonPath("$.data.completion.courseCompleted") { value(true) }
+            jsonPath("$.data.completion.rewards.length()") { value(2) }
+            jsonPath("$.data.completion.rewards[0].amount") { value(1) }
+            jsonPath("$.data.completion.rewards[1].badge.constellationId") { value(778) }
+            jsonPath("$.data.completion.wallet.star") { value(1) }
+        }
 
         mvc
             .post("/api/v1/lessons/$lessonId/complete") {
@@ -240,9 +247,7 @@ class LearningApiTest {
             }.andExpect {
                 status { isOk() }
                 jsonPath("$.data.courseCompleted") { value(true) }
-                jsonPath("$.data.rewards.length()") { value(2) }
-                jsonPath("$.data.rewards[0].amount") { value(1) }
-                jsonPath("$.data.rewards[1].badge.constellationId") { value(778) }
+                jsonPath("$.data.rewards.length()") { value(0) }
                 jsonPath("$.data.wallet.star") { value(1) }
             }
         mvc
@@ -251,7 +256,7 @@ class LearningApiTest {
                 header("Idempotency-Key", key)
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.rewards.length()") { value(2) }
+                jsonPath("$.data.rewards.length()") { value(0) }
                 jsonPath("$.data.wallet.star") { value(1) }
             }
         jdbc.update(
@@ -371,27 +376,34 @@ class LearningApiTest {
         val items = mapper.readTree(setBody)["data"]["reviewItems"]
         val correctItemId = items[0]["reviewItemId"].asLong()
         val correctQuizId = items[0]["quiz"]["quizId"].asLong()
-        val correctReviewResponse = postReviewAnswer(correctItemId, mapper.readTree("""{"index":0}""")).andExpect {
-            status { isOk() }
-            jsonPath("$.data.isCorrect") { value(true) }
-            jsonPath("$.data.correctAnswer.index") { value(0) }
-            jsonPath("$.data.graded") { doesNotExist() }
-            jsonPath("$.data.correct") { doesNotExist() }
-            jsonPath("$.data.completed") { doesNotExist() }
-            jsonPath("$.data.excludedUntil") {
-                value(
-                    java.time.LocalDate
-                        .ofInstant(clock.instant(), java.time.ZoneId.of("Asia/Seoul"))
-                        .plusDays(1)
-                        .atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
-                        .toInstant()
-                        .toString(),
-                )
-            }
-        }.andReturn().response.contentAsString
+        val correctReviewResponse =
+            postReviewAnswer(correctItemId, mapper.readTree("""{"index":0}"""))
+                .andExpect {
+                    status { isOk() }
+                    jsonPath("$.data.isCorrect") { value(true) }
+                    jsonPath("$.data.correctAnswer.index") { value(0) }
+                    jsonPath("$.data.graded") { doesNotExist() }
+                    jsonPath("$.data.correct") { doesNotExist() }
+                    jsonPath("$.data.completed") { doesNotExist() }
+                    jsonPath("$.data.excludedUntil") {
+                        value(
+                            java.time.LocalDate
+                                .ofInstant(clock.instant(), java.time.ZoneId.of("Asia/Seoul"))
+                                .plusDays(1)
+                                .atStartOfDay(java.time.ZoneId.of("Asia/Seoul"))
+                                .toInstant()
+                                .toString(),
+                        )
+                    }
+                }.andReturn()
+                .response.contentAsString
         assertEquals(
             setOf("attemptId", "isCorrect", "correctAnswer", "explanation", "streakDays", "excludedUntil"),
-            mapper.readTree(correctReviewResponse)["data"].fieldNames().asSequence().toSet(),
+            mapper
+                .readTree(correctReviewResponse)["data"]
+                .fieldNames()
+                .asSequence()
+                .toSet(),
         )
         assertEquals("CORRECT", reviewStatus(correctQuizId))
         assertEquals(
@@ -406,12 +418,18 @@ class LearningApiTest {
             ),
         )
         mvc.get("/api/v1/reviews/next") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
-        val repeated = postReviewAnswer(correctItemId, mapper.readTree("""{"index":1}"""))
-            .andExpect { status { isOk() } }.andReturn().response.contentAsString
+        val repeated =
+            postReviewAnswer(correctItemId, mapper.readTree("""{"index":1}"""))
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
         assertEquals(mapper.readTree(correctReviewResponse)["data"], mapper.readTree(repeated)["data"])
         jdbc.update("UPDATE review_session_item SET answer_result=NULL WHERE review_item_id=?", correctItemId)
-        val legacyRepeated = postReviewAnswer(correctItemId, mapper.readTree("""{"index":1}"""))
-            .andExpect { status { isOk() } }.andReturn().response.contentAsString
+        val legacyRepeated =
+            postReviewAnswer(correctItemId, mapper.readTree("""{"index":1}"""))
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
         assertEquals(mapper.readTree(correctReviewResponse)["data"], mapper.readTree(legacyRepeated)["data"])
         assertEquals(
             1,
@@ -454,7 +472,7 @@ class LearningApiTest {
 
     @Test
     fun `review answer cannot access another users session item`() {
-        val otherUserId = checkNotNull(users.saveAndFlush(UserEntity(nickname = "외부 복습 ${UUID.randomUUID()}")).id)
+        val otherUserId = checkNotNull(users.saveAndFlush(UserEntity(nickname = "외부 복습 ${UUID.randomUUID().toString().take(8)}")).id)
         val (_, lessonId) = createUnlockedLesson("foreign review")
         val quizId = seedFixture(quizFixtures().first(), lessonId, 0)
         val today = java.sql.Date.valueOf(java.time.LocalDate.ofInstant(clock.instant(), java.time.ZoneId.of("Asia/Seoul")))
@@ -510,7 +528,8 @@ class LearningApiTest {
         }
         mvc.get("/api/v1/users/me/rewards") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.rewards[0].source") { value(emptyMap<String, Any>()) }
+            jsonPath("$.data.rewards[0].source") { isMap() }
+            jsonPath("$.data.rewards[0].source.lessonId") { doesNotExist() }
         }
         postReviewComplete(firstItems.reversed(), firstKey).andExpect { status { isConflict() } }
         postReviewComplete(firstItems, UUID.randomUUID().toString()).andExpect {
@@ -610,26 +629,33 @@ class LearningApiTest {
         }
         assertEquals("WRONG", reviewStatus(quizIds.first()))
 
-        val correctAnswers = listOf(
-            mapper.readTree("""{"index":0}"""),
-            mapper.readTree("""{"value":true}"""),
-            mapper.readTree("""{"order":[0,1,2]}"""),
-            mapper.readTree("""{"index":0}"""),
-            mapper.readTree("""{"texts":["Renaissance"]}"""),
-        )
+        val correctAnswers =
+            listOf(
+                mapper.readTree("""{"index":0}"""),
+                mapper.readTree("""{"value":true}"""),
+                mapper.readTree("""{"order":[0,1,2]}"""),
+                mapper.readTree("""{"index":0}"""),
+                mapper.readTree("""{"texts":["Renaissance"]}"""),
+            )
         fixtureItems.forEachIndexed { index, _ ->
-            val submission = postAnswer(quizIds[index], correctAnswers[index]).andExpect {
-                status { isOk() }
-                jsonPath("$.data.attemptId") { exists() }
-                jsonPath("$.data.isCorrect") { value(true) }
-                jsonPath("$.data.streakDays") { value(0) }
-                jsonPath("$.data.correctAnswer") { exists() }
-                jsonPath("$.data.graded") { doesNotExist() }
-                jsonPath("$.data.completed") { doesNotExist() }
-            }.andReturn()
+            val submission =
+                postAnswer(quizIds[index], correctAnswers[index])
+                    .andExpect {
+                        status { isOk() }
+                        jsonPath("$.data.attemptId") { exists() }
+                        jsonPath("$.data.isCorrect") { value(true) }
+                        jsonPath("$.data.streakDays") { value(0) }
+                        jsonPath("$.data.correctAnswer") { exists() }
+                        jsonPath("$.data.graded") { doesNotExist() }
+                        jsonPath("$.data.completed") { doesNotExist() }
+                    }.andReturn()
             assertEquals(
                 setOf("attemptId", "isCorrect", "correctAnswer", "explanation", "streakDays"),
-                mapper.readTree(submission.response.contentAsString)["data"].fieldNames().asSequence().toSet(),
+                mapper
+                    .readTree(submission.response.contentAsString)["data"]
+                    .fieldNames()
+                    .asSequence()
+                    .toSet(),
             )
             val result = mapper.readTree(submission.response.contentAsString)["data"]
             when (index) {
@@ -733,11 +759,12 @@ class LearningApiTest {
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','intro')", lessonId)
         val quizIds = listOf(seedFixture(fixture, lessonId, 1), seedFixture(fixture, lessonId, 2))
         jdbc.update("UPDATE lesson_progress SET status='COMPLETED', completed_at=now() WHERE user_id=? AND lesson_id=?", userId, lessonId)
-        mvc.post("/api/v1/lessons/$lessonId/start") {
-            header(HttpHeaders.AUTHORIZATION, auth)
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"replay":true}"""
-        }.andExpect { status { isOk() } }
+        mvc
+            .post("/api/v1/lessons/$lessonId/start") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"replay":true}"""
+            }.andExpect { status { isOk() } }
         quizIds.forEach { quizId ->
             postAnswer(quizId, mapper.readTree("""{"index":0}"""), replay = true).andExpect {
                 status { isOk() }
@@ -747,7 +774,10 @@ class LearningApiTest {
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM quiz_attempt WHERE user_id=? AND replay", Int::class.java, userId))
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM reward_ledger WHERE user_id=?", Int::class.java, userId))
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM quiz_review_pool WHERE user_id=?", Int::class.java, userId))
-        assertEquals("COMPLETED", jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId))
+        assertEquals(
+            "COMPLETED",
+            jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId),
+        )
     }
 
     @Test
@@ -823,7 +853,10 @@ class LearningApiTest {
             ),
         )
         assertEquals(rewardCountBefore, jdbc.queryForObject("SELECT COUNT(*) FROM reward_ledger WHERE user_id=?", Int::class.java, userId))
-        assertEquals("COMPLETED", jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId))
+        assertEquals(
+            "COMPLETED",
+            jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId),
+        )
     }
 
     @Test
