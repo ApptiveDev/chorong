@@ -127,6 +127,8 @@ export function createIntegrationApi(client: IntegrationClient) {
   };
   const room = {
     me: () => client.request('API-701', m.housingDetail),
+    update: (body: { name?: string; isPublic?: boolean }) =>
+      client.request('API-703', m.housing, { body }),
     save: (placements: m.PlacementInput[]) =>
       client.request('API-702', object({ placements: array(m.placement) }), {
         body: { placements },

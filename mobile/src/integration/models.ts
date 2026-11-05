@@ -209,7 +209,7 @@ export const housingCard = object({
 });
 export const housingVisit = object({
   housing,
-  placements: array(unknownObject),
+  placements: array(placement),
   avatar: unknownObject,
   ownerNickname: str,
   likedByMe: bool,

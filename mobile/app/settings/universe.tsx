@@ -60,16 +60,12 @@ export default function UniverseSettings() {
             <View style={s.row}>
               <View>
                 <Text style={s.text}>우주선 공개</Text>
-                <Text style={s.caption}>
-                  {useMockApi
-                    ? '공개하면 다른 우주선을 구경할 수 있어요.'
-                    : '공개 설정 API 확정 대기'}
-                </Text>
+                <Text style={s.caption}>공개하면 다른 우주선을 구경할 수 있어요.</Text>
               </View>
               <Switch
                 accessibilityLabel="우주선 공개"
                 value={isPublic}
-                disabled={!useMockApi || !me}
+                disabled={!me || task.busy || session.user?.status !== 'ACTIVE'}
                 onValueChange={setConfirmPublic}
               />
             </View>
@@ -103,9 +99,21 @@ export default function UniverseSettings() {
             </Text>
             <Pressable
               accessibilityRole="button"
+              disabled={task.busy}
               onPress={() => {
-                mockVisibility.set(Boolean(confirmPublic));
-                setConfirmPublic(null);
+                const isPublic = Boolean(confirmPublic);
+                void task.run(async () => {
+                  const housing = await api.room.update({ isPublic });
+                  setMe(
+                    (current) =>
+                      current && {
+                        ...current,
+                        housing: { ...current.housing, isPublic: housing.isPublic },
+                      },
+                  );
+                  if (useMockApi) mockVisibility.set(housing.isPublic);
+                  setConfirmPublic(null);
+                });
               }}
               style={s.primary}
             >

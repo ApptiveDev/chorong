@@ -212,7 +212,7 @@ test('base URL keeps a single version prefix and rejects credential URLs', () =>
   assert.equal(integrationBaseURL('https://test.invalid/api/v1/'), 'https://test.invalid/api/v1');
   assert.throws(() => integrationBaseURL('https://password@test.invalid'));
 });
-test('all 46 PDF APIs are inventoried; two deferred APIs cannot be sent', async () => {
+test('all 46 APIs are inventoried; unused avatar update remains deferred', async () => {
   assert.equal(Object.keys(catalog).length, 46);
   const { c } = setup();
   let sent = 0;
@@ -221,9 +221,26 @@ test('all 46 PDF APIs are inventoried; two deferred APIs cannot be sent', async 
     return respond(config, {});
   };
   const deferred = Object.keys(catalog).filter((id) => catalog[id][3] === 'deferred');
-  assert.deepEqual(deferred, ['API-703', 'API-704']);
-  for (const id of deferred) await assert.rejects(c.request(id, null), /보류/);
+  assert.deepEqual(deferred, ['API-704']);
+  for (const id of deferred) await assert.rejects(c.request(id, null), /사용하지 않는 API/);
   assert.equal(sent, 0);
+});
+test('housing visibility update sends API-703 body and reads housing response', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  let request;
+  c.http.defaults.adapter = async (config) => {
+    request = config;
+    return respond(config, {
+      data: { housingId: 1, name: '우주선', isPublic: true, likeCount: 0 },
+    });
+  };
+  const housing = await api.room.update({ isPublic: true });
+  assert.equal(request.method, 'patch');
+  assert.equal(request.url, '/housings/me');
+  assert.deepEqual(JSON.parse(request.data), { isPublic: true });
+  assert.equal(request.headers.get('Authorization'), `Bearer ${tokens.accessToken}`);
+  assert.equal(housing.isPublic, true);
 });
 test('housing save and batch purchase send PDF bodies and purchase key unchanged', async () => {
   const { c, api } = setup();

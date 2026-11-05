@@ -217,6 +217,20 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         housing: { ...room.housing, isPublic: mockVisibility.get() },
         placements: state.placements,
       });
+    case 'API-703': {
+      const housing = {
+        ...room.housing,
+        name: typeof input.name === 'string' ? input.name : room.housing.name,
+        isPublic: typeof input.isPublic === 'boolean' ? input.isPublic : mockVisibility.get(),
+      };
+      room.housing = housing;
+      state.user = {
+        ...state.user,
+        housing: { ...state.user.housing, isPublic: housing.isPublic },
+      };
+      mockVisibility.set(housing.isPublic);
+      return response(housing);
+    }
     case 'API-702': {
       const requested = Array.isArray(input.placements) ? input.placements : [];
       state.placements = requested.flatMap((value, index) => {

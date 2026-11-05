@@ -6,11 +6,9 @@ import { TopDownRoom } from '../../components/house/TopDownRoom';
 import { useIntegration, useTask } from '../hooks';
 import { mockVisibility } from '../mockVisibility';
 import {
-  placement,
   type HousingCard,
   type HousingDetail,
   type HousingVisit,
-  type Placement,
   type ReportReason,
 } from '../models';
 import { integrationApi as api, useMockApi } from '../runtime';
@@ -22,16 +20,6 @@ const reportReasons: { value: ReportReason; label: string }[] = [
   { value: 'SPAM', label: '스팸' },
   { value: 'OTHER', label: '기타' },
 ];
-
-function visiblePlacements(values: Record<string, unknown>[]): Placement[] {
-  return values.flatMap((value) => {
-    try {
-      return [placement(value)];
-    } catch {
-      return [];
-    }
-  });
-}
 
 export default function SocialScreen() {
   const session = useIntegration();
@@ -60,6 +48,13 @@ export default function SocialScreen() {
     void task.run(async () => {
       const myRoom = await api.room.me();
       setOwn(myRoom);
+      if (!myRoom.housing.isPublic) {
+        setCards([]);
+        setCursor(null);
+        setVisit(null);
+        setLoaded(true);
+        return;
+      }
       const page = await api.social.explore({ sort, size: 20 });
       setCards(page.data.housings);
       setCursor(page.meta.nextCursor);
@@ -115,11 +110,35 @@ export default function SocialScreen() {
     });
   };
   const changeVisibility = (value: boolean) => {
-    setDialog(null);
-    if (!useMockApi) return;
-    mockVisibility.set(value);
-    setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
-    setShowOwn(!value);
+    void task.run(async () => {
+      const housing = await api.room.update({ isPublic: value });
+      setOwn(
+        (current) =>
+          current && {
+            ...current,
+            housing: { ...current.housing, name: housing.name, isPublic: housing.isPublic },
+          },
+      );
+      if (useMockApi) mockVisibility.set(housing.isPublic);
+      setDialog(null);
+      setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
+      setShowOwn(!value);
+      if (value) {
+        const page = await api.social.explore({ sort, size: 20 });
+        setCards(page.data.housings);
+        setCursor(page.meta.nextCursor);
+        setIndex(0);
+        setVisit(
+          page.data.housings.length
+            ? await api.social.visit(page.data.housings[0].housingId)
+            : null,
+        );
+      } else {
+        setCards([]);
+        setCursor(null);
+        setVisit(null);
+      }
+    });
   };
 
   const name = showOwn ? own?.housing.name : visit?.housing.name;
@@ -128,11 +147,7 @@ export default function SocialScreen() {
     : visit
       ? `${visit.ownerNickname} · ${visit.housing.name}`
       : '';
-  const placements = showOwn
-    ? (own?.placements ?? [])
-    : visit
-      ? visiblePlacements(visit.placements)
-      : [];
+  const placements = showOwn ? (own?.placements ?? []) : visit ? visit.placements : [];
   const count = showOwn ? (own?.housing.likeCount ?? 0) : (visit?.housing.likeCount ?? 0);
   return (
     <UserScreen title="다른 우주선 구경" member>
@@ -160,17 +175,14 @@ export default function SocialScreen() {
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ disabled: !useMockApi }}
-          disabled={!useMockApi}
+          accessibilityState={{ disabled: task.busy }}
+          disabled={task.busy}
           onPress={() => setDialog(isPublic ? 'private' : 'public')}
           style={s.visibilityButton}
         >
           <Text style={s.small}>{isPublic ? '비공개' : '공개'}</Text>
         </Pressable>
       </View>
-      {!useMockApi ? (
-        <Text style={s.caption}>공개 변경은 API-703 명세 확정 후 연결됩니다.</Text>
-      ) : null}
       <View style={s.sortRow}>
         <Pressable
           accessibilityRole="button"
@@ -416,7 +428,7 @@ export function VisitScreen() {
             </Pressable>
           </View>
           <View style={s.roomFrame}>
-            <TopDownRoom placements={visiblePlacements(visit.placements)} />
+            <TopDownRoom placements={visit.placements} />
           </View>
           <View style={s.actions}>
             <Pressable

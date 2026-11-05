@@ -28,7 +28,7 @@ export const catalog = {
   'API-602': ['POST', '/onboarding/complete', '온보딩 완료·건너뛰기', 'guest'],
   'API-701': ['GET', '/housings/me', '내 우주 조회', 'guest'],
   'API-702': ['PUT', '/housings/me/placements', '배치 전체 저장', 'guest'],
-  'API-703': ['PATCH', '/housings/me', '하우징 이름·공개 설정', 'deferred'],
+  'API-703': ['PATCH', '/housings/me', '하우징 이름·공개 설정', 'guest'],
   'API-704': ['PATCH', '/housings/me/avatar', '아바타 설정', 'deferred'],
   'API-801': ['GET', '/housings/explore', '공개 우주 탐색', 'member'],
   'API-802': ['GET', '/housings/{housingId}', '다른 우주 방문', 'member'],
