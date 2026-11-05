@@ -35,6 +35,12 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+if (process.env.EXPO_PUBLIC_USE_MOCK === 'true') {
+  api.defaults.adapter = async () => {
+    throw new Error('이전 /api 계약은 Mock 데이터가 없습니다. 통합 화면을 사용하세요.');
+  };
+}
+
 // 모듈을 불러올 때 한 번 등록한다. 화면 렌더링과 함께 재등록하지 않는다.
 api.interceptors.request.use((config) => {
   if (config.skipAuth) {

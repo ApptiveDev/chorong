@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "../.expo/integration-tests",
+    "rootDir": "../src/integration",
+    "types": []
+  },
+  "include": [
+    "../src/integration/client.ts",
+    "../src/integration/api.ts",
+    "../src/integration/mockApi.ts"
+  ]
+}

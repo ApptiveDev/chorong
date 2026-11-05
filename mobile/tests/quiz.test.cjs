@@ -18,6 +18,11 @@ const {
   shuffled,
 } = require('../.expo/quiz-tests/lib/quiz-state.js');
 const fixtures = require('../../backend/core/src/test/resources/quiz/quiz-items.json');
+const {
+  mockLessonQuizzes,
+  mockQuizForLesson,
+  checkMockQuiz,
+} = require('../.expo/quiz-tests/lib/mock-lesson-quizzes.js');
 const raw = (fixture) => ({ ...fixture, quizId: fixture.quizOrder, lessonId: 23 });
 
 for (const fixture of fixtures) {
@@ -248,4 +253,93 @@ test('memory completion requires all distinct card IDs and rejects a reused or u
       .map((p) => ({ firstCardId: p.secondCardId, secondCardId: p.firstCardId })),
   };
   assert.equal(responseIssue(quiz, reversed), null);
+});
+
+test('ten learning quizzes cover all eight interaction types and retain lesson IDs', () => {
+  const lessonIds = [41, 51, 61, 71, 81, 91, 101, 111, 121, 131];
+  const types = [
+    'SLIDER',
+    'SWIPE',
+    'TAP',
+    'DRAG_DROP',
+    'SORT',
+    'MATCHING',
+    'FLIP_CARD',
+    'MULTIPLE_CHOICE',
+  ];
+  assert.equal(mockLessonQuizzes.length, lessonIds.length);
+  assert.deepEqual(
+    [...new Set(mockLessonQuizzes.map((quiz) => quiz.interactionType))].sort(),
+    types.sort(),
+  );
+  for (const lessonId of lessonIds) {
+    const items = mockQuizForLesson(lessonId);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].quizId, lessonId * 10 + 1);
+    assert.equal(items[0].quizOrder, 1);
+    assert.equal(prepareQuiz(items[0]).interactionType, items[0].interactionType);
+  }
+});
+
+test('learning quiz answers are checked locally, including unordered maps and partial memory pairs', () => {
+  const answers = new Map([
+    [411, { value: 'down' }],
+    [511, { selectedItemIds: ['sfumato'] }],
+    [611, { order: ['hear', 'remember', 'repeat'] }],
+    [711, { matches: { human: 'sweet', cat: 'little' } }],
+    [811, { placements: { helium: 'output', hydrogen: 'input' } }],
+    [911, { selectedOptionIds: ['air'] }],
+    [
+      1011,
+      {
+        pairs: [
+          { firstCardId: 'spread', secondCardId: 'curve' },
+          { firstCardId: 'point', secondCardId: 'break' },
+        ],
+      },
+    ],
+    [1111, { value: 50 }],
+    [1211, { selectedItemIds: ['circle'] }],
+    [1311, { selectedOptionIds: ['negative'] }],
+  ]);
+  for (const [quizId, response] of answers) {
+    assert.deepEqual(
+      {
+        correct: checkMockQuiz(quizId, response).correct,
+        completed: checkMockQuiz(quizId, response).completed,
+      },
+      { correct: true, completed: true },
+      `quiz ${quizId}`,
+    );
+  }
+  assert.deepEqual(
+    {
+      correct: checkMockQuiz(1011, { pairs: [{ firstCardId: 'curve', secondCardId: 'spread' }] })
+        .correct,
+      completed: checkMockQuiz(1011, { pairs: [{ firstCardId: 'curve', secondCardId: 'spread' }] })
+        .completed,
+    },
+    { correct: true, completed: false },
+  );
+  assert.equal(checkMockQuiz(411, { value: 'up' }).correct, false);
+});
+
+test('quiz.ts returns lesson quizzes in mock mode without an HTTP request', async () => {
+  const previous = process.env.EXPO_PUBLIC_USE_MOCK;
+  process.env.EXPO_PUBLIC_USE_MOCK = 'true';
+  let requests = 0;
+  try {
+    const quizApi = loadPreview(async () => {
+      requests++;
+      throw new Error('unexpected network request');
+    });
+    const items = await quizApi.list(41);
+    assert.equal(items[0].interactionType, 'SWIPE');
+    assert.equal((await quizApi.check(411, { value: 'down' })).correct, true);
+    assert.equal(requests, 0);
+  } finally {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_USE_MOCK;
+    else process.env.EXPO_PUBLIC_USE_MOCK = previous;
+    delete require.cache[require.resolve('../.expo/quiz-tests/lib/quiz.js')];
+  }
 });

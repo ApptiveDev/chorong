@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:auth": "tsc -p tests/tsconfig.json && node --test tests/auth.test.cjs",
-    "test:quiz": "tsc -p tests/tsconfig.quiz.json && node --test tests/quiz.test.cjs"
+    "test:quiz": "tsc -p tests/tsconfig.quiz.json && node --test tests/quiz.test.cjs",
+    "test:integration": "tsc -p tests/tsconfig.integration.json && node --test tests/integration.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
@@ -23,6 +24,7 @@
     "expo-constants": "~57.0.19",
     "expo-linking": "~57.0.11",
     "expo-router": "~57.0.23",
+    "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",

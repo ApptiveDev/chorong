@@ -9,10 +9,9 @@ import {
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 const dockItems: { name: string; label: string; icon: IconName; iconActive: IconName }[] = [
-  { name: 'index', label: '홈', icon: 'home-outline', iconActive: 'home' },
   { name: 'quiz', label: '학습', icon: 'book-outline', iconActive: 'book' },
-  { name: 'social', label: '소셜', icon: 'people-outline', iconActive: 'people' },
-  { name: 'more', label: '더보기', icon: 'menu-outline', iconActive: 'menu' },
+  { name: 'index', label: '나의 우주선', icon: 'planet-outline', iconActive: 'planet' },
+  { name: 'more', label: '제어실', icon: 'settings-outline', iconActive: 'settings' },
 ];
 
 export default function TabsLayout() {
@@ -52,6 +51,7 @@ function TabNavigator() {
           }}
         />
       ))}
+      <Tabs.Screen name="social" options={{ href: null }} />
     </Tabs>
   );
 }
