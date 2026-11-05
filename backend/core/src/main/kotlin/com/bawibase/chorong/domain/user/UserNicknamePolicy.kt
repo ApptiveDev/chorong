@@ -5,8 +5,10 @@ import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.FieldViolation
 
 object UserNicknamePolicy {
-    fun displayName(nickname: String?, status: UserStatus): String =
-        nickname ?: if (status == UserStatus.GUEST) GUEST_DEFAULT else DEFAULT
+    fun displayName(
+        nickname: String?,
+        status: UserStatus,
+    ): String = nickname ?: if (status == UserStatus.GUEST) GUEST_DEFAULT else DEFAULT
 
     const val GUEST_DEFAULT = "게스트"
     const val DEFAULT = "사용자"

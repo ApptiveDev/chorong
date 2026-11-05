@@ -36,7 +36,11 @@ class QuizService(
 
     fun get(quizId: Long): QuizResponse = publicQuiz(findQuiz(quizId))
 
-    fun getPublicAttempt(userId: Long, quizId: Long, attemptId: Long): QuizAttemptResponse {
+    fun getPublicAttempt(
+        userId: Long,
+        quizId: Long,
+        attemptId: Long,
+    ): QuizAttemptResponse {
         val attempt = attempts.findById(attemptId).orElseThrow { ApiException(ErrorCode.QUIZ_NOT_FOUND) }
         if (attempt.userId != userId || attempt.quizId != quizId) throw ApiException(ErrorCode.QUIZ_NOT_FOUND)
         val quiz = findQuiz(quizId)
@@ -78,9 +82,7 @@ class QuizService(
         quizId: Long,
         answer: JsonNode,
         replay: Boolean = false,
-    ): QuizAttemptResponse {
-        return submitInternal(userId, quizId, answer, replay, publicAnswer = true, publicContract = true)
-    }
+    ): QuizAttemptResponse = submitInternal(userId, quizId, answer, replay, publicAnswer = true, publicContract = true)
 
     private fun submitInternal(
         userId: Long,

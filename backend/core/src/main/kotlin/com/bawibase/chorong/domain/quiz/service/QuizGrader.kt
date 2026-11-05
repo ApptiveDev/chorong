@@ -70,7 +70,9 @@ class QuizGrader {
                 response<MultipleChoiceUserResponse> { grade(it.selectedOptionIds) }
             }
 
-            is FillBlankQuizDefinition -> fillBlank(quiz)
+            is FillBlankQuizDefinition -> {
+                fillBlank(quiz)
+            }
 
             is DragDropQuizDefinition -> {
                 val grade = placement(quiz.config.items, quiz.config.targets, quiz.answer.placements, oneToOne = false)

@@ -16,19 +16,21 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class QuizPublicResponseTest {
-    private fun response(type: QuizInteractionType, config: QuizConfig) =
-        QuizPublicResponse.from(
-            QuizResponse(
-                quizId = 7,
-                lessonId = 1,
-                question = "question",
-                instruction = "hint",
-                interactionType = type,
-                config = config,
-                difficulty = "basic",
-                quizOrder = 0,
-            ),
-        )
+    private fun response(
+        type: QuizInteractionType,
+        config: QuizConfig,
+    ) = QuizPublicResponse.from(
+        QuizResponse(
+            quizId = 7,
+            lessonId = 1,
+            question = "question",
+            instruction = "hint",
+            interactionType = type,
+            config = config,
+            difficulty = "basic",
+            quizOrder = 0,
+        ),
+    )
 
     @Test
     fun `maps supported quiz types to the v1 public shape`() {

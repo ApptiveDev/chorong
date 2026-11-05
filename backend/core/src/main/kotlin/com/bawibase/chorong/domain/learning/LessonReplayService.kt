@@ -140,5 +140,4 @@ class LessonReplayService(
         val lastContentId: Long?,
         val completedAt: Instant?,
     )
-
 }

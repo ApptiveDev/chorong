@@ -10,9 +10,9 @@ import com.bawibase.chorong.domain.housing.HousingPlacementArea
 import com.bawibase.chorong.domain.housing.SurfaceKind
 import com.bawibase.chorong.domain.housing.dto.AvatarResponse
 import com.bawibase.chorong.domain.housing.dto.AvatarState
+import com.bawibase.chorong.domain.housing.dto.HousingAvatarPatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchResponse
-import com.bawibase.chorong.domain.housing.dto.HousingAvatarPatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementResponse
 import com.bawibase.chorong.domain.housing.dto.HousingPlacementTransformResponse
 import com.bawibase.chorong.domain.housing.dto.LayoutRequest
@@ -116,7 +116,10 @@ class HousingService(
         }
     }
 
-    fun updateAvatar(userId: Long, request: HousingAvatarPatchRequest): AvatarResponse {
+    fun updateAvatar(
+        userId: Long,
+        request: HousingAvatarPatchRequest,
+    ): AvatarResponse {
         if (request.placementId != null && !coordinatePlacements.existsByIdAndUserId(request.placementId, userId)) {
             throw ApiV1Exception(ApiErrorCode.PLACEMENT_NOT_FOUND)
         }

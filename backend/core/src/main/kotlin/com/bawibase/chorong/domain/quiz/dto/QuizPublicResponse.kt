@@ -67,7 +67,9 @@ data class QuizPublicResponse(
                     Type.MULTIPLE_CHOICE to mapOf("choices" to choices(tap.items))
                 }
 
-                QuizInteractionType.FILL_BLANK -> Type.FILL_BLANK to null
+                QuizInteractionType.FILL_BLANK -> {
+                    Type.FILL_BLANK to null
+                }
 
                 QuizInteractionType.SWIPE -> {
                     val swipe = config as SwipeConfig
@@ -76,12 +78,17 @@ data class QuizPublicResponse(
                     Type.OX to mapOf("choices" to choices)
                 }
 
-                QuizInteractionType.SORT -> Type.ORDERING to mapOf("items" to choices((config as SortConfig).items))
+                QuizInteractionType.SORT -> {
+                    Type.ORDERING to mapOf("items" to choices((config as SortConfig).items))
+                }
 
                 QuizInteractionType.SLIDER,
                 QuizInteractionType.DRAG_DROP,
                 QuizInteractionType.MATCHING,
-                QuizInteractionType.FLIP_CARD -> throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
+                QuizInteractionType.FLIP_CARD,
+                -> {
+                    throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
+                }
             }
 
         private fun choices(items: List<QuizItemOption>): List<Map<String, Any?>> =
@@ -159,7 +166,9 @@ object QuizPublicAnswer {
                     mapOf("texts" to response.texts)
                 }
 
-                else -> throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
+                else -> {
+                    throw ApiException(ErrorCode.QUIZ_DATA_INVALID)
+                }
             },
         )
 }

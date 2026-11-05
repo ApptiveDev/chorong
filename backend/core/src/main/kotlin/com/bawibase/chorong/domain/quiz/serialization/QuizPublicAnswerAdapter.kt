@@ -56,12 +56,20 @@ class QuizPublicAnswerAdapter(
 
             is SortQuizDefinition -> {
                 exactFields(answer, "order")
-                val indices = indices(answer["order"], quiz.config.items.map { it.id }.size)
+                val indices =
+                    indices(
+                        answer["order"],
+                        quiz.config.items
+                            .map { it.id }
+                            .size,
+                    )
                 if (indices.size != quiz.config.items.size || indices.toSet().size != indices.size) invalidResponse()
                 internalResponse("order", indices.map { quiz.config.items[it].id })
             }
 
-            else -> invalidQuizData()
+            else -> {
+                invalidQuizData()
+            }
         }
 
     private fun itemId(

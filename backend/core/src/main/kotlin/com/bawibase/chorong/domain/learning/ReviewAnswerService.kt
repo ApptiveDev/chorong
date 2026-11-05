@@ -118,12 +118,20 @@ class ReviewAnswerService(
         return response
     }
 
-    private fun previousAnswer(userId: Long, reviewItemId: Long, item: ReviewItemRow): ReviewAnswerResponse {
+    private fun previousAnswer(
+        userId: Long,
+        reviewItemId: Long,
+        item: ReviewItemRow,
+    ): ReviewAnswerResponse {
         item.answerResult?.let { return mapper.readValue(it, ReviewAnswerResponse::class.java) }
         val result = quizzes.getPublicAttempt(userId, item.quizId, checkNotNull(item.attemptId))
         val excludedUntil =
             if (result.correct == true) {
-                LocalDate.ofInstant(checkNotNull(item.answeredAt), kst).plusDays(1).atStartOfDay(kst).toInstant()
+                LocalDate
+                    .ofInstant(checkNotNull(item.answeredAt), kst)
+                    .plusDays(1)
+                    .atStartOfDay(kst)
+                    .toInstant()
             } else {
                 null
             }
@@ -141,7 +149,10 @@ class ReviewAnswerService(
         return response
     }
 
-    private fun saveAnswer(reviewItemId: Long, response: ReviewAnswerResponse) {
+    private fun saveAnswer(
+        reviewItemId: Long,
+        response: ReviewAnswerResponse,
+    ) {
         jdbc.update(
             "UPDATE review_session_item SET answer_result=?::jsonb WHERE review_item_id=?",
             mapper.writeValueAsString(response),
