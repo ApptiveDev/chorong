@@ -2,7 +2,7 @@
 
 React Native(Expo) 앱 + Spring Boot Kotlin API.
 
-- 설명: [`README.md`](README.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- 설명: [`README.md`](README.md), API 문서는 로컬 `/docs` ([`docs/DEV_LOCAL.md`](docs/DEV_LOCAL.md))
 - 인프라: [`bawibase/bawi-cloud-core`](https://github.com/bawibase/bawi-cloud-core) `infra/environments/apps/chorong/`
 - 도메인: `chorong.bawibase.com` (web), `api-chorong.bawibase.com` (API). dev 는 `-dev` 접미사.
 - DB: 공유 RDS `bawi-sandbox-postgres` 의 `chorong_{dev,prod}` 스키마
