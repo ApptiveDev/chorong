@@ -1,0 +1,10 @@
+{
+  "generatedFrom": "docs/openapi.yaml",
+  "diagrams": [
+    {
+      "file": "auth-guest.mmd",
+      "domain": "auth",
+      "title": "게스트 가입·자동 로그인"
+    }
+  ]
+}

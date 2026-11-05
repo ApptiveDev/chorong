@@ -18,6 +18,15 @@
 
 `--obs` 는 운영과 같은 이미지·멀티테넌트 설정이다. Explore 전에 Grafana 의 Loki·Tempo 데이터소스에 Custom HTTP Header `X-Scope-OrgID: chorong` 을 추가한다 (익명 Admin 이라 바로 편집된다). 로그를 텍스트로 보려면 `./scripts/logs.sh`.
 
+API 문서는 core 가 직접 서빙한다.
+
+| 경로 | 내용 |
+|---|---|
+| `/docs` | Scalar. v1 명세(`openapi.yaml`)와 서버 생성 스펙(`/api-docs`) 전환 |
+| `/docs/sequence` | 시퀀스 다이어그램. 도메인별 Mermaid |
+
+원본은 `backend/core/src/main/resources/api-docs/openapi.yaml` 과 `sequence-docs/*.mmd` 이다. 다이어그램을 추가하면 `sequence-docs/manifest.json` 에도 등록한다.
+
 테스트는 Docker 가 떠 있어야 한다 (Testcontainers):
 
 ```bash

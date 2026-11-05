@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant U as 앱
+    participant API as Chorong API
+    participant DB as Postgres
+
+    U->>API: [API-101] POST /api/v1/auth/guest<br/>{deviceUuid, platform}
+    API->>DB: deviceUuid 로 기존 계정 조회 (대소문자 무시, 기기 잠금)
+    alt 신규 기기
+        API->>DB: 계정·인증·플랫폼·기본 하우징·아바타·지갑 생성 (한 트랜잭션)
+        alt 기본 에셋 누락
+            API-->>U: 409 CONFLICT (전체 롤백)
+        else 정상
+            API-->>U: 200 {accessToken, refreshToken, expiresIn, user, isNew:true}
+        end
+    else 기존 기기
+        API->>DB: 없는 하우징·지갑만 초기화
+        API-->>U: 200 {tokens, user, isNew:false}
+    else 탈퇴 계정
+        API-->>U: 401 UNAUTHORIZED
+    else 대소문자만 다른 복수 계정
+        API-->>U: 409 CONFLICT
+    end

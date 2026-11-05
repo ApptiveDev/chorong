@@ -49,6 +49,7 @@ class SecurityConfig(
                         "/api/health",
                         "/api-docs/**",
                         "/docs",
+                        "/docs/**",
                         "/api/auth/guest/**",
                         "/api/auth/password/**",
                         "/api/auth/refresh",

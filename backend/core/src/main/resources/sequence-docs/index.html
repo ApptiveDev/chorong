@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Chorong Sequence Docs</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 13px -apple-system, sans-serif; background: #fafafa; }
+  #layout { display: flex; height: 100%; }
+  #sidebar, #sidebar * { font-family: Inter, ui-sans-serif, system-ui, "Apple SD Gothic Neo", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }
+  #sidebar { width: 288px; flex: none; overflow-y: auto; background: #fff; border-right: 0.5px solid #dfdfdf; }
+  #sidebar h1 { font-size: 13px; font-weight: 600; margin: 0; padding: 14px 16px 8px; color: #333; }
+  #sidebar .search-wrap { position: relative; margin: 0 12px 10px; }
+  #sidebar .search-wrap svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: #8e8e8e; pointer-events: none; }
+  #sidebar #search { box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px 0 30px; background: #fafafa; border: 1px solid #dfdfdf; border-radius: 6px; font-size: 14px; color: #1b1b1b; }
+  #sidebar #search::placeholder { color: #8e8e8e; }
+  #sidebar #search:focus { outline: none; border-color: #c2c2c2; }
+  #sidebar .group-header { display: flex; align-items: center; justify-content: space-between; width: calc(100% - 16px); box-sizing: border-box; margin: 1px 8px; border: none; background: none; cursor: pointer; font-size: 14px; font-weight: 500; color: #1b1b1b; padding: 8px; border-radius: 6px; font-family: inherit; }
+  #sidebar .group-header:hover { background: #f7f7f7; }
+  #sidebar .group-header svg { width: 12px; height: 12px; color: #707070; flex: none; transition: transform .15s ease; }
+  #sidebar .group-header.collapsed svg { transform: rotate(-90deg); }
+  #sidebar .group-items.collapsed { display: none; }
+  #sidebar button.item { display: block; width: calc(100% - 16px); margin: 1px 8px; text-align: left; border: none; background: none; padding: 8px; font-size: 14px; border-radius: 6px; cursor: pointer; color: #707070; }
+  #sidebar button.item:hover { background: #f7f7f7; }
+  #sidebar button.item.active { background: #f1f1f1; color: #1b1b1b; font-weight: 500; }
+  #sidebar .hidden { display: none; }
+  #main { flex: 1; position: relative; overflow: hidden; background: #fafafa; }
+  #viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; }
+  #viewport.dragging { cursor: grabbing; }
+  #canvas { transform-origin: 0 0; }
+  .mermaid { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: inline-block; }
+  .err { color: #b00; font-family: ui-monospace, monospace; white-space: pre-wrap; padding: 24px; }
+  .placeholder { color: #999; padding: 40px; }
+  #zoom-controls { position: absolute; bottom: 16px; right: 16px; display: flex; gap: 4px; background: #fff; border: 1px solid #ddd; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.12); z-index: 5; }
+  #zoom-controls button { width: 32px; height: 32px; border: none; background: none; cursor: pointer; font-size: 16px; color: #333; }
+  #zoom-controls button:hover { background: #f0f0f0; }
+  #zoom-controls span { display: flex; align-items: center; justify-content: center; width: 48px; font-size: 11px; color: #666; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body>
+<div id="layout">
+  <div id="sidebar">
+    <h1>Sequence</h1>
+    <div class="search-wrap">
+      <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 1a6 6 0 104.472 10.03l3.25 3.25a.75.75 0 101.06-1.06l-3.25-3.25A6 6 0 007 1zm0 1.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9z" fill="currentColor"/></svg>
+      <input id="search" type="text" placeholder="검색..." autocomplete="off">
+    </div>
+    <div id="list"></div>
+  </div>
+  <div id="main">
+    <div id="viewport"><div id="canvas"><div class="placeholder">왼쪽에서 다이어그램을 선택한다</div></div></div>
+    <div id="zoom-controls" style="display:none">
+      <button id="zoom-out" title="축소">&minus;</button>
+      <span id="zoom-pct">100%</span>
+      <button id="zoom-in" title="확대">+</button>
+    </div>
+  </div>
+</div>
+<script>
+mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+
+const list = document.getElementById('list');
+const viewport = document.getElementById('viewport');
+const canvas = document.getElementById('canvas');
+const zoomControls = document.getElementById('zoom-controls');
+const zoomPct = document.getElementById('zoom-pct');
+let seq = 0;
+
+let scale = 1, panX = 0, panY = 0;
+
+function applyTransform() {
+  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  zoomPct.textContent = Math.round(scale * 100) + '%';
+}
+
+const DEFAULT_SCALE = 2;
+
+function centerAtDefaultZoom() {
+  const svg = canvas.querySelector('svg');
+  if (!svg) return;
+  const box = svg.getBoundingClientRect();
+  const vp = viewport.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+  const naturalWidth = box.width / scale;
+  const naturalHeight = box.height / scale;
+  scale = DEFAULT_SCALE;
+  panX = (vp.width - naturalWidth * scale) / 2;
+  panY = (vp.height - naturalHeight * scale) / 2;
+  applyTransform();
+}
+
+function zoomBy(factor, cx, cy) {
+  const vp = viewport.getBoundingClientRect();
+  const originX = cx !== undefined ? cx - vp.left : vp.width / 2;
+  const originY = cy !== undefined ? cy - vp.top : vp.height / 2;
+  const newScale = Math.min(Math.max(scale * factor, 0.1), 4);
+  panX = originX - (originX - panX) * (newScale / scale);
+  panY = originY - (originY - panY) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}
+
+viewport.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX, e.clientY);
+}, { passive: false });
+
+let dragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
+viewport.addEventListener('mousedown', (e) => {
+  dragging = true;
+  viewport.classList.add('dragging');
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  panStartX = panX; panStartY = panY;
+});
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  panX = panStartX + (e.clientX - dragStartX);
+  panY = panStartY + (e.clientY - dragStartY);
+  applyTransform();
+});
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  viewport.classList.remove('dragging');
+});
+
+document.getElementById('zoom-in').onclick = () => zoomBy(1.2);
+document.getElementById('zoom-out').onclick = () => zoomBy(1 / 1.2);
+
+function selectFile(file, btn) {
+  document.querySelectorAll('#list button.item').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  location.hash = encodeURIComponent(file);
+  render(file);
+}
+
+async function render(file) {
+  try {
+    const res = await fetch(file, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const src = await res.text();
+    const id = 'm' + (++seq);
+    const { svg } = await mermaid.render(id, src);
+    canvas.innerHTML = `<div class="mermaid">${svg}</div>`;
+    zoomControls.style.display = 'flex';
+    requestAnimationFrame(centerAtDefaultZoom);
+  } catch (err) {
+    canvas.innerHTML = `<div class="err">${file} 렌더 실패: ${err.message}</div>`;
+    zoomControls.style.display = 'none';
+  }
+}
+
+const entries = [];
+const groups = [];
+
+function setGroupCollapsed(group, collapsed) {
+  group.header.classList.toggle('collapsed', collapsed);
+  group.itemsWrap.classList.toggle('collapsed', collapsed);
+}
+
+function filterList(query) {
+  const q = query.trim().toLowerCase();
+  for (const entry of entries) {
+    const match = !q ||
+      entry.title.toLowerCase().includes(q) ||
+      entry.domain.toLowerCase().includes(q) ||
+      entry.file.toLowerCase().includes(q);
+    entry.btn.classList.toggle('hidden', !match);
+    entry.visible = match;
+  }
+  for (const group of groups) {
+    const anyVisible = entries.some(e => e.domain === group.domain && e.visible);
+    group.header.classList.toggle('hidden', !anyVisible);
+    if (q) {
+      if (anyVisible) setGroupCollapsed(group, false);
+    } else {
+      setGroupCollapsed(group, !group.expanded);
+    }
+  }
+}
+
+const searchInput = document.getElementById('search');
+searchInput.addEventListener('input', () => filterList(searchInput.value));
+window.addEventListener('keydown', (e) => {
+  if (e.key !== '/') return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  e.preventDefault();
+  searchInput.focus();
+});
+
+async function init() {
+  const res = await fetch('manifest.json', { cache: 'no-store' });
+  const manifest = await res.json();
+  const byDomain = {};
+  for (const d of manifest.diagrams) {
+    (byDomain[d.domain] ||= []).push(d);
+  }
+  let firstBtn = null;
+  let firstGroup = null;
+  let matchedGroup = null;
+  let matchedBtn = null;
+  const hashFile = decodeURIComponent(location.hash.slice(1));
+
+  for (const domain of Object.keys(byDomain).sort()) {
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'group-header';
+    header.innerHTML = `<span>${domain}</span><svg viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const itemsWrap = document.createElement('div');
+    itemsWrap.className = 'group-items';
+    const group = { domain, header, itemsWrap, expanded: false };
+    header.onclick = () => {
+      group.expanded = !group.expanded;
+      setGroupCollapsed(group, !group.expanded);
+    };
+    list.appendChild(header);
+    list.appendChild(itemsWrap);
+    groups.push(group);
+    if (!firstGroup) firstGroup = group;
+
+    for (const d of byDomain[domain]) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'item';
+      btn.textContent = d.title;
+      btn.onclick = () => selectFile(d.file, btn);
+      itemsWrap.appendChild(btn);
+      entries.push({ title: d.title, domain: d.domain, file: d.file, btn, header, visible: true });
+      if (!firstBtn) firstBtn = btn;
+      if (hashFile === d.file) {
+        matchedGroup = group;
+        matchedBtn = btn;
+      }
+    }
+  }
+
+  const openGroup = matchedGroup || firstGroup;
+  if (openGroup) {
+    openGroup.expanded = true;
+    setGroupCollapsed(openGroup, false);
+  }
+  for (const group of groups) {
+    if (group !== openGroup) setGroupCollapsed(group, true);
+  }
+
+  if (matchedBtn) {
+    selectFile(hashFile, matchedBtn);
+  } else if (firstBtn) {
+    firstBtn.click();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
