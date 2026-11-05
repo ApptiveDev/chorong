@@ -19,6 +19,7 @@ export type QuizConfigs = {
   SORT: { items: QuizItem[] };
   MATCHING: { leftItems: QuizItem[]; rightItems: QuizItem[] };
   FLIP_CARD: { cards: QuizItem[] };
+  FILL_BLANK: Record<string, never>;
 };
 export type InteractionType = keyof QuizConfigs;
 export type QuizSummary = {
@@ -46,6 +47,7 @@ export type SortUserResponse = { order: string[] };
 export type MatchingUserResponse = { matches: Record<string, string> };
 export type CardPair = { firstCardId: string; secondCardId: string };
 export type FlipCardUserResponse = { pairs: CardPair[] };
+export type FillBlankUserResponse = { texts: string[] };
 export type QuizUserResponses = {
   SLIDER: SliderUserResponse;
   SWIPE: SwipeUserResponse;
@@ -55,6 +57,7 @@ export type QuizUserResponses = {
   SORT: SortUserResponse;
   MATCHING: MatchingUserResponse;
   FLIP_CARD: FlipCardUserResponse;
+  FILL_BLANK: FillBlankUserResponse;
 };
 export type QuizResponse = QuizUserResponses[InteractionType];
 export type QuizPreviewResult = {

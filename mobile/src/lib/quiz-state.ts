@@ -105,6 +105,9 @@ export function prepareQuiz(raw: QuizSummary): Quiz {
       case 'FLIP_CARD':
         valid = items(c.cards) && c.cards.length >= 2 && c.cards.length % 2 === 0;
         break;
+      case 'FILL_BLANK':
+        valid = true;
+        break;
       default:
         throw new Error(`지원하지 않는 문제 유형입니다. (${raw.interactionType})`);
     }
@@ -144,6 +147,8 @@ export function initialResponse(quiz: Quiz): QuizResponse {
       return { matches: {} };
     case 'FLIP_CARD':
       return { pairs: [] };
+    case 'FILL_BLANK':
+      return { texts: [''] };
   }
 }
 
@@ -183,6 +188,10 @@ export function responseIssue(quiz: Quiz, response: QuizResponse): string | null
         quiz.config.cards.every((card) => ids.includes(card.id))
         ? null
         : '모든 카드의 짝을 맞춰 주세요.';
+    case 'FILL_BLANK':
+      return 'texts' in response && response.texts.every((value) => value.trim())
+        ? null
+        : '답을 입력해 주세요.';
     default:
       return null;
   }

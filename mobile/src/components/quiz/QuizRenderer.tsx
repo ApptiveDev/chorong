@@ -1,5 +1,6 @@
 import type { FlipCardUserResponse, QuizPreviewResult, Quiz, QuizResponse } from '../../types/quiz';
 import { DragDropQuiz } from './DragDropQuiz';
+import { FillBlankQuiz } from './FillBlankQuiz';
 import { FlipCardQuiz } from './FlipCardQuiz';
 import { MatchingQuiz } from './MatchingQuiz';
 import { SelectionQuiz } from './SelectionQuiz';
@@ -73,6 +74,14 @@ export function QuizRenderer({
           onChange={(pairs) => onChange({ pairs })}
           checkPairs={checkPairs}
           onComplete={onComplete}
+          disabled={disabled}
+        />
+      );
+    case 'FILL_BLANK':
+      return (
+        <FillBlankQuiz
+          texts={'texts' in response ? response.texts : ['']}
+          onChange={(texts) => onChange({ texts })}
           disabled={disabled}
         />
       );

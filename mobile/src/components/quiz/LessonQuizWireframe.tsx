@@ -16,6 +16,7 @@ const labels: Record<InteractiveQuiz['interactionType'], string> = {
   MATCHING: '짝 연결하기',
   FLIP_CARD: '카드 뒤집기',
   MULTIPLE_CHOICE: '답 고르기',
+  FILL_BLANK: '빈칸 채우기',
 };
 
 export function LessonQuizWireframe({
