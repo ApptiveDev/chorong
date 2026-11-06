@@ -51,9 +51,14 @@ class WalletApiTest {
 
         mvc.get("/api/v1/users/me/wallet") { header(HttpHeaders.AUTHORIZATION, "Bearer $token") }.andExpect {
             status { isOk() }
-            jsonPath("$.data.star") { value(0) }
+            jsonPath("$.data.star") { doesNotExist() }
             jsonPath("$.data.stardust") { value(0) }
             jsonPath("$.data.coin") { doesNotExist() }
+        }
+        mvc.get("/api/v1/users/me") { header(HttpHeaders.AUTHORIZATION, "Bearer $token") }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.wallet.star") { doesNotExist() }
+            jsonPath("$.data.wallet.stardust") { value(0) }
         }
         assertEquals(437L, wallets.findById(userId).orElseThrow().coin)
     }
@@ -70,7 +75,6 @@ class WalletApiTest {
                     executor.submit {
                         check(start.await(10, TimeUnit.SECONDS))
                         repeat(12) {
-                            walletService.credit(userId, WalletCurrency.STAR, 2)
                             walletService.credit(userId, WalletCurrency.STARDUST, 3)
                         }
                     }
@@ -81,34 +85,32 @@ class WalletApiTest {
             executor.shutdownNow()
         }
         val wallet = wallets.findById(userId).orElseThrow()
-        assertEquals(192L, wallet.star)
+        assertEquals(0L, wallet.star)
         assertEquals(288L, wallet.stardust)
     }
 
     @Test
     fun `credit rejects nonpositive amounts and overflow without changing balance`() {
         val userId = checkNotNull(users.saveAndFlush(UserEntity()).id)
-        walletService.ensureWallet(userId).apply { star = Long.MAX_VALUE }.also(wallets::saveAndFlush)
+        walletService.ensureWallet(userId).apply { stardust = Long.MAX_VALUE }.also(wallets::saveAndFlush)
 
-        assertFailsWith<ApiV1Exception> { walletService.credit(userId, WalletCurrency.STAR, 1) }
+        assertFailsWith<ApiV1Exception> { walletService.credit(userId, WalletCurrency.STARDUST, 1) }
         assertFailsWith<ApiV1Exception> { walletService.credit(userId, WalletCurrency.STARDUST, 0) }
         val wallet = wallets.findById(userId).orElseThrow()
-        assertEquals(Long.MAX_VALUE, wallet.star)
-        assertEquals(0L, wallet.stardust)
+        assertEquals(0L, wallet.star)
+        assertEquals(Long.MAX_VALUE, wallet.stardust)
     }
 
     @Test
     fun `currency debits remain independent and reject insufficient balance`() {
         val userId = checkNotNull(users.saveAndFlush(UserEntity()).id)
-        walletService.credit(userId, WalletCurrency.STAR, 10)
         walletService.credit(userId, WalletCurrency.STARDUST, 20)
-        walletService.debit(userId, WalletCurrency.STAR, 3)
         walletService.debit(userId, WalletCurrency.STARDUST, 5)
 
-        assertFailsWith<ApiV1Exception> { walletService.debit(userId, WalletCurrency.STAR, 8) }
+        assertFailsWith<ApiV1Exception> { walletService.debit(userId, WalletCurrency.STARDUST, 16) }
         assertFailsWith<ApiV1Exception> { walletService.debit(userId, WalletCurrency.STARDUST, -1) }
         val wallet = wallets.findById(userId).orElseThrow()
-        assertEquals(7L, wallet.star)
+        assertEquals(0L, wallet.star)
         assertEquals(15L, wallet.stardust)
     }
 }

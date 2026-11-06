@@ -3,7 +3,6 @@ package com.bawibase.chorong.domain.quiz.dto
 import com.bawibase.chorong.domain.quiz.QuizInteractionType
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
 import com.bawibase.chorong.domain.quiz.model.DragDropConfig
-import com.bawibase.chorong.domain.quiz.model.FillBlankConfig
 import com.bawibase.chorong.domain.quiz.model.FlipCardConfig
 import com.bawibase.chorong.domain.quiz.model.MatchingConfig
 import com.bawibase.chorong.domain.quiz.model.MultipleChoiceConfig
@@ -26,7 +25,6 @@ data class QuizResponse(
         description = "interactionType에 해당하는 화면 구성. FLIP_CARD는 카드 내용만 공개하며 정답 짝은 포함하지 않는다.",
         implementation = Any::class,
         oneOf = [
-            FillBlankConfig::class,
             SliderConfig::class,
             SwipeConfig::class,
             TapConfig::class,

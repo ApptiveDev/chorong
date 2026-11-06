@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 
 data class OnboardingCompleteRequest(
     val skipped: Boolean,
@@ -29,6 +30,8 @@ class OnboardingService(
     private val wallets: UserWalletService,
     private val idempotency: IdempotencyService,
     private val studyStreak: StudyStreakService,
+    private val artworks: LearningArtworkService,
+    private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -52,15 +55,16 @@ class OnboardingService(
         request: OnboardingCompleteRequest,
         key: String,
     ): IdempotentResponse<OnboardingCompleteResponse> =
-        idempotency.execute(
-            userId,
-            "API-602",
-            key,
-            request,
-            OnboardingCompleteResponse::class.java,
-        ) {
-            IdempotentResponse(200, completeOnce(userId, request.skipped))
-        }
+        idempotency
+            .execute(
+                userId,
+                "API-602",
+                key,
+                request,
+                OnboardingCompleteResponse::class.java,
+            ) {
+                IdempotentResponse(200, completeOnce(userId, request.skipped))
+            }.let { result -> result.copy(body = result.body.copy(rewards = result.body.rewards.filterNot { it.currency == "STAR" })) }
 
     private fun completeOnce(
         userId: Long,
@@ -101,6 +105,7 @@ class OnboardingService(
             wallets.credit(userId, WalletCurrency.STARDUST, ONBOARDING_REWARD)
             rewards += LearningReward("WALLET", "STARDUST", ONBOARDING_REWARD)
         }
+        artworks.grant(userId, lessonId, clock.instant())?.let(rewards::add)
         val streakDays = studyStreak.recordCompletedStudy(userId)
         log.info("learning.onboarding.completed userId={} skipped=false rewards={} streakDays={}", userId, rewards.size, streakDays)
         return response(rewards, userId)
@@ -143,7 +148,7 @@ class OnboardingService(
         userId: Long,
     ): OnboardingCompleteResponse {
         val wallet = wallets.ensureWallet(userId)
-        return OnboardingCompleteResponse(rewards, WalletBalancesResponse(wallet.star, wallet.stardust), true)
+        return OnboardingCompleteResponse(rewards, WalletBalancesResponse(wallet.stardust), true)
     }
 
     private fun requireUserId(userId: Long) {

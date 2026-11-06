@@ -9,10 +9,6 @@ import com.bawibase.chorong.domain.quiz.model.DragDropConfig
 import com.bawibase.chorong.domain.quiz.model.DragDropQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.DragDropUserResponse
 import com.bawibase.chorong.domain.quiz.model.ExactSliderAnswer
-import com.bawibase.chorong.domain.quiz.model.FillBlankAnswer
-import com.bawibase.chorong.domain.quiz.model.FillBlankConfig
-import com.bawibase.chorong.domain.quiz.model.FillBlankQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.FillBlankUserResponse
 import com.bawibase.chorong.domain.quiz.model.FlipCardAnswer
 import com.bawibase.chorong.domain.quiz.model.FlipCardConfig
 import com.bawibase.chorong.domain.quiz.model.FlipCardQuizDefinition
@@ -144,10 +140,6 @@ class QuizModelConverter(
                 )
             }
 
-            QuizInteractionType.FILL_BLANK -> {
-                FillBlankQuizDefinition(stored(config, FillBlankConfig::class.java), stored(answer, FillBlankAnswer::class.java))
-            }
-
             QuizInteractionType.DRAG_DROP -> {
                 DragDropQuizDefinition(stored(config, DragDropConfig::class.java), stored(answer, DragDropAnswer::class.java))
             }
@@ -202,7 +194,6 @@ class QuizModelConverter(
                 is SwipeQuizDefinition -> SwipeUserResponse::class.java
                 is TapQuizDefinition -> TapUserResponse::class.java
                 is MultipleChoiceQuizDefinition -> MultipleChoiceUserResponse::class.java
-                is FillBlankQuizDefinition -> FillBlankUserResponse::class.java
                 is DragDropQuizDefinition -> DragDropUserResponse::class.java
                 is SortQuizDefinition -> SortUserResponse::class.java
                 is MatchingQuizDefinition -> MatchingUserResponse::class.java

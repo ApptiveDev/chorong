@@ -3,6 +3,7 @@ package com.bawibase.chorong.domain.learning
 import com.bawibase.chorong.common.api.ApiResponse
 import com.bawibase.chorong.config.CurrentUserId
 import com.bawibase.chorong.domain.quiz.dto.QuizPublicResponse
+import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.databind.JsonNode
 import io.swagger.v3.oas.annotations.Operation
 import org.springframework.http.ResponseEntity
@@ -49,10 +50,27 @@ data class CourseDetail(
 data class LearningContent(
     val contentId: Long,
     val order: Int,
+    val segmentId: String,
     val contentType: String,
     val body: String?,
     val mediaUrl: String?,
     val quiz: QuizPublicResponse?,
+    @field:JsonInclude(JsonInclude.Include.NON_EMPTY)
+    val dialogue: List<DialogueLine>,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val source: String?,
+)
+
+data class DialogueLine(
+    val speaker: String,
+    val text: String,
+)
+
+data class LessonSegment(
+    val segmentId: String,
+    val title: String,
+    val order: Int,
+    val contentIds: List<Long>,
 )
 
 data class LessonDetail(
@@ -60,6 +78,7 @@ data class LessonDetail(
     val courseId: Long,
     val title: String,
     val description: String,
+    val segments: List<LessonSegment>,
     val contents: List<LearningContent>,
 )
 
@@ -78,6 +97,7 @@ data class LessonStartResponse(
     val review: ReviewSetResponse? = null,
     val progress: LessonProgressState,
     val contents: List<LearningContent>,
+    val segments: List<LessonSegment>,
 )
 
 data class ContentCompletionResult(

@@ -63,10 +63,3 @@ data class FlipCardQuizDefinition(
 ) : QuizDefinition {
     override val interactionType: QuizInteractionType get() = QuizInteractionType.FLIP_CARD
 }
-
-data class FillBlankQuizDefinition(
-    override val config: FillBlankConfig,
-    override val answer: FillBlankAnswer,
-) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.FILL_BLANK
-}

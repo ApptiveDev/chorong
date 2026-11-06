@@ -1,7 +1,6 @@
 package com.bawibase.chorong.domain.quiz.dto
 
 import com.bawibase.chorong.domain.quiz.model.DragDropUserResponse
-import com.bawibase.chorong.domain.quiz.model.FillBlankUserResponse
 import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
 import com.bawibase.chorong.domain.quiz.model.MatchingUserResponse
 import com.bawibase.chorong.domain.quiz.model.MultipleChoiceUserResponse
@@ -21,7 +20,6 @@ data class QuizAttemptRequest(
         description = "quizId로 조회한 DB 문제 유형에 맞는 답안. 숫자·문자열을 자동 변환하지 않으며 null·추가 필드는 거절한다.",
         implementation = Any::class,
         oneOf = [
-            FillBlankUserResponse::class,
             SliderUserResponse::class,
             SwipeUserResponse::class,
             TapUserResponse::class,

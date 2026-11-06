@@ -199,7 +199,18 @@ class QuizModelConverterTest {
     fun `missing required config and answer fields are rejected`() =
         fixtures.flatMap { fixture ->
             listOf("config", "answer").flatMap { part ->
-                val optional = setOf("initialValue", "unit", "showValue", "shuffle", "allowRetry", "showHint", "maxSelections")
+                val optional =
+                    setOf(
+                        "initialValue",
+                        "unit",
+                        "showValue",
+                        "shuffle",
+                        "allowRetry",
+                        "showHint",
+                        "maxSelections",
+                        "displayMode",
+                        "promptParts",
+                    )
                 fixture[part]
                     .fieldNames()
                     .asSequence()
@@ -223,7 +234,8 @@ class QuizModelConverterTest {
             val specific =
                 when (fixture["interactionType"].asText()) {
                     "SLIDER" -> listOf("initialValue", "unit", "showValue")
-                    "TAP", "MULTIPLE_CHOICE" -> listOf("maxSelections")
+                    "TAP" -> listOf("maxSelections", "displayMode", "promptParts")
+                    "MULTIPLE_CHOICE" -> listOf("maxSelections")
                     else -> emptyList()
                 }
             (listOf("shuffle", "allowRetry", "showHint") + specific).map { field ->

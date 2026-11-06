@@ -458,17 +458,26 @@
   {
     "caseId": "fill_blank",
     "question": "르네상스는 어떤 시대인가요?",
-    "instruction": "빈칸에 답을 입력하세요.",
-    "interactionType": "FILL_BLANK",
-    "config": {},
+    "instruction": "빈칸에 알맞은 시대를 선택하세요.",
+    "interactionType": "TAP",
+    "config": {
+      "selectionType": "SINGLE",
+      "items": [
+        { "id": "renaissance", "text": "Renaissance" },
+        { "id": "medieval", "text": "Medieval" },
+        { "id": "modern", "text": "Modern" }
+      ],
+      "displayMode": "FILL_BLANK",
+      "promptParts": ["르네상스는 ", " 시대입니다."]
+    },
     "answer": {
-      "texts": ["Renaissance"]
+      "correctItemIds": ["renaissance"]
     },
     "quizOrder": 12,
     "difficulty": "기초",
     "explanation": "정답은 Renaissance입니다.",
     "correctResponse": {
-      "texts": ["Renaissance"]
+      "selectedItemIds": ["renaissance"]
     }
   }
 ]

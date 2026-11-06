@@ -5,8 +5,6 @@ import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.domain.quiz.model.DragDropQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.DragDropUserResponse
 import com.bawibase.chorong.domain.quiz.model.ExactSliderAnswer
-import com.bawibase.chorong.domain.quiz.model.FillBlankQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.FillBlankUserResponse
 import com.bawibase.chorong.domain.quiz.model.FlipCardQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
 import com.bawibase.chorong.domain.quiz.model.MatchingQuizDefinition
@@ -29,7 +27,6 @@ import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.util.Locale
 
 internal data class QuizGrade(
     val graded: Boolean,
@@ -60,6 +57,7 @@ class QuizGrader {
             }
 
             is TapQuizDefinition -> {
+                quiz.config.promptParts?.let { stored.ensure(it.size >= 2) }
                 val grade = selection(quiz.config.items, quiz.config.selectionType, quiz.config.maxSelections, quiz.answer.correctItemIds)
                 response<TapUserResponse> { grade(it.selectedItemIds) }
             }
@@ -68,10 +66,6 @@ class QuizGrader {
                 val grade =
                     selection(quiz.config.options, quiz.config.selectionType, quiz.config.maxSelections, quiz.answer.correctOptionIds)
                 response<MultipleChoiceUserResponse> { grade(it.selectedOptionIds) }
-            }
-
-            is FillBlankQuizDefinition -> {
-                fillBlank(quiz)
             }
 
             is DragDropQuizDefinition -> {
@@ -187,16 +181,6 @@ class QuizGrader {
         }
     }
 
-    private fun fillBlank(quiz: FillBlankQuizDefinition): (QuizUserResponse) -> QuizGrade {
-        val correct = stored.texts(quiz.answer.texts).map(::normalizeFillBlank)
-        return response<FillBlankUserResponse> { response ->
-            val submitted = submitted.texts(response.texts).map(::normalizeFillBlank)
-            graded(submitted == correct)
-        }
-    }
-
-    private fun normalizeFillBlank(value: String): String = value.trim().lowercase(Locale.ROOT)
-
     private fun flip(quiz: FlipCardQuizDefinition): (QuizUserResponse) -> QuizGrade {
         val cards = itemIds(quiz.config.cards)
         stored.ensure(cards.size >= 2 && cards.size % 2 == 0)
@@ -250,12 +234,6 @@ private class QuizValueValidation(
         ensure(values.isNotEmpty())
         values.forEach(::text)
         ensure(values.size == values.toSet().size)
-        return values
-    }
-
-    fun texts(values: List<String>): List<String> {
-        ensure(values.isNotEmpty())
-        values.forEach(::text)
         return values
     }
 

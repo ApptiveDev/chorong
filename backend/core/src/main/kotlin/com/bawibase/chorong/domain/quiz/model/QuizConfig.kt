@@ -12,13 +12,6 @@ sealed interface QuizConfig {
     val showHint: Boolean?
 }
 
-@Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-data class FillBlankConfig(
-    override val shuffle: Boolean? = null,
-    override val allowRetry: Boolean? = null,
-    override val showHint: Boolean? = null,
-) : QuizConfig
-
 @Schema(requiredProperties = ["min", "max", "step"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 data class SliderConfig(
     val min: BigDecimal,
@@ -61,6 +54,8 @@ data class TapConfig(
         maximum = "2147483647",
     )
     val maxSelections: Int? = null,
+    val displayMode: TapDisplayMode? = null,
+    val promptParts: List<String>? = null,
     @field:Schema(description = "생략 시 표시 순서를 섞지 않는다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     override val shuffle: Boolean? = null,
     @field:Schema(description = "생략 또는 true만 지원한다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
@@ -68,6 +63,8 @@ data class TapConfig(
     @field:Schema(description = "생략 또는 false만 지원한다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     override val showHint: Boolean? = null,
 ) : QuizConfig
+
+enum class TapDisplayMode { DEFAULT, OX, FILL_BLANK }
 
 @Schema(requiredProperties = ["selectionType", "options"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 data class MultipleChoiceConfig(

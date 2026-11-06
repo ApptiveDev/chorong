@@ -41,6 +41,7 @@ class LessonProgressService(
                 requiredReview,
                 LessonProgressState(row.status, row.lastContentId, nextContentId(lessonId, row.lastContentId)),
                 emptyList(),
+                emptyList(),
             )
         }
         reviewGate.markPassed(userId, lessonId)
@@ -56,7 +57,7 @@ class LessonProgressService(
         val lastContentId = if (replay) replayLastContentId else row.lastContentId
         val resumeId = nextContentId(lessonId, lastContentId)
         val status = if (row.status == "UNLOCKED") "IN_PROGRESS" else row.status
-        return LessonStartResponse(false, null, LessonProgressState(status, lastContentId, resumeId), detail.contents)
+        return LessonStartResponse(false, null, LessonProgressState(status, lastContentId, resumeId), detail.contents, detail.segments)
     }
 
     @Transactional

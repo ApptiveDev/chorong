@@ -46,6 +46,9 @@ import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.put
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -199,7 +202,7 @@ class HousingApiTest {
     }
 
     @Test
-    fun `v1 inventory uses non-null sentinel values for items without options`() {
+    fun `v1 inventory omits option fields for legacy items`() {
         val token = login("v1-inventory-null-option-${UUID.randomUUID()}@test.local")
         mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
 
@@ -213,7 +216,7 @@ class HousingApiTest {
         assertTrue(items.size() > 0)
         assertTrue(
             items.all {
-                it["optionId"].asLong() == 0L && it["option"].isObject && it["option"].isEmpty
+                !it.has("optionId") && !it.has("option") && it["copies"].all { copy -> copy["acquiredVia"].asText() == "STARTER" }
             },
         )
     }
@@ -271,7 +274,7 @@ class HousingApiTest {
         val furnitureInventoryId =
             objectMapper
                 .readTree(inventoryBody)["data"]["items"]
-                .first { it["itemType"].asText() == "FURNITURE" }["inventoryId"]
+                .first { it["itemType"].asText() == "FURNITURE" }["copies"][0]["inventoryId"]
                 .asText()
         val placementsBody =
             mockMvc
@@ -293,7 +296,7 @@ class HousingApiTest {
         val otherFurnitureInventoryId =
             objectMapper
                 .readTree(otherInventoryBody)["data"]["items"]
-                .first { it["itemType"].asText() == "FURNITURE" }["inventoryId"]
+                .first { it["itemType"].asText() == "FURNITURE" }["copies"][0]["inventoryId"]
                 .asText()
         val otherPlacementBody =
             mockMvc
@@ -323,6 +326,18 @@ class HousingApiTest {
             jsonPath("$.data.avatar.x") { value(0.25) }
             jsonPath("$.data.avatar.y") { value(0.75) }
             jsonPath("$.data.avatar.state") { value("SLEEP") }
+            jsonPath("$.data.avatar.placementId") { value(placementId) }
+        }
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$furnitureInventoryId","area":"INTERIOR","transform":{"x":0.2,"y":0.6}}]}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.placements[0].placementId") { value(placementId) }
+            }
+        mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
             jsonPath("$.data.avatar.placementId") { value(placementId) }
         }
         assertEquals(
@@ -483,7 +498,7 @@ class HousingApiTest {
         val furnitureInventoryId =
             objectMapper
                 .readTree(inventoryBody)["data"]["items"]
-                .first { it["itemType"].asText() == "FURNITURE" }["inventoryId"]
+                .first { it["itemType"].asText() == "FURNITURE" }["copies"][0]["inventoryId"]
                 .asText()
 
         mockMvc
@@ -491,24 +506,37 @@ class HousingApiTest {
                 header(header, token)
                 contentType = MediaType.APPLICATION_JSON
                 content =
-                    """{"placements":[{"inventoryId":"$furnitureInventoryId","area":"INTERIOR","transform":{"x":0.35,"y":0.7,"rotation":90,"layer":2}}]}"""
+                    """{"placements":[{"inventoryId":"$furnitureInventoryId","area":"INTERIOR","transform":{"x":0.35,"y":0.7,"flippedX":true,"layer":2}}]}"""
             }.andExpect {
                 status { isOk() }
                 jsonPath("$.data.placements.length()") { value(1) }
                 jsonPath("$.data.placements[0].inventoryId") { value(furnitureInventoryId) }
                 jsonPath("$.data.placements[0].transform.x") { value(0.35) }
-                jsonPath("$.data.placements[0].optionId") { value(0) }
-                jsonPath("$.data.placements[0].option") { isMap() }
+                jsonPath("$.data.placements[0].transform.flippedX") { value(true) }
+                jsonPath("$.data.placements[0].transform.rotation") { doesNotExist() }
+                jsonPath("$.data.placements[0].optionId") { doesNotExist() }
+                jsonPath("$.data.placements[0].option") { doesNotExist() }
             }
         mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
             status { isOk() }
             jsonPath("$.data.placements.length()") { value(1) }
+            jsonPath("$.data.placements[0].transform.flippedX") { value(true) }
             jsonPath("$.data.legacyLayouts.room_basic.avatarId") { value("av_cat") }
         }
         mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.items[?(@.inventoryId=='$furnitureInventoryId')].placed") { value(true) }
+            jsonPath("$.data.items[*].copies[?(@.inventoryId=='$furnitureInventoryId')].placed") { value(true) }
         }
+        val duplicate = """{"inventoryId":"$furnitureInventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5}}"""
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[$duplicate,$duplicate]}"""
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.error.code") { value("INVENTORY_ITEM_NOT_OWNED") }
+            }
 
         mockMvc
             .put("/api/v1/housings/me/placements") {
@@ -532,7 +560,7 @@ class HousingApiTest {
     }
 
     @Test
-    fun `v1 objects can be placed indoors with layers above nine`() {
+    fun `v1 placement layer is limited to zero through nine`() {
         val token = login("v1-object-${UUID.randomUUID()}@test.local")
         mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
         val inventoryBody =
@@ -544,22 +572,35 @@ class HousingApiTest {
         val inventoryId =
             objectMapper
                 .readTree(inventoryBody)["data"]["items"]
-                .first { it["itemType"].asText() == "OBJECT" }["inventoryId"]
+                .first { it["itemType"].asText() == "OBJECT" }["copies"][0]["inventoryId"]
                 .asText()
         mockMvc
             .put("/api/v1/housings/me/placements") {
                 header(header, token)
                 contentType = MediaType.APPLICATION_JSON
-                content = """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5,"layer":11}}]}"""
+                content = """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5,"layer":9}}]}"""
             }.andExpect {
                 status { isOk() }
                 jsonPath("$.data.placements[0].area") { value("INTERIOR") }
-                jsonPath("$.data.placements[0].transform.layer") { value(11) }
+                jsonPath("$.data.placements[0].transform.layer") { value(9) }
             }
         mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.placements[0].transform.layer") { value(11) }
+            jsonPath("$.data.placements[0].transform.layer") { value(9) }
         }
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5,"layer":10}}]}"""
+            }.andExpect { status { isBadRequest() } }
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content =
+                    """{"placements":[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.5,"y":0.5,"rotation":90}}]}"""
+            }.andExpect { status { isBadRequest() } }
         mockMvc
             .put("/api/v1/housings/me/placements") {
                 header(header, token)
@@ -618,13 +659,22 @@ class HousingApiTest {
         val items = objectMapper.readTree(allItemsBody)["data"]["items"]
         assertEquals(2, items.size())
         val furnitureItem = items.first { it["itemId"].asLong() == furnitureItemId }
-        assertEquals(2, furnitureItem["options"].size())
+        assertEquals(1, furnitureItem["options"].size())
         assertTrue(furnitureItem.has("unlockHint"))
         assertTrue(furnitureItem["unlockHint"].isNull)
         assertEquals("STARDUST", furnitureItem["minPrice"]["currency"].asText())
         assertEquals(5, furnitureItem["minPrice"]["amount"].asInt())
-        assertTrue(furnitureItem["options"][0]["owned"].asBoolean())
-        assertFalse(furnitureItem["options"][1]["owned"].asBoolean())
+        assertEquals(0, furnitureItem["options"][0]["ownedCount"].asInt())
+        mockMvc
+            .post("/api/v1/shop/purchases") {
+                header(header, token)
+                header("Idempotency-Key", UUID.randomUUID().toString())
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"items":[{"itemId":$furnitureItemId,"optionId":$ownedOptionId,"quantity":1}]}"""
+            }.andExpect {
+                status { isBadRequest() }
+                jsonPath("$.error.items[0].code") { value("OPTION_INVALID") }
+            }
         val lockedItem = items.first { it["itemId"].asLong() == objectItemId }
         assertFalse(lockedItem["unlocked"].asBoolean())
         assertEquals("Complete a lesson", lockedItem["unlockHint"].asText())
@@ -675,13 +725,16 @@ class HousingApiTest {
             checkNotNull(
                 jdbc.queryForObject(
                     """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset)
-                       VALUES (?, '{"color":"green"}', 'STAR', 10, 'store/chair-green.png') RETURNING option_id""",
+                       VALUES (?, '{"color":"green"}', 'STARDUST', 10, 'store/chair-green.png') RETURNING option_id""",
                     Long::class.java,
                     itemId,
                 ),
             )
-        jdbc.update("INSERT INTO user_wallet(user_id,star) VALUES (?,50) ON CONFLICT (user_id) DO UPDATE SET star=50", userId)
-        val body = """{"items":[{"itemId":$itemId,"optionId":$optionId}]}"""
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,star,stardust) VALUES (?,50,50) ON CONFLICT (user_id) DO UPDATE SET star=50,stardust=50",
+            userId,
+        )
+        val body = """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":2}]}"""
         val idempotencyKey = "purchase-${UUID.randomUUID()}"
         val firstResponse =
             mockMvc
@@ -692,11 +745,18 @@ class HousingApiTest {
                     content = body
                 }.andExpect {
                     status { isOk() }
-                    jsonPath("$.data.wallet.star") { value(40) }
+                    jsonPath("$.data.wallet.stardust") { value(30) }
+                    jsonPath("$.data.wallet.star") { doesNotExist() }
                     jsonPath("$.data.inventoryItems[0].itemId") { value(itemId.toInt()) }
                     jsonPath("$.data.inventoryItems[0].option.color") { value("green") }
+                    jsonPath("$.data.inventoryItems[0].ownedCount") { value(2) }
                 }.andReturn()
-        val inventoryId = objectMapper.readTree(firstResponse.response.contentAsString)["data"]["inventoryItems"][0]["inventoryId"].asText()
+        val inventoryId =
+            objectMapper
+                .readTree(
+                    firstResponse.response.contentAsString,
+                )["data"]["inventoryItems"][0]["copies"][0]["inventoryId"]
+                .asText()
         mockMvc
             .post("/api/v1/shop/purchases") {
                 header(header, token)
@@ -705,23 +765,24 @@ class HousingApiTest {
                 content = body
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.inventoryItems[0].inventoryId") { value(inventoryId) }
-                jsonPath("$.data.wallet.star") { value(40) }
+                jsonPath("$.data.inventoryItems[0].copies[0].inventoryId") { value(inventoryId) }
+                jsonPath("$.data.wallet.stardust") { value(30) }
             }
         val inventoryResponse =
             mockMvc
                 .get("/api/v1/users/me/inventory") { header(header, token) }
                 .andExpect {
                     status { isOk() }
-                    jsonPath("$.data.items[?(@.inventoryId=='$inventoryId')].placed") { value(false) }
+                    jsonPath("$.data.items[*].copies[?(@.inventoryId=='$inventoryId')].placed") { value(false) }
                 }.andReturn()
                 .response.contentAsString
         val purchasedItem =
             objectMapper
                 .readTree(inventoryResponse)["data"]["items"]
-                .first { it["inventoryId"].asText() == inventoryId }
+                .first { item -> item["copies"].any { it["inventoryId"].asText() == inventoryId } }
         assertEquals(optionId, purchasedItem["optionId"].asLong())
         assertEquals("green", purchasedItem["option"]["color"].asText())
+        assertEquals(objectMapper.readTree(firstResponse.response.contentAsString)["data"]["inventoryItems"][0], purchasedItem)
         mockMvc
             .put("/api/v1/housings/me/placements") {
                 header(header, token)
@@ -733,7 +794,231 @@ class HousingApiTest {
             }
         mockMvc.get("/api/v1/users/me/inventory") { header(header, token) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.items[?(@.inventoryId=='$inventoryId')].placed") { value(true) }
+            jsonPath("$.data.items[*].copies[?(@.inventoryId=='$inventoryId')].placed") { value(true) }
+        }
+    }
+
+    @Test
+    fun `v1 purchase groups repeated options and rejects invalid quantities and insufficient balance`() {
+        val email = "bulk-quantity-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('Bulk','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_option(item_id,currency,price,preview_asset) VALUES (?,'STARDUST',10,'bulk-a') RETURNING option_id",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        val otherId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_option(item_id,currency,price,preview_asset) VALUES (?,'STARDUST',5,'bulk-b') RETURNING option_id",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,star,stardust) VALUES (?,7,100) ON CONFLICT (user_id) DO UPDATE SET star=7,stardust=100",
+            userId,
+        )
+        val key = UUID.randomUUID().toString()
+        val body = """{"items":[
+            {"itemId":$itemId,"optionId":$optionId,"quantity":2},
+            {"itemId":$itemId,"optionId":$otherId,"quantity":1},
+            {"itemId":$itemId,"optionId":$optionId,"quantity":1}]}"""
+
+        fun purchase(
+            value: String,
+            idempotencyKey: String = UUID.randomUUID().toString(),
+        ) = mockMvc.post("/api/v1/shop/purchases") {
+            header(header, token)
+            header("Idempotency-Key", idempotencyKey)
+            contentType = MediaType.APPLICATION_JSON
+            content = value
+        }
+        val first =
+            purchase(body, key)
+                .andExpect {
+                    status { isOk() }
+                    jsonPath("$.data.wallet.stardust") { value(65) }
+                    jsonPath("$.data.inventoryItems.length()") { value(2) }
+                    jsonPath("$.data.inventoryItems[0].ownedCount") { value(3) }
+                    jsonPath("$.data.inventoryItems[0].availableCount") { value(3) }
+                    jsonPath("$.data.inventoryItems[0].copies.length()") { value(3) }
+                }.andReturn()
+                .response.contentAsString
+        val repeat =
+            purchase(body, key)
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        assertEquals(objectMapper.readTree(first), objectMapper.readTree(repeat))
+        mockMvc.get("/api/v1/shop/items/$itemId") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.options[0].ownedCount") { value(3) }
+            jsonPath("$.data.options[1].ownedCount") { value(1) }
+        }
+        purchase("""{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":1}]}""").andExpect {
+            status { isOk() }
+            jsonPath("$.data.inventoryItems[0].ownedCount") { value(4) }
+            jsonPath("$.data.wallet.stardust") { value(55) }
+        }
+        for (quantity in listOf("0", "51", "1.5", "null", "\"2\"")) {
+            purchase("""{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":$quantity}]}""")
+                .andExpect { status { isBadRequest() } }
+        }
+        purchase("""{"items":[{"itemId":$itemId,"optionId":$optionId}]}""").andExpect { status { isBadRequest() } }
+        purchase(
+            """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":7},{"itemId":$itemId,"optionId":$otherId,"quantity":1}]}""",
+        ).andExpect {
+            status { isPaymentRequired() }
+            jsonPath("$.error.items.length()") { value(2) }
+            jsonPath("$.error.items[0].code") { value("INSUFFICIENT_BALANCE") }
+        }
+        assertEquals(5, jdbc.queryForObject("SELECT COUNT(*) FROM housing_store_owned_option WHERE user_id=?", Int::class.java, userId))
+        assertEquals(55L, jdbc.queryForObject("SELECT stardust FROM user_wallet WHERE user_id=?", Long::class.java, userId))
+        assertEquals(7L, jdbc.queryForObject("SELECT star FROM user_wallet WHERE user_id=?", Long::class.java, userId))
+        jdbc.update("UPDATE housing_store_option SET price=? WHERE option_id=?", Long.MAX_VALUE, optionId)
+        purchase("""{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":2}]}""").andExpect { status { isBadRequest() } }
+        assertEquals(55L, jdbc.queryForObject("SELECT stardust FROM user_wallet WHERE user_id=?", Long::class.java, userId))
+        jdbc.update("UPDATE housing_store_option SET price=? WHERE option_id IN (?,?)", Long.MAX_VALUE / 2 + 1, optionId, otherId)
+        purchase("""{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":1},{"itemId":$itemId,"optionId":$otherId,"quantity":1}]}""")
+            .andExpect { status { isBadRequest() } }
+        assertEquals(55L, jdbc.queryForObject("SELECT stardust FROM user_wallet WHERE user_id=?", Long::class.java, userId))
+    }
+
+    @Test
+    fun `inventory groups three copies and tracks sources and placements`() {
+        val email = "inventory-group-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('Group','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_option(item_id,currency,price,preview_asset) VALUES (?,'STARDUST',1,'group') RETURNING option_id",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        val copies =
+            listOf("PURCHASE", "REWARD", "STARTER").map { source ->
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "INSERT INTO housing_store_owned_option(user_id,option_id,acquired_via) VALUES (?,?,?) RETURNING inventory_id",
+                        Long::class.java,
+                        userId,
+                        optionId,
+                        source,
+                    ),
+                )
+            }
+        val placedId = "store:${copies[1]}"
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"placements":[{"inventoryId":"$placedId","area":"INTERIOR","transform":{"x":0.5,"y":0.5}}]}"""
+            }.andExpect { status { isOk() } }
+        val inventory =
+            mockMvc
+                .get("/api/v1/users/me/inventory") {
+                    header(header, token)
+                    param("itemType", "FURNITURE")
+                }.andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+                .let(objectMapper::readTree)
+        val item = inventory["data"]["items"].first { it["optionId"]?.asLong() == optionId }
+        assertEquals(3, item["ownedCount"].asInt())
+        assertEquals(1, item["placedCount"].asInt())
+        assertEquals(2, item["availableCount"].asInt())
+        assertEquals(setOf("PURCHASE", "REWARD", "STARTER"), item["copies"].map { it["acquiredVia"].asText() }.toSet())
+        assertTrue(item["copies"].first { it["inventoryId"].asText() == placedId }["placed"].asBoolean())
+        assertEquals(1, item["copies"].count { it["placed"].asBoolean() })
+        mockMvc
+            .get("/api/v1/users/me/inventory") {
+                header(header, token)
+                param("itemType", "OBJECT")
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.items[?(@.optionId==$optionId)]") { isEmpty() }
+            }
+        mockMvc
+            .get("/api/v1/users/me/inventory") {
+                header(header, token)
+                param("itemType", "furniture")
+            }.andExpect { status { isBadRequest() } }
+    }
+
+    @Test
+    fun `concurrent purchases serialize balance and grant copies once per successful request`() {
+        val email = "bulk-race-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('Race','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_option(item_id,currency,price,preview_asset) VALUES (?,'STARDUST',10,'race') RETURNING option_id",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        jdbc.update("INSERT INTO user_wallet(user_id,stardust) VALUES (?,50) ON CONFLICT (user_id) DO UPDATE SET stardust=50", userId)
+        val latch = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val futures =
+                (1..2).map {
+                    executor.submit<Int> {
+                        check(latch.await(10, TimeUnit.SECONDS))
+                        mockMvc
+                            .post("/api/v1/shop/purchases") {
+                                header(header, token)
+                                header("Idempotency-Key", UUID.randomUUID().toString())
+                                contentType = MediaType.APPLICATION_JSON
+                                content = """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":3}]}"""
+                            }.andReturn()
+                            .response.status
+                    }
+                }
+            latch.countDown()
+            assertEquals(listOf(200, 402), futures.map { it.get(30, TimeUnit.SECONDS) }.sorted())
+            assertEquals(20L, jdbc.queryForObject("SELECT stardust FROM user_wallet WHERE user_id=?", Long::class.java, userId))
+            assertEquals(
+                3,
+                jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM housing_store_owned_option WHERE user_id=? AND option_id=?",
+                    Int::class.java,
+                    userId,
+                    optionId,
+                ),
+            )
+        } finally {
+            executor.shutdownNow()
         }
     }
 

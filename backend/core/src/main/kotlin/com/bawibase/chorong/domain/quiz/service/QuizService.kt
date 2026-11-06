@@ -13,7 +13,6 @@ import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
 import com.bawibase.chorong.domain.quiz.repository.QuizAttemptRepository
 import com.bawibase.chorong.domain.quiz.repository.QuizItemRepository
 import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
-import com.bawibase.chorong.domain.quiz.serialization.QuizPublicAnswerAdapter
 import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.fasterxml.jackson.databind.JsonNode
 import org.springframework.stereotype.Service
@@ -27,7 +26,6 @@ class QuizService(
     private val users: UserRepository,
     private val grader: QuizGrader,
     private val converter: QuizModelConverter,
-    private val publicAnswerAdapter: QuizPublicAnswerAdapter,
 ) {
     fun list(lessonId: Long): List<QuizResponse> {
         validateId(lessonId, "lessonId")
@@ -74,7 +72,7 @@ class QuizService(
         quizId: Long,
         response: JsonNode,
         replay: Boolean = false,
-    ): QuizAttemptResponse = submitInternal(userId, quizId, response, replay, publicAnswer = false, publicContract = false)
+    ): QuizAttemptResponse = submitInternal(userId, quizId, response, replay, publicContract = false)
 
     @Transactional
     fun submitPublic(
@@ -82,26 +80,24 @@ class QuizService(
         quizId: Long,
         answer: JsonNode,
         replay: Boolean = false,
-    ): QuizAttemptResponse = submitInternal(userId, quizId, answer, replay, publicAnswer = true, publicContract = true)
+    ): QuizAttemptResponse = submitInternal(userId, quizId, answer, replay, publicContract = true)
 
     private fun submitInternal(
         userId: Long,
         quizId: Long,
         submittedAnswer: JsonNode,
         replay: Boolean,
-        publicAnswer: Boolean,
         publicContract: Boolean,
     ): QuizAttemptResponse {
         validateId(quizId, "quizId")
         val quiz = findQuiz(quizId)
         val definition = converter.readDefinition(quiz)
         grader.validate(definition)
-        val response = if (publicAnswer) publicAnswerAdapter.adapt(definition, submittedAnswer) else submittedAnswer
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
-        val checked = check(quiz, response)
+        val checked = check(quiz, submittedAnswer)
         val result = checked.result
-        val correctAnswer = if (publicContract) QuizPublicAnswer.correct(definition) else null
+        val correctAnswer = if (publicContract && result.completed) QuizPublicAnswer.correct(definition) else null
         val attempt =
             attempts.save(
                 QuizAttemptEntity(

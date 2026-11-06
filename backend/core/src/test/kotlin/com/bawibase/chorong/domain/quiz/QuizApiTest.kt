@@ -747,7 +747,6 @@ class QuizApiTest {
             resolve(node)["oneOf"]?.map { it["\$ref"].asText().substringAfterLast('/') }?.toSet() ?: emptySet()
         val configs =
             mapOf(
-                "FillBlankConfig" to emptySet(),
                 "SliderConfig" to setOf("min", "max", "step"),
                 "SwipeConfig" to setOf("left", "right"),
                 "TapConfig" to setOf("selectionType", "items"),
@@ -774,7 +773,6 @@ class QuizApiTest {
         }
         val responses =
             mapOf(
-                "FillBlankUserResponse" to "texts",
                 "SliderUserResponse" to "value",
                 "SwipeUserResponse" to "value",
                 "TapUserResponse" to "selectedItemIds",

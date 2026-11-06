@@ -48,8 +48,3 @@ data class MatchingUserResponse(
 data class FlipCardUserResponse(
     val pairs: List<QuizCardPair>,
 ) : QuizUserResponse
-
-@Schema(requiredProperties = ["texts"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-data class FillBlankUserResponse(
-    val texts: List<String>,
-) : QuizUserResponse

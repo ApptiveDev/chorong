@@ -42,7 +42,3 @@ data class MatchingAnswer(
 data class FlipCardAnswer(
     val pairs: List<QuizCardPair>,
 ) : QuizAnswer
-
-data class FillBlankAnswer(
-    val texts: List<String>,
-) : QuizAnswer

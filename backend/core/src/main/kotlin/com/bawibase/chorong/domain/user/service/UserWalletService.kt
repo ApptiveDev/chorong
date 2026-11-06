@@ -9,7 +9,7 @@ import com.bawibase.chorong.domain.user.repository.UserWalletRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-enum class WalletCurrency { STAR, STARDUST }
+enum class WalletCurrency { STARDUST }
 
 @Service
 @Transactional
@@ -41,10 +41,9 @@ class UserWalletService(
     ): UserWalletEntity {
         if (amount <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
         val wallet = ensureWallet(userId)
-        val balance = if (currency == WalletCurrency.STAR) wallet.star else wallet.stardust
+        val balance = wallet.stardust
         if (balance > Long.MAX_VALUE - amount) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         when (currency) {
-            WalletCurrency.STAR -> wallet.star = balance + amount
             WalletCurrency.STARDUST -> wallet.stardust = balance + amount
         }
         return wallet
@@ -57,10 +56,9 @@ class UserWalletService(
     ): UserWalletEntity {
         if (amount <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
         val wallet = ensureWallet(userId)
-        val balance = if (currency == WalletCurrency.STAR) wallet.star else wallet.stardust
+        val balance = wallet.stardust
         if (balance < amount) throw ApiV1Exception(ApiErrorCode.INSUFFICIENT_BALANCE)
         when (currency) {
-            WalletCurrency.STAR -> wallet.star = balance - amount
             WalletCurrency.STARDUST -> wallet.stardust = balance - amount
         }
         return wallet

@@ -4,6 +4,7 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.PageMeta
 import com.bawibase.chorong.common.api.PagedResponse
+import com.bawibase.chorong.domain.learning.LearningArtwork
 import com.bawibase.chorong.domain.learning.LearningRewardBadge
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.core.type.TypeReference
@@ -14,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.Base64
-import java.util.Locale
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class RewardSource(
@@ -31,6 +31,7 @@ data class RewardRecordResponse(
     val amount: Long? = null,
     val itemId: Long? = null,
     val badge: LearningRewardBadge? = null,
+    val artwork: LearningArtwork? = null,
     val source: RewardSource = RewardSource(),
     val grantedAt: Instant,
 )
@@ -39,16 +40,28 @@ data class RewardPageData(
     val rewards: List<RewardRecordResponse>,
 )
 
-data class InventoryItemResponse(
+data class ArtworkPageData(
+    val artworks: List<LearningArtwork>,
+)
+
+data class InventoryCopy(
     val inventoryId: String,
-    val itemId: Long,
-    val itemType: String,
-    val name: String,
-    val optionId: Long,
-    val option: Map<String, Any?>,
     val acquiredVia: String,
     val acquiredAt: Instant,
     val placed: Boolean,
+)
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+data class InventoryItemResponse(
+    val itemId: Long,
+    val itemType: String,
+    val name: String,
+    val optionId: Long?,
+    val option: Map<String, Any?>?,
+    val ownedCount: Int,
+    val placedCount: Int,
+    val availableCount: Int,
+    val copies: List<InventoryCopy>,
 )
 
 data class InventoryData(
@@ -74,6 +87,48 @@ class RewardReadService(
     private val jdbc: JdbcTemplate,
     private val objectMapper: ObjectMapper,
 ) {
+    @Transactional(readOnly = true)
+    fun artworks(
+        userId: Long,
+        cursor: String?,
+        size: Int?,
+    ): PagedResponse<ArtworkPageData> {
+        requireUser(userId)
+        val pageSize = size ?: DEFAULT_PAGE_SIZE
+        if (pageSize !in 1..MAX_PAGE_SIZE) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val position = cursor?.let(::decodeCursor)
+        val mapper =
+            org.springframework.jdbc.core.RowMapper<LearningArtwork> { rs, _ ->
+                LearningArtwork(
+                    rs.getLong("artwork_id"),
+                    rs.getLong("lesson_id"),
+                    rs.getString("image_url"),
+                    rs.getTimestamp("completed_at").toInstant(),
+                )
+            }
+        val rows =
+            if (position == null) {
+                jdbc.query(
+                    "SELECT * FROM learning_artwork WHERE user_id=? ORDER BY completed_at DESC, artwork_id DESC LIMIT ?",
+                    mapper,
+                    userId,
+                    pageSize + 1,
+                )
+            } else {
+                jdbc.query(
+                    "SELECT * FROM learning_artwork WHERE user_id=? AND (completed_at,artwork_id) < (?,?) ORDER BY completed_at DESC,artwork_id DESC LIMIT ?",
+                    mapper,
+                    userId,
+                    position.timestamp,
+                    position.id,
+                    pageSize + 1,
+                )
+            }
+        val page = rows.take(pageSize)
+        val next = page.lastOrNull()?.takeIf { rows.size > pageSize }?.let { encodeCursor(it.completedAt, it.artworkId) }
+        return PagedResponse(ArtworkPageData(page), PageMeta(next))
+    }
+
     @Transactional(readOnly = true)
     fun rewards(
         userId: Long,
@@ -111,7 +166,7 @@ class RewardReadService(
                    FROM course c
                    LEFT JOIN lesson l ON l.course_id=c.course_id
                    LEFT JOIN reward_ledger r ON r.user_id=? AND r.source_type='LESSON'
-                     AND r.source_id=l.lesson_id AND r.reward_type='WALLET' AND r.currency='STAR'
+                     AND r.source_id=l.lesson_id AND r.reward_type='WALLET' AND r.currency IN ('STAR','STARDUST')
                    WHERE c.constellation_id IS NOT NULL
                    GROUP BY c.course_id ORDER BY c.course_order,c.course_id""",
                 { rs, _ ->
@@ -136,7 +191,7 @@ class RewardReadService(
         itemType: String?,
     ): InventoryData {
         requireUser(userId)
-        val filter = itemType?.uppercase(Locale.ROOT)
+        val filter = itemType
         if (filter != null && filter !in INVENTORY_TYPES) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
         val rows =
             jdbc.query(
@@ -147,7 +202,7 @@ class RewardReadService(
                         itemId = rs.getLong("item_id"),
                         itemType = rs.getString("item_type"),
                         name = rs.getString("item_name"),
-                        starter = rs.getBoolean("is_default"),
+                        acquiredVia = rs.getString("acquired_via"),
                         acquiredAt = rs.getTimestamp("created_at").toInstant(),
                         placed = rs.getBoolean("placed"),
                     )
@@ -161,40 +216,58 @@ class RewardReadService(
                 .filter {
                     filter == null || (filter == FURNITURE && it.itemType == "FURNITURE") ||
                         (filter == OBJECT && it.itemType != "FURNITURE")
-                }.map {
-                    InventoryItemResponse(
-                        inventoryId = it.ownedItemId.toString(),
-                        itemId = it.itemId,
-                        itemType = if (it.itemType == "FURNITURE") FURNITURE else OBJECT,
-                        name = checkNotNull(it.name),
-                        optionId = NO_OPTION_ID,
-                        option = emptyMap(),
-                        acquiredVia = if (it.starter) "STARTER" else "PURCHASE",
-                        acquiredAt = it.acquiredAt,
-                        placed = it.placed,
-                    )
-                }.toList()
+                }.map(::legacyEntry)
+                .toList()
         val optionType = object : TypeReference<Map<String, Any?>>() {}
         val storeItems =
             jdbc
                 .query(
                     STORE_INVENTORY_SQL,
                     { rs, _ ->
-                        InventoryItemResponse(
-                            inventoryId = "store:${rs.getLong("inventory_id")}",
-                            itemId = rs.getLong("item_id"),
-                            itemType = rs.getString("item_type"),
-                            name = rs.getString("item_name"),
-                            optionId = rs.getLong("option_id"),
-                            option = objectMapper.readValue(rs.getString("option_json"), optionType),
-                            acquiredVia = "PURCHASE",
-                            acquiredAt = rs.getTimestamp("acquired_at").toInstant(),
-                            placed = rs.getBoolean("placed"),
+                        val copy =
+                            InventoryCopy(
+                                "store:${rs.getLong("inventory_id")}",
+                                rs.getString("acquired_via"),
+                                rs.getTimestamp("acquired_at").toInstant(),
+                                rs.getBoolean("placed"),
+                            )
+                        InventoryEntry(
+                            rs.getLong("item_id"),
+                            rs.getString("item_type"),
+                            rs.getString("item_name"),
+                            rs.getLong("option_id"),
+                            objectMapper.readValue(rs.getString("option_json"), optionType),
+                            copy,
                         )
                     },
                     userId,
                 ).filter { filter == null || it.itemType == filter }
-        return InventoryData((legacyItems + storeItems).sortedByDescending { it.acquiredAt })
+        val groupedEntries = (legacyItems + storeItems).groupBy { Triple(it.itemType, it.itemId, it.optionId) }
+        val copyOrder = compareByDescending<InventoryCopy> { it.acquiredAt }.thenBy { it.inventoryId }
+        val groups =
+            groupedEntries.values
+                .map { entries ->
+                    val first = entries.first()
+                    val copies = entries.map { it.copy }.sortedWith(copyOrder)
+                    val placed = copies.count { it.placed }
+                    InventoryItemResponse(
+                        first.itemId,
+                        if (first.itemType == FURNITURE) FURNITURE else OBJECT,
+                        first.name,
+                        first.optionId,
+                        first.option,
+                        copies.size,
+                        placed,
+                        copies.size - placed,
+                        copies,
+                    )
+                }.sortedByDescending { it.copies.first().acquiredAt }
+        return InventoryData(groups)
+    }
+
+    private fun legacyEntry(row: InventoryRow): InventoryEntry {
+        val copy = InventoryCopy(row.ownedItemId.toString(), row.acquiredVia, row.acquiredAt, row.placed)
+        return InventoryEntry(row.itemId, row.itemType, checkNotNull(row.name), null, null, copy)
     }
 
     private fun requireUser(userId: Long) {
@@ -246,31 +319,41 @@ class RewardReadService(
         val itemId: Long,
         val itemType: String,
         val name: String?,
-        val starter: Boolean,
+        val acquiredVia: String,
         val acquiredAt: Instant,
         val placed: Boolean,
+    )
+
+    private data class InventoryEntry(
+        val itemId: Long,
+        val itemType: String,
+        val name: String,
+        val optionId: Long?,
+        val option: Map<String, Any?>?,
+        val copy: InventoryCopy,
     )
 
     companion object {
         private const val DEFAULT_PAGE_SIZE = 20
         private const val MAX_PAGE_SIZE = 100
         private const val MAX_CURSOR_LENGTH = 128
-        private const val NO_OPTION_ID = 0L
         private const val FURNITURE = "FURNITURE"
         private const val OBJECT = "OBJECT"
         private val INVENTORY_TYPES = setOf(FURNITURE, OBJECT)
 
         private const val REWARD_SELECT =
             """SELECT r.reward_ledger_id, r.created_at, r.reward_type, r.currency, r.amount, r.item_id,
-                      r.constellation_id, l.lesson_id, l.title AS lesson_title, c.course_id, c.title AS course_title,
+                      r.constellation_id, r.badge_type, l.lesson_id, l.title AS lesson_title, c.course_id, c.title AS course_title,
+                      a.artwork_id, a.lesson_id AS artwork_lesson_id, a.image_url AS artwork_image_url, a.completed_at AS artwork_completed_at,
                       CASE WHEN r.reward_type='CONSTELLATION' THEN r.constellation_id END AS badge_constellation_id
                FROM reward_ledger r
+               LEFT JOIN learning_artwork a ON a.artwork_id=r.artwork_id AND a.user_id=r.user_id
                LEFT JOIN review_session s ON r.source_type='REVIEW' AND s.review_session_id=r.source_id
                LEFT JOIN lesson l ON l.lesson_id=CASE
                  WHEN r.source_type IN ('LESSON','ONBOARDING') THEN r.source_id
                  WHEN r.source_type='REVIEW' THEN s.lesson_id END
                LEFT JOIN course c ON c.course_id=CASE WHEN r.source_type='COURSE' THEN r.source_id ELSE l.course_id END
-               WHERE r.user_id=?"""
+               WHERE r.user_id=? AND (r.currency IS NULL OR r.currency <> 'STAR')"""
 
         private const val REWARDS_SQL = "$REWARD_SELECT ORDER BY r.created_at DESC,r.reward_ledger_id DESC LIMIT ?"
         private const val REWARDS_AFTER_CURSOR_SQL =
@@ -294,7 +377,30 @@ class RewardReadService(
                             currency = rs.getString("currency"),
                             amount = rs.getLong("amount").let { if (rs.wasNull()) null else it },
                             itemId = rs.getLong("item_id").let { if (rs.wasNull()) null else it },
-                            badge = constellationId?.let { LearningRewardBadge("CONSTELLATION", it) },
+                            badge =
+                                constellationId?.let {
+                                    LearningRewardBadge(
+                                        rs.getString("badge_type"),
+                                        it,
+                                        lessonId.takeIf {
+                                            rs.getString("badge_type") ==
+                                                "STAR"
+                                        },
+                                    )
+                                },
+                            artwork =
+                                rs.getLong("artwork_id").let { artworkId ->
+                                    if (rs.wasNull()) {
+                                        null
+                                    } else {
+                                        LearningArtwork(
+                                            artworkId,
+                                            rs.getLong("artwork_lesson_id"),
+                                            rs.getString("artwork_image_url"),
+                                            rs.getTimestamp("artwork_completed_at").toInstant(),
+                                        )
+                                    }
+                                },
                             source = source,
                             grantedAt = grantedAt,
                         ),
@@ -302,10 +408,12 @@ class RewardReadService(
             }
 
         private const val INVENTORY_SQL =
-            """SELECT o.owned_item_id,o.item_id,o.item_type,o.created_at,
+            """SELECT o.owned_item_id,o.item_id,o.item_type,o.created_at,o.acquired_via,
                       COALESCE(f.name,b.name,w.name,fl.name,a.name,rm.name) AS item_name,
-                      COALESCE(f.is_default,b.is_default,w.is_default,fl.is_default,a.is_default,rm.is_default,FALSE) AS is_default,
-                      CASE WHEN EXISTS (SELECT 1 FROM housing_coordinate_placement cp WHERE cp.owned_item_id=o.owned_item_id) THEN TRUE ELSE CASE o.item_type
+                      CASE WHEN EXISTS (SELECT 1 FROM housing_coordinate_placement cp WHERE cp.owned_item_id=o.owned_item_id) THEN TRUE
+                      WHEN o.owned_item_id <> (SELECT MIN(first_owned.owned_item_id) FROM housing_owned_item first_owned
+                           WHERE first_owned.user_id=o.user_id AND first_owned.item_type=o.item_type AND first_owned.item_id=o.item_id) THEN FALSE
+                      ELSE CASE o.item_type
                         WHEN 'FURNITURE' THEN EXISTS (SELECT 1 FROM housing_layout_placement p JOIN housing_room_layout x ON x.layout_id=p.layout_id WHERE x.user_id=o.user_id AND p.furniture_id=o.item_id)
                         WHEN 'BACKGROUND' THEN EXISTS (SELECT 1 FROM housing_room_layout x WHERE x.user_id=o.user_id AND x.background_id=o.item_id)
                         WHEN 'AVATAR' THEN EXISTS (SELECT 1 FROM housing_room_layout x WHERE x.user_id=o.user_id AND x.avatar_id=o.item_id)
@@ -323,7 +431,7 @@ class RewardReadService(
                WHERE o.user_id=? ORDER BY o.created_at DESC,o.owned_item_id DESC"""
 
         private const val STORE_INVENTORY_SQL =
-            """SELECT own.inventory_id,item.item_id,item.item_type,item.name AS item_name,option.option_id,
+            """SELECT own.inventory_id,own.acquired_via,item.item_id,item.item_type,item.name AS item_name,option.option_id,
                       option.option_json::text AS option_json,own.acquired_at,
                       EXISTS (SELECT 1 FROM housing_coordinate_placement placement
                               WHERE placement.store_inventory_id=own.inventory_id) AS placed

@@ -4,6 +4,7 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.controller.WalletBalancesResponse
 import com.bawibase.chorong.domain.user.entity.UserEntity
 import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserRepository
@@ -27,18 +28,13 @@ data class UserMeResponse(
     val nickname: String,
     val status: String,
     val providers: List<String>,
-    val wallet: WalletBalances,
+    val wallet: WalletBalancesResponse,
     val progress: UserMeProgress,
     val housing: UserMeHousing,
     val onboardingCompleted: Boolean,
     val pushEnabled: Boolean,
     val streakDays: Int,
     val lastStudyDate: java.time.LocalDate?,
-)
-
-data class WalletBalances(
-    val star: Long,
-    val stardust: Long,
 )
 
 @Service
@@ -88,7 +84,7 @@ class UserMeService(
             nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             status = user.status.name,
             providers = providers,
-            wallet = WalletBalances(wallet.star, wallet.stardust),
+            wallet = WalletBalancesResponse(wallet.stardust),
             progress = progress,
             housing = UserMeHousing(isPublic, likeCount),
             onboardingCompleted = user.onboardingCompleted,
