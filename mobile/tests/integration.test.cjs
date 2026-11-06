@@ -76,6 +76,20 @@ test('mock API renders linked data without using the HTTP adapter', async () => 
   await api.account.login('test@example.com', 'test');
   const user = await api.account.me();
   const { courses } = await api.learning.courses();
+  assert.equal(typeof courses[0].topic, 'string');
+  const { courses: byTopic } = await api.learning.courses(undefined, courses[0].topic);
+  const { courses: byCategoryAndTopic } = await api.learning.courses(
+    courses[1].category,
+    courses[1].topic,
+  );
+  assert.deepEqual(
+    byTopic.map((course) => course.title),
+    [courses[0].title],
+  );
+  assert.deepEqual(
+    byCategoryAndTopic.map((course) => course.title),
+    [courses[1].title],
+  );
   const detail = await api.learning.course(courses[0].courseId);
   const lesson = await api.learning.lesson(detail.lessons[0].lessonId);
   const start = await api.learning.start(lesson.lessonId, false);
@@ -212,8 +226,8 @@ test('base URL keeps a single version prefix and rejects credential URLs', () =>
   assert.equal(integrationBaseURL('https://test.invalid/api/v1/'), 'https://test.invalid/api/v1');
   assert.throws(() => integrationBaseURL('https://password@test.invalid'));
 });
-test('all 46 PDF APIs are inventoried; two deferred APIs cannot be sent', async () => {
-  assert.equal(Object.keys(catalog).length, 46);
+test('all 47 APIs are inventoried; two deferred APIs cannot be sent', async () => {
+  assert.equal(Object.keys(catalog).length, 47);
   const { c } = setup();
   let sent = 0;
   c.http.defaults.adapter = async (config) => {

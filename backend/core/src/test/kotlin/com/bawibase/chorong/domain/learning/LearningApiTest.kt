@@ -77,9 +77,9 @@ class LearningApiTest {
 
     @Test
     fun `course listing filters onboarding and content returns public quiz only`() {
-        jdbc.update("INSERT INTO course(title,category,description,course_order) VALUES ('일반 코스','SCIENCE','설명',1)")
+        jdbc.update("INSERT INTO course(title,category,topic,description,course_order) VALUES ('일반 코스','SCIENCE','일반 코스','설명',1)")
         val courseId = jdbc.queryForObject("SELECT course_id FROM course WHERE title='일반 코스'", Long::class.java)
-        jdbc.update("INSERT INTO course(title,category,is_onboarding) VALUES ('온보딩','START',true)")
+        jdbc.update("INSERT INTO course(title,category,topic,is_onboarding) VALUES ('온보딩','START','온보딩',true)")
         jdbc.update("INSERT INTO lesson(course_id,title,lesson_order) VALUES (?, '레슨 1', 1)", courseId)
         val lessonId = jdbc.queryForObject("SELECT lesson_id FROM lesson WHERE course_id=?", Long::class.java, courseId)
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?, 0, 'TEXT', '학습 본문')", lessonId)
@@ -117,10 +117,12 @@ class LearningApiTest {
             status { isOk() }
             jsonPath("$.data.courses.length()") { value(1) }
             jsonPath("$.data.courses[0].title") { value("일반 코스") }
+            jsonPath("$.data.courses[0].topic") { value("일반 코스") }
             jsonPath("$.data.courses[0].totalLessons") { value(1) }
         }
         mvc.get("/api/v1/courses/$courseId") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
+            jsonPath("$.data.topic") { value("일반 코스") }
             jsonPath("$.data.lessons[0].lessonId") { value(lessonId) }
             jsonPath("$.data.lessons[0].status") { value("UNLOCKED") }
         }
@@ -142,6 +144,54 @@ class LearningApiTest {
             jsonPath("$.data.contents[3].contentType") { value("VIDEO") }
         }
         assertEquals(23L, quizzes.findById(checkNotNull(quiz.id)).orElseThrow().lessonId)
+    }
+
+    @Test
+    fun `course listing filters category and topic separately and together`() {
+        jdbc.update(
+            """INSERT INTO course(title,category,topic,course_order) VALUES
+               ('우주 과학','SCIENCE','SPACE',1),
+               ('자연 과학','SCIENCE','NATURE',2),
+               ('우주 예술','ART','SPACE',3),
+               ('자연 예술','ART','NATURE',4)""",
+        )
+
+        mvc
+            .get("/api/v1/courses") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                param("category", "SCIENCE")
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.courses.length()") { value(2) }
+            }
+        mvc
+            .get("/api/v1/courses") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                param("topic", "SPACE")
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.courses.length()") { value(2) }
+            }
+        mvc
+            .get("/api/v1/courses") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                param("category", "SCIENCE")
+                param("topic", "SPACE")
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.courses.length()") { value(1) }
+                jsonPath("$.data.courses[0].title") { value("우주 과학") }
+                jsonPath("$.data.courses[0].topic") { value("SPACE") }
+            }
+        mvc
+            .get("/api/v1/courses") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                param("category", "ART")
+                param("topic", "MISSING")
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.courses.length()") { value(0) }
+            }
     }
 
     @Test
@@ -902,7 +952,7 @@ class LearningApiTest {
         title: String,
         lessons: Int,
     ): Long {
-        jdbc.update("INSERT INTO course(title,category) VALUES (?, 'TEST')", "$title-${UUID.randomUUID()}")
+        jdbc.update("INSERT INTO course(title,category,topic) VALUES (?, 'TEST', ?)", "$title-${UUID.randomUUID()}", title)
         val courseId = checkNotNull(jdbc.queryForObject("SELECT course_id FROM course ORDER BY course_id DESC LIMIT 1", Long::class.java))
         repeat(lessons) { order ->
             jdbc.update(

@@ -123,12 +123,13 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         courses: empty
           ? []
           : courses
-              .filter(
-                (item) =>
-                  !options.query ||
-                  !('category' in options.query) ||
-                  item.category === options.query.category,
-              )
+              .filter((item) => {
+                const query = options.query as { category?: string; topic?: string } | undefined;
+                return (
+                  (!query?.category || item.category === query.category) &&
+                  (!query?.topic || item.topic === query.topic)
+                );
+              })
               .map(({ lessons, description, ...summary }) => summary),
       });
     case 'API-402':
@@ -382,5 +383,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                 item.itemType === options.query.itemType,
             ),
       });
+    case 'API-908':
+      return response({ artworks: [] }, true);
   }
 };

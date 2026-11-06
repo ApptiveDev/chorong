@@ -24,21 +24,25 @@ class LearningService(
     fun listCourses(
         userId: Long,
         category: String?,
+        topic: String? = null,
     ): List<CourseSummary> {
         requireId(userId)
         return jdbc.query(
-            """SELECT c.course_id, c.title, c.category, COUNT(DISTINCT l.lesson_id)::int AS total,
+            """SELECT c.course_id, c.title, c.category, c.topic, COUNT(DISTINCT l.lesson_id)::int AS total,
                       COUNT(DISTINCT lp.lesson_id) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed
                FROM course c
                LEFT JOIN lesson l ON l.course_id = c.course_id
                LEFT JOIN lesson_progress lp ON lp.lesson_id = l.lesson_id AND lp.user_id = ?
-               WHERE NOT c.is_onboarding AND (CAST(? AS VARCHAR) IS NULL OR c.category = ?)
+               WHERE NOT c.is_onboarding
+                 AND (CAST(? AS VARCHAR) IS NULL OR c.category = ?)
+                 AND (CAST(? AS VARCHAR) IS NULL OR c.topic = ?)
                GROUP BY c.course_id ORDER BY c.course_order, c.course_id""",
             { rs, _ ->
                 CourseSummary(
                     rs.getLong("course_id"),
                     rs.getString("title"),
                     rs.getString("category"),
+                    rs.getString("topic"),
                     rs.getInt("total"),
                     rs.getInt("completed"),
                 )
@@ -46,6 +50,8 @@ class LearningService(
             userId,
             category,
             category,
+            topic,
+            topic,
         )
     }
 
@@ -60,7 +66,7 @@ class LearningService(
         val course =
             jdbc
                 .query(
-                    """SELECT c.course_id, c.title, c.category, c.description, COUNT(l.lesson_id)::int AS total,
+                    """SELECT c.course_id, c.title, c.category, c.topic, c.description, COUNT(l.lesson_id)::int AS total,
                           COUNT(lp.lesson_id) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed
                    FROM course c
                    LEFT JOIN lesson l ON l.course_id = c.course_id
@@ -72,6 +78,7 @@ class LearningService(
                             rs.getLong("course_id"),
                             rs.getString("title"),
                             rs.getString("category"),
+                            rs.getString("topic"),
                             rs.getInt("total"),
                             rs.getInt("completed"),
                             null,

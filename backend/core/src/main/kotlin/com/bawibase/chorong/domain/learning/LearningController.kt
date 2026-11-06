@@ -19,6 +19,7 @@ data class CourseSummary(
     val courseId: Long,
     val title: String,
     val category: String,
+    val topic: String,
     val totalLessons: Int,
     val completedLessons: Int,
     val constellation: Any? = null,
@@ -37,6 +38,7 @@ data class CourseDetail(
     val courseId: Long,
     val title: String,
     val category: String,
+    val topic: String,
     val totalLessons: Int,
     val completedLessons: Int,
     val constellation: Any?,
@@ -140,7 +142,8 @@ class LearningController(
     fun courses(
         @CurrentUserId userId: Long,
         @RequestParam(required = false) category: String?,
-    ): ApiResponse<Map<String, List<CourseSummary>>> = ApiResponse(mapOf("courses" to learning.listCourses(userId, category)))
+        @RequestParam(required = false) topic: String?,
+    ): ApiResponse<Map<String, List<CourseSummary>>> = ApiResponse(mapOf("courses" to learning.listCourses(userId, category, topic)))
 
     @GetMapping("/courses/{courseId}")
     @Operation(operationId = "API-402", summary = "코스 상세")

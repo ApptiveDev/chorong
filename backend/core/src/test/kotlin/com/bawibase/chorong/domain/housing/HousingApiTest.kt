@@ -186,7 +186,7 @@ class HousingApiTest {
         mockMvc.get("/api/v1/housings/me") { header(header, device) }.andExpect {
             status { isOk() }
             jsonPath("$.data.housing.name") { value("나의 우주") }
-            jsonPath("$.data.housing.isPublic") { value(false) }
+            jsonPath("$.data.housing.isPublic") { value(true) }
             jsonPath("$.data.housing.likeCount") { value(0) }
             jsonPath("$.data.placements.length()") { value(0) }
             jsonPath("$.data.avatar.x") { value(0.5) }
