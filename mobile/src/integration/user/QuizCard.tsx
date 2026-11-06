@@ -1,9 +1,20 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useTask } from '../hooks';
 import { Field, styles } from '../ui';
 import { UserStatus } from './Screen';
+import { AnimatedReveal } from './AnimatedReveal';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 type Choice = { index: number; label: string };
 function choicesFromServer(raw: unknown): Choice[] | null {
@@ -125,7 +136,7 @@ export function QuizCard({
       />
       <UserStatus task={task} />
       {task.result ? (
-        <View style={styles.card}>
+        <AnimatedReveal style={styles.card} duration={280} offsetY={8}>
           <Text style={styles.subtitle}>
             {(task.result as AnswerResult).isCorrect ? '정답' : '오답'}
           </Text>
@@ -133,7 +144,7 @@ export function QuizCard({
           <Text style={styles.text}>
             채점 결과를 확인했습니다. 다음 콘텐츠로 이동할 수 있습니다.
           </Text>
-        </View>
+        </AnimatedReveal>
       ) : null}
     </View>
   );
@@ -152,8 +163,31 @@ function QuizAction({
   secondary?: boolean;
   selected?: boolean;
 }) {
+  const selection = useRef(new Animated.Value(selected ? 1 : 0)).current;
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .catch(() => false)
+      .then((reduceMotion) => {
+        if (!active) return;
+        if (reduceMotion) {
+          selection.setValue(selected ? 1 : 0);
+          return;
+        }
+        Animated.timing(selection, {
+          toValue: selected ? 1 : 0,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start();
+      });
+    return () => {
+      active = false;
+      selection.stopAnimation();
+    };
+  }, [selected, selection]);
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
@@ -161,12 +195,21 @@ function QuizAction({
       style={[
         quizStyles.action,
         secondary && quizStyles.secondary,
-        selected && quizStyles.selected,
+        secondary && {
+          borderColor: selection.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['#dce2e8', '#273a52'],
+          }),
+          backgroundColor: selection.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['#fff', '#eef2f5'],
+          }),
+        },
         disabled && quizStyles.disabled,
       ]}
     >
       <Text style={[quizStyles.actionText, secondary && quizStyles.secondaryText]}>{label}</Text>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -183,6 +226,5 @@ const quizStyles = StyleSheet.create({
   actionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
   secondaryText: { color: '#273a52' },
-  selected: { borderColor: '#273a52', backgroundColor: '#eef2f5' },
   disabled: { opacity: 0.45 },
 });

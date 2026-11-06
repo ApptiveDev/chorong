@@ -5,6 +5,7 @@ import { initialResponse, prepareQuiz, responseIssue } from '../../lib/quiz-stat
 import type { Quiz as InteractiveQuiz, QuizPreviewResult, QuizResponse } from '../../types/quiz';
 import type { AnswerResult, Quiz as LegacyQuiz, QuizAnswer } from '../../integration/models';
 import { QuizCard } from '../../integration/user/QuizCard';
+import { AnimatedReveal } from '../../integration/user/AnimatedReveal';
 import { QuizRenderer } from './QuizRenderer';
 
 const labels: Record<InteractiveQuiz['interactionType'], string> = {
@@ -132,10 +133,10 @@ export function LessonQuizWireframe({
         </Text>
       ) : null}
       {result ? (
-        <View style={s.result}>
+        <AnimatedReveal style={s.result} duration={280} offsetY={8}>
           <Text style={s.question}>{result.correct ? '정답입니다.' : '다시 살펴보세요.'}</Text>
           <Text style={s.instruction}>{result.explanation}</Text>
-        </View>
+        </AnimatedReveal>
       ) : null}
     </View>
   );
