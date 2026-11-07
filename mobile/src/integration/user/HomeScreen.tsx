@@ -1,107 +1,99 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { TopDownRoom } from '../../components/house/TopDownRoom';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
-import type { HousingDetail } from '../models';
+import type { HousingDetail, InventoryItem } from '../models';
 import { UserScreen, UserStatus } from './Screen';
 
 export default function HomeScreen() {
   const { generation } = useIntegration();
   return <Home key={generation} />;
 }
+
 function Home() {
-  const router = useRouter(),
-    session = useIntegration(),
-    task = useTask();
-  const [open, setOpen] = useState(false),
-    [room, setRoom] = useState<HousingDetail | null>(null),
-    [itemNames, setItemNames] = useState<Record<string, string>>({});
+  const router = useRouter();
+  const session = useIntegration();
+  const task = useTask();
+  const { height: screenHeight } = useWindowDimensions();
+  const [room, setRoom] = useState<HousingDetail | null>(null);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [starBalance, setStarBalance] = useState<number | null>(null);
   const load = () =>
     task.run(async () => {
-      const value = await api.room.me();
-      setRoom(value);
-      try {
-        const owned = await api.room.inventory();
-        setItemNames(Object.fromEntries(owned.items.map((item) => [item.inventoryId, item.name])));
-      } catch {
-        setItemNames({});
-      }
-      return value;
+      const [housing, owned, wallet] = await Promise.all([
+        api.room.me(),
+        api.room.inventory(),
+        api.benefits.wallet(),
+      ]);
+      setRoom(housing);
+      setInventory(owned.items);
+      setStarBalance(wallet.stardust);
+      return housing;
     });
   useFocusEffect(
     useCallback(() => {
       if (session.ready && session.authenticated) void load();
     }, [session.ready, session.authenticated]),
   );
-  const go = (path: string) => {
-    setOpen(false);
-    router.push(path as Href);
-  };
+  const go = (path: string) => router.push(path as Href);
+  const sceneItems: RoomSceneItem[] =
+    room?.placements.map((placement) => {
+      const owned = inventory.find((item) => item.inventoryId === placement.inventoryId);
+      const option = (owned?.option ?? placement.option) as Record<string, unknown>;
+      return {
+        key: placement.inventoryId,
+        name: owned?.name ?? '배치 아이템',
+        x: placement.transform.x,
+        y: placement.transform.y,
+        layer: placement.transform.layer,
+        color: typeof option.color === 'string' ? option.color : undefined,
+      };
+    }) ?? [];
+
   return (
-    <UserScreen title="나의 우주선">
-      {!session.authenticated ? (
-        <View style={roomStyles.loginCard}>
-          <View style={roomStyles.loginIcon}>
-            <Ionicons name="lock-closed-outline" size={28} color="#607992" />
+    <UserScreen title="나의 우주선" scroll={false} showTitle={false}>
+      <View style={s.page}>
+        <View style={s.header}>
+          <Text style={s.title}>나의 우주선</Text>
+          <View style={s.wallet}>
+            <Text style={s.walletText}>✦ {starBalance ?? '—'}</Text>
           </View>
-          <Text style={roomStyles.loginTitle}>로그인하세요</Text>
-          <Text style={roomStyles.loginCaption}>로그인하면 내 우주선을 볼 수 있습니다.</Text>
-          <RoomAction title="로그인" onPress={() => go('/account')} primary />
         </View>
-      ) : (
-        <>
-          <View style={roomStyles.card}>
-            <View
-              style={{
-                position: 'absolute',
-                right: 10,
-                top: 10,
-                zIndex: 2,
-                gap: 7,
-                alignItems: 'flex-end',
-              }}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={open ? '메뉴 닫기' : '메뉴 열기'}
-                accessibilityState={{ expanded: open }}
-                onPress={() => setOpen((value) => !value)}
-                style={roomStyles.addButton}
-              >
-                <Ionicons name={open ? 'close' : 'add'} size={24} color="#fff" />
+        {!session.authenticated ? (
+          <View style={s.login}>
+            <Text style={s.loginTitle}>로그인하세요</Text>
+            <Text style={s.loginText}>로그인하면 내 우주선을 볼 수 있습니다.</Text>
+            <HomeAction title="로그인" onPress={() => go('/account')} primary />
+          </View>
+        ) : (
+          <View style={s.middle}>
+            <Pressable accessibilityRole="button" style={s.visit} onPress={() => go('/social')}>
+              <Text style={s.visitText}>우주선 구경 ↗</Text>
+            </Pressable>
+            <View style={[s.sceneWrap, screenHeight < 750 && s.sceneWrapShort]}>
+              <RoomScene items={sceneItems} />
+            </View>
+            <Text style={s.tip}>작은 취향을 모아 나만의 방으로</Text>
+            <UserStatus task={task} />
+            {task.error && !room ? (
+              <Pressable accessibilityRole="button" onPress={() => void load()} style={s.retry}>
+                <Text style={s.retryText}>다시 불러오기</Text>
               </Pressable>
-              {open ? (
-                <View style={roomStyles.menu}>
-                  <RoomAction title="꾸미기" onPress={() => go('/room/inventory')} />
-                  <RoomAction title="상점" onPress={() => go('/room/shop')} />
-                  <RoomAction title="우주 탐험" onPress={() => go('/social')} />
-                </View>
-              ) : null}
+            ) : null}
+            <View style={s.actions}>
+              <HomeAction title="상점" onPress={() => go('/room/shop')} />
+              <HomeAction title="꾸미기" onPress={() => go('/room/inventory')} primary />
             </View>
-            <View style={roomStyles.roomFrame}>
-              <TopDownRoom placements={room?.placements ?? []} itemNames={itemNames} />
-            </View>
-            <Text style={roomStyles.roomName}>{room?.housing.name ?? '내 우주'}</Text>
-            <Text style={roomStyles.roomMeta}>
-              {room ? `좋아요 ${room.housing.likeCount}개` : '하우징 연동 대기'}
-            </Text>
           </View>
-          <UserStatus task={task} />
-          <View style={roomStyles.actionCard}>
-            <Text style={roomStyles.actionTitle}>시작하기</Text>
-            <RoomAction title="학습하기" onPress={() => go('/quiz')} primary />
-            <RoomAction title="복습하기" onPress={() => go('/review')} />
-          </View>
-        </>
-      )}
+        )}
+      </View>
     </UserScreen>
   );
 }
 
-function RoomAction({
+function HomeAction({
   title,
   onPress,
   primary = false,
@@ -114,77 +106,72 @@ function RoomAction({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={[roomStyles.actionButton, primary && roomStyles.primaryAction]}
+      style={[s.action, primary ? s.primaryAction : s.secondaryAction]}
     >
-      <Text style={[roomStyles.actionLabel, primary && roomStyles.primaryActionLabel]}>
-        {title}
-      </Text>
+      <Text style={[s.actionText, primary && s.primaryText]}>{title}</Text>
     </Pressable>
   );
 }
 
-const roomStyles = StyleSheet.create({
-  loginCard: {
-    borderWidth: 1,
-    borderColor: '#d7dfe6',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    padding: 20,
-    gap: 10,
+const s = StyleSheet.create({
+  page: {
+    flex: 1,
+    minHeight: 0,
+    marginHorizontal: -18,
+    marginTop: -12,
+    backgroundColor: '#f8f6fc',
+  },
+  header: {
+    paddingHorizontal: 21,
+    paddingTop: 23,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  loginIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    backgroundColor: '#eef2f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loginTitle: { color: '#273a52', fontSize: 16, fontWeight: '700' },
-  loginCaption: { color: '#7b8795', fontSize: 12, textAlign: 'center', marginBottom: 5 },
-  card: {
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 6,
-    padding: 12,
-    gap: 7,
-    backgroundColor: '#f8f9fb',
-  },
-  addButton: { backgroundColor: '#273a52', padding: 9, borderRadius: 24 },
-  roomFrame: { paddingTop: 18, alignItems: 'center', justifyContent: 'center' },
-  roomName: { color: '#273a52', fontSize: 16, fontWeight: '700', textAlign: 'center' },
-  roomMeta: { color: '#7b8795', fontSize: 12, textAlign: 'center' },
-  menu: {
-    backgroundColor: '#fff',
-    borderColor: '#d7dfe6',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 5,
-    gap: 5,
-    minWidth: 100,
-  },
-  actionCard: {
-    borderWidth: 1,
-    borderColor: '#d7dfe6',
-    borderRadius: 8,
-    padding: 12,
-    gap: 8,
-    backgroundColor: '#fff',
-  },
-  actionTitle: { color: '#273a52', fontSize: 14, fontWeight: '700' },
-  actionButton: {
-    alignSelf: 'stretch',
-    minHeight: 42,
+  title: { color: '#282636', fontSize: 23, fontWeight: '700' },
+  wallet: {
+    backgroundColor: '#f6f1e6',
+    borderRadius: 30,
     paddingHorizontal: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#d7dfe6',
-    backgroundColor: '#fff',
+    paddingVertical: 7,
+  },
+  walletText: { color: '#8a7047', fontSize: 12, fontWeight: '600' },
+  middle: { flex: 1, minHeight: 0 },
+  visit: {
+    alignSelf: 'flex-end',
+    marginRight: 22,
+    minHeight: 38,
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  visitText: { color: '#817790', fontSize: 13 },
+  sceneWrap: { marginTop: 4, paddingHorizontal: 20 },
+  sceneWrapShort: { width: 330, maxWidth: '100%', alignSelf: 'center' },
+  tip: { color: '#aa9eb7', fontSize: 12, textAlign: 'center', marginTop: 20 },
+  actions: { position: 'absolute', bottom: 25, left: 24, right: 24, flexDirection: 'row', gap: 10 },
+  action: {
+    flex: 1,
+    alignSelf: 'stretch',
+    minHeight: 52,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryAction: { backgroundColor: '#273a52', borderColor: '#273a52' },
-  actionLabel: { color: '#536578', fontSize: 12, fontWeight: '600' },
-  primaryActionLabel: { color: '#fff', fontWeight: '700' },
+  secondaryAction: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e8e0ee' },
+  primaryAction: { backgroundColor: '#7d6d91' },
+  actionText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
+  primaryText: { color: '#fff' },
+  login: {
+    margin: 24,
+    padding: 22,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    gap: 12,
+    alignItems: 'center',
+  },
+  loginTitle: { color: '#282636', fontSize: 18, fontWeight: '700' },
+  loginText: { color: '#888591', fontSize: 13 },
+  retry: { alignSelf: 'center', padding: 10 },
+  retryText: { color: '#655b76', fontSize: 12 },
 });
