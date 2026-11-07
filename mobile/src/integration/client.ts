@@ -32,7 +32,10 @@ export type RequestOptions = {
   public?: boolean;
 };
 export type MockResponse = { status: number; data: unknown; headers: Record<string, string> };
-export type MockResponder = (id: EnabledApiId, options: RequestOptions) => MockResponse;
+export type MockResponder = (
+  id: EnabledApiId,
+  options: RequestOptions,
+) => MockResponse | Promise<MockResponse>;
 type State = {
   ready: boolean;
   user: UserBrief | Me | null;
@@ -374,7 +377,7 @@ export class IntegrationClient {
       };
       try {
         const response = this.mockResponder
-          ? this.mockResponder(id, options)
+          ? await this.mockResponder(id, options)
           : await this.http.request({
               method,
               url: endpoint,

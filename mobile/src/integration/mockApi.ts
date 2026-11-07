@@ -35,6 +35,86 @@ const state: MockState = {
   activeReview: new Map(),
   blockedUsers: [{ userId: 5, nickname: '별이', blockedAt: '2026-10-30T00:00:00Z' }],
 };
+
+type MockSnapshot = {
+  version: 1;
+  user: MockState['user'];
+  wallet: MockState['wallet'];
+  likes: number[];
+  placements: MockState['placements'];
+  inventory: MockState['inventory'];
+  completed: number[];
+  startedLessons: number[];
+  rewardedLessons: number[];
+  completedConstellations: [number, string][];
+  studyAnswers: [number, boolean][];
+  reviewedToday: [number, string][];
+  blockedUsers: MockState['blockedUsers'];
+  housingName: string;
+  isPublic: boolean;
+};
+
+export function mockSnapshot(): MockSnapshot {
+  return {
+    version: 1,
+    user: state.user,
+    wallet: state.wallet,
+    likes: [...state.likes],
+    placements: state.placements,
+    inventory: state.inventory,
+    completed: [...state.completed],
+    startedLessons: [...state.startedLessons],
+    rewardedLessons: [...state.rewardedLessons],
+    completedConstellations: [...state.completedConstellations],
+    studyAnswers: [...state.studyAnswers],
+    reviewedToday: [...state.reviewedToday],
+    blockedUsers: state.blockedUsers,
+    housingName: room.housing.name,
+    isPublic: mockVisibility.get(),
+  };
+}
+
+export function restoreMockSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const saved = value as Partial<MockSnapshot>;
+  if (
+    saved.version !== 1 ||
+    !saved.user ||
+    !saved.wallet ||
+    !Array.isArray(saved.likes) ||
+    !Array.isArray(saved.placements) ||
+    !Array.isArray(saved.inventory) ||
+    !Array.isArray(saved.completed) ||
+    !Array.isArray(saved.startedLessons) ||
+    !Array.isArray(saved.rewardedLessons) ||
+    !Array.isArray(saved.completedConstellations) ||
+    !Array.isArray(saved.studyAnswers) ||
+    !Array.isArray(saved.reviewedToday) ||
+    !Array.isArray(saved.blockedUsers) ||
+    typeof saved.housingName !== 'string' ||
+    typeof saved.isPublic !== 'boolean'
+  )
+    return false;
+  state.user = saved.user;
+  state.wallet = saved.wallet;
+  state.likes = new Set(saved.likes);
+  state.placements = saved.placements;
+  state.inventory = saved.inventory;
+  state.completed = new Set(saved.completed);
+  state.startedLessons = new Set(saved.startedLessons);
+  state.rewardedLessons = new Set(saved.rewardedLessons);
+  state.completedConstellations = new Map(saved.completedConstellations);
+  state.studyAnswers = new Map(saved.studyAnswers);
+  state.reviewedToday = new Map(saved.reviewedToday);
+  state.activeReview = new Map();
+  state.blockedUsers = saved.blockedUsers;
+  room.housing = { ...room.housing, name: saved.housingName, isPublic: saved.isPublic };
+  mockVisibility.set(saved.isPublic);
+  for (const item of shopItems)
+    for (const option of item.options)
+      option.owned = state.inventory.some((owned) => owned.optionId === option.optionId);
+  return true;
+}
 const scenario = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
 const empty = scenario === 'empty';
 const response = (data?: unknown, paged = false) => ({
@@ -195,7 +275,15 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                   !('category' in options.query) ||
                   item.category === options.query.category,
               )
-              .map(({ lessons, description, ...summary }) => summary),
+              .map(({ lessons, description, ...summary }) => ({
+                ...summary,
+                completedLessons:
+                  summary.completedLessons +
+                  lessons.filter(
+                    (item) =>
+                      item.status !== 'COMPLETED' && state.rewardedLessons.has(item.lessonId),
+                  ).length,
+              })),
       });
     case 'API-402': {
       const selected =
@@ -204,13 +292,14 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         ...selected,
         lessons: selected.lessons.map((item) => ({
           ...item,
-          status: state.startedLessons.has(item.lessonId)
-            ? lesson(item.lessonId)?.contents.every((content) =>
-                state.completed.has(content.contentId),
-              )
-              ? 'COMPLETED'
-              : 'IN_PROGRESS'
-            : item.status,
+          status:
+            state.startedLessons.has(item.lessonId) || state.rewardedLessons.has(item.lessonId)
+              ? lesson(item.lessonId)?.contents.every((content) =>
+                  state.completed.has(content.contentId),
+                )
+                ? 'COMPLETED'
+                : 'IN_PROGRESS'
+              : item.status,
         })),
       });
     }
@@ -227,7 +316,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         reviewRequired: false,
         review: null,
         progress: {
-          status: 'IN_PROGRESS',
+          status: state.rewardedLessons.has(selected.lessonId) ? 'COMPLETED' : 'IN_PROGRESS',
           lastContentId,
           resumeContentId:
             selected.contents.find((content) => !state.completed.has(content.contentId))
@@ -298,14 +387,21 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({
         courses: courses.map((item) => ({
           courseId: item.courseId,
-          completedLessons: item.completedLessons,
+          completedLessons:
+            item.completedLessons +
+            item.lessons.filter(
+              (lesson) =>
+                lesson.status !== 'COMPLETED' && state.rewardedLessons.has(lesson.lessonId),
+            ).length,
           totalLessons: item.totalLessons,
         })),
         current: state.startedLessons.size
           ? {
               lessonId: [...state.startedLessons].at(-1)!,
               courseId: lesson([...state.startedLessons].at(-1)!)?.courseId ?? 1,
-              status: 'IN_PROGRESS',
+              status: state.rewardedLessons.has([...state.startedLessons].at(-1)!)
+                ? 'COMPLETED'
+                : 'IN_PROGRESS',
             }
           : { lessonId: 12, courseId: 1, status: 'UNLOCKED' },
       });
@@ -361,6 +457,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       });
     }
     case 'API-503':
+      state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 3 };
       return response({
         rewards: [{ type: 'WALLET', currency: 'STARDUST', amount: 3 }],
         wallet: state.wallet,

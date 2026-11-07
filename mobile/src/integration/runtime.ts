@@ -5,6 +5,7 @@ import { IntegrationClient, integrationBaseURL } from './client';
 import { createIntegrationApi } from './api';
 import { storage, persistTokens } from './storage';
 import { mockApi } from './mockApi';
+import { restoreMockState, saveMockState } from './mockStorage';
 
 export const useMockApi = process.env.EXPO_PUBLIC_USE_MOCK === 'true';
 let mockUuidSequence = 0;
@@ -29,7 +30,20 @@ export const client = new IntegrationClient(
   useMockApi ? 'https://mock.chorong.invalid/api/v1' : baseURL,
   storage,
   randomUuid,
-  persistTokens,
-  useMockApi ? mockApi : undefined,
+  useMockApi || persistTokens,
+  useMockApi
+    ? async (id, options) => {
+        const result = mockApi(id, options);
+        await saveMockState();
+        return result;
+      }
+    : undefined,
 );
+if (useMockApi) {
+  const initialize = client.initialize;
+  client.initialize = async () => {
+    await restoreMockState();
+    return initialize();
+  };
+}
 export const integrationApi = createIntegrationApi(client);

@@ -9,7 +9,11 @@ const {
 const { createIntegrationApi } = require('../.expo/integration-tests/api');
 const { catalog } = require('../.expo/integration-tests/catalog');
 const { wallet } = require('../.expo/integration-tests/models');
-const { mockApi } = require('../.expo/integration-tests/mockApi');
+const {
+  mockApi,
+  mockSnapshot,
+  restoreMockSnapshot,
+} = require('../.expo/integration-tests/mockApi');
 const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
@@ -587,4 +591,25 @@ test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 �
     ),
     true,
   );
+});
+
+test('목업 학습·별자리·하우징 상태는 저장본에서 복원된다', () => {
+  const saved = JSON.parse(JSON.stringify(mockSnapshot()));
+  const before = {
+    progress: mockApi('API-408', {}).data.data,
+    constellations: mockApi('API-906', {}).data.data,
+    housing: mockApi('API-701', {}).data.data,
+    inventory: mockApi('API-907', {}).data.data,
+    wallet: mockApi('API-904', {}).data.data,
+  };
+  mockApi('API-202', { body: { nickname: '임시 이름' } });
+  mockApi('API-405', { path: { contentId: 1201 } });
+  assert.equal(restoreMockSnapshot(saved), true);
+  assert.deepEqual(mockSnapshot(), saved);
+  assert.deepEqual(mockApi('API-408', {}).data.data, before.progress);
+  assert.deepEqual(mockApi('API-906', {}).data.data, before.constellations);
+  assert.deepEqual(mockApi('API-701', {}).data.data, before.housing);
+  assert.deepEqual(mockApi('API-907', {}).data.data, before.inventory);
+  assert.deepEqual(mockApi('API-904', {}).data.data, before.wallet);
+  assert.equal(restoreMockSnapshot({ version: 2 }), false);
 });
