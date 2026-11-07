@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  AccessibilityInfo,
   Animated,
   Easing,
   Image,
+  type ImageStyle,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,27 +27,49 @@ import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
 import { QuizCard } from './QuizCard';
+import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
+import { HomeStars } from './CoursesScreen';
 
 export default function StudyScreen() {
   const { generation } = useIntegration();
   return <Study key={generation} />;
 }
 function Study() {
-  const params = useLocalSearchParams<{ lessonId: string; replay?: string; title?: string }>(),
+  const session = useIntegration();
+  const params = useLocalSearchParams<{
+      lessonId: string;
+      replay?: string;
+      resume?: string;
+      title?: string;
+      fromWelcome?: string;
+    }>(),
     router = useRouter(),
     task = useTask();
   const [start, setStart] = useState<LessonStartResponse | null>(null),
     [position, setPosition] = useState(0);
+  const [dialogueReveal, setDialogueReveal] = useState({ contentId: 0, count: 1 });
   const [answered, setAnswered] = useState<Set<number>>(new Set()),
     [completed, setCompleted] = useState<Set<number>>(new Set());
   const [lessonDone, setLessonDone] = useState(false),
     [reward, setReward] = useState<LessonCompleteResponse | null>(null);
+  const [showConstellation, setShowConstellation] = useState(false);
+  const [constellationName, setConstellationName] = useState('별자리');
+  const [constellationDate, setConstellationDate] = useState<string | null>(null);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [exitOpen, setExitOpen] = useState(false);
+  const [resumePosition, setResumePosition] = useState(0);
   const [refreshNotice, setRefreshNotice] = useState(''),
     [wallet, setWallet] = useState<{ star: number; stardust: number } | null>(null);
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
+  const leaveStudy = () => router.replace('/quiz');
+  const firstGuestStudy = params.fromWelcome === 'true' && session.user?.status === 'GUEST';
+  const finishStudyFlow = () =>
+    firstGuestStudy
+      ? router.replace({ pathname: '/quiz', params: { view: 'join' } })
+      : router.replace('/quiz');
   useEffect(() => {
     let active = true;
     void task.run(async () => {
@@ -67,6 +90,9 @@ function Study() {
       if (data.progress.lastContentId !== null && lastIndex < 0)
         throw new Error('완료 위치가 콘텐츠 목록에 없습니다.');
       setPosition(index);
+      setResumePosition(index);
+      if (!replay && (params.resume === 'true' || data.progress.lastContentId !== null))
+        setResumeOpen(true);
       setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
       return data;
     });
@@ -76,11 +102,55 @@ function Study() {
   }, [lessonId, replay]);
   const contents = start?.contents ?? [],
     current = contents[position];
-  const refreshAfterDone = async () => {
+  const progressLabel = current?.quiz?.options?.mockHtmlType
+    ? String(current.quiz.options.label ?? params.title ?? '학습')
+    : current?.mediaUrl?.startsWith('mock-study-')
+      ? current.mediaUrl === 'mock-study-star'
+        ? '다른 별'
+        : current.mediaUrl === 'mock-study-mass'
+          ? '줄어든 질량'
+          : '핵융합'
+      : current?.contentType === 'TEXT' && current.contentId >= 1101 && current.contentId <= 1114
+        ? current.contentId === 1102
+          ? '핵융합'
+          : '줄어든 질량'
+        : (params.title ?? '학습');
+  const dialogue = current?.contentType === 'TEXT' ? getDialogueContent(current) : null;
+  const visibleDialogueCount =
+    dialogueReveal.contentId === current?.contentId ? dialogueReveal.count : 1;
+  const dialogueStack =
+    dialogue && current ? getDialogueStack(contents, position, visibleDialogueCount) : null;
+  const refreshAfterDone = async (completion?: LessonCompleteResponse | null) => {
     try {
       await api.learning.progress();
       const balance = await api.benefits.wallet();
       setWallet(balance);
+      try {
+        const lesson = await api.learning.lesson(lessonId);
+        const constellations = await api.benefits.constellations();
+        setConstellationName(
+          constellations.constellations.find((item) => item.courseId === lesson.courseId)?.name ??
+            '별자리',
+        );
+        if (completion?.rewards.some((item) => item.type === 'CONSTELLATION')) {
+          let cursor: string | null = null;
+          do {
+            const page = await api.benefits.rewards({ size: 100, ...(cursor ? { cursor } : {}) });
+            const record = page.data.rewards.find(
+              (item) =>
+                item.type === 'CONSTELLATION' && Number(item.source.courseId) === lesson.courseId,
+            );
+            if (record) {
+              const date = new Date(new Date(record.grantedAt).getTime() + 9 * 60 * 60 * 1000);
+              setConstellationDate(date.toISOString().slice(0, 10).replaceAll('-', '.'));
+              break;
+            }
+            cursor = page.meta.nextCursor;
+          } while (cursor);
+        }
+      } catch {
+        // 완료 결과는 별자리 이름 조회 실패와 관계없이 표시한다.
+      }
       setRefreshNotice('진행도와 잔액을 다시 조회했습니다.');
     } catch (error) {
       setRefreshNotice(
@@ -95,7 +165,7 @@ function Study() {
       if (result.lessonCompleted) {
         setLessonDone(true);
         setReward(result.completion ?? null);
-        await refreshAfterDone();
+        await refreshAfterDone(result.completion);
       }
       return result;
     });
@@ -104,12 +174,16 @@ function Study() {
       const result = await api.learning.completeLesson(lessonId);
       setLessonDone(true);
       setReward(result);
-      await refreshAfterDone();
+      await refreshAfterDone(result);
       return result;
     });
   const advance = async () => {
     if (!current || task.busy || lessonDone) return;
     if (current.contentType === 'QUIZ' && !answered.has(current.contentId)) return;
+    if (dialogue && visibleDialogueCount < dialogue.messages.length) {
+      setDialogueReveal({ contentId: current.contentId, count: visibleDialogueCount + 1 });
+      return;
+    }
     if (!replay && !completed.has(current.contentId)) {
       const result = await completeContent(current);
       if (!result) return;
@@ -119,17 +193,44 @@ function Study() {
     else if (!replay) await completeLesson();
   };
   const last = position === contents.length - 1;
+  const stardustReward =
+    reward?.rewards.find((item) => item.type === 'WALLET' && item.currency === 'STARDUST')
+      ?.amount ?? 0;
+  const constellationCompleted =
+    reward?.courseCompleted && reward.rewards.some((item) => item.type === 'CONSTELLATION');
+  const constellationBonus = constellationCompleted
+    ? (reward?.rewards.filter((item) => item.type === 'WALLET' && item.currency === 'STARDUST')[1]
+        ?.amount ?? 0)
+    : 0;
   return (
-    <UserScreen title={params.title ?? '학습'} scroll={false}>
-      <Pressable accessibilityRole="button" style={s.back} onPress={() => router.back()}>
-        <Ionicons name="chevron-back" size={18} color="#273a52" />
-        <Text style={s.backText}>레슨 목록</Text>
-      </Pressable>
-      <Text style={s.progress}>
-        {start?.reviewRequired
-          ? '선행 복습이 필요합니다.'
-          : `${position + 1} / ${contents.length || 0}`}
-      </Text>
+    <UserScreen title={params.title ?? '학습'} scroll={false} showTitle={false}>
+      {!showConstellation ? (
+        <View style={s.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="학습 나가기"
+            style={s.back}
+            onPress={() => (lessonDone ? leaveStudy() : setExitOpen(true))}
+          >
+            <Ionicons name="close" size={24} color="#282636" />
+          </Pressable>
+          <View style={s.progressWrap}>
+            <View style={s.segments}>
+              {contents.map((content, index) => (
+                <View
+                  key={content.contentId}
+                  style={[s.segment, index <= position && s.segmentOn]}
+                />
+              ))}
+            </View>
+            <Text style={s.progress}>
+              {start?.reviewRequired
+                ? '선행 복습 필요'
+                : `${progressLabel} · ${contents.length ? position + 1 : 0}/${contents.length}`}
+            </Text>
+          </View>
+        </View>
+      ) : null}
       <UserStatus task={task} />
       {start?.reviewRequired ? (
         <>
@@ -145,10 +246,46 @@ function Study() {
       {start && !start.reviewRequired ? (
         <>
           <View style={s.content}>
-            {current?.contentType === 'TEXT' ? (
+            {lessonDone && showConstellation ? (
+              <View style={s.constellationCompletion}>
+                <Text style={s.constellationLabel}>탐험의 기록</Text>
+                <View style={s.constellationPicture}>
+                  <HomeStars progress={1} height={140} />
+                </View>
+                <Text style={s.constellationTitle}>{constellationName}</Text>
+                <Text style={s.constellationSubtitle}>작은 별들이 하나의 이야기가 되었어요.</Text>
+                <Text style={s.constellationDate}>
+                  {constellationDate ??
+                    new Date(Date.now() + 9 * 60 * 60 * 1000)
+                      .toISOString()
+                      .slice(0, 10)
+                      .replaceAll('-', '.')}{' '}
+                  완성
+                </Text>
+                {constellationBonus > 0 ? (
+                  <Text style={s.constellationReward}>
+                    완성 보너스 · 별가루 +{constellationBonus}
+                  </Text>
+                ) : null}
+              </View>
+            ) : lessonDone ? (
+              <View style={s.completion}>
+                <CompletionStar />
+                <Text style={s.resultTitle}>학습을 마쳤어요</Text>
+                <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
+                {stardustReward > 0 ? (
+                  <Text style={s.rewardAmount}>별가루 +{stardustReward}</Text>
+                ) : null}
+                {constellationCompleted ? <Text style={s.hint}>별자리가 완성되었어요.</Text> : null}
+                {wallet ? <Text style={s.body}>✦ {wallet.stardust}</Text> : null}
+                {refreshNotice.startsWith('완료 처리됨') ? (
+                  <Text style={s.hint}>{refreshNotice}</Text>
+                ) : null}
+              </View>
+            ) : current?.contentType === 'TEXT' ? (
               <DialogueText
-                contentId={current.contentId}
-                body={current.body}
+                messages={dialogueStack?.messages ?? []}
+                source={dialogueStack?.source}
                 disabled={task.busy || lessonDone}
                 onPress={() => void advance()}
               />
@@ -156,16 +293,40 @@ function Study() {
               <AnimatedReveal key={current.contentId} style={s.content}>
                 <ScrollView
                   key={current.contentId}
+                  style={s.content}
                   keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={s.scrollContent}
+                  contentContainerStyle={
+                    current.contentType === 'QUIZ' ? s.quizScrollContent : s.scrollContent
+                  }
                 >
-                  {current.body ? <Text style={s.body}>{current.body}</Text> : null}
+                  {current.body && (current.contentType !== 'IMAGE' || !current.mediaUrl) ? (
+                    <Text style={current.contentType === 'QUIZ' ? s.quizBody : s.body}>
+                      {current.body}
+                    </Text>
+                  ) : null}
                   {current.contentType === 'IMAGE' && current.mediaUrl ? (
-                    <Image
-                      source={{ uri: current.mediaUrl }}
-                      style={s.media}
-                      resizeMode="contain"
-                    />
+                    <>
+                      <Text style={s.conceptTitle}>{progressLabel}</Text>
+                      <View style={s.conceptImage}>
+                        <Image
+                          source={
+                            current.mediaUrl === 'mock-study-fusion'
+                              ? require('../../../assets/study-fusion.png')
+                              : current.mediaUrl === 'mock-study-mass'
+                                ? require('../../../assets/study-mass.png')
+                                : current.mediaUrl === 'mock-study-star'
+                                  ? require('../../../assets/study-star.png')
+                                  : { uri: current.mediaUrl }
+                          }
+                          style={[
+                            s.media,
+                            current.mediaUrl.startsWith('mock-study-') && s.htmlMedia,
+                          ]}
+                          resizeMode="contain"
+                        />
+                      </View>
+                      {current.body ? <Text style={s.body}>{current.body}</Text> : null}
+                    </>
                   ) : null}
                   {current.contentType === 'VIDEO' && current.mediaUrl ? (
                     <StudyAction
@@ -174,7 +335,19 @@ function Study() {
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && current.quiz ? (
-                    useMockApi ? (
+                    useMockApi && isHtmlLessonQuiz(current.quiz) ? (
+                      <HtmlLessonQuiz
+                        key={current.contentId}
+                        quiz={current.quiz}
+                        disabled={answered.has(current.contentId)}
+                        submit={(answer) =>
+                          api.learning.answer(current.quiz!.quizId, answer, replay)
+                        }
+                        onGraded={() =>
+                          setAnswered((previous) => new Set(previous).add(current.contentId))
+                        }
+                      />
+                    ) : useMockApi ? (
                       <LessonQuizWireframe
                         key={current.contentId}
                         lessonId={lessonId}
@@ -186,6 +359,7 @@ function Study() {
                         onAnswered={() =>
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
+                        stage
                       />
                     ) : (
                       <QuizCard
@@ -198,6 +372,7 @@ function Study() {
                         onGraded={(_result: AnswerResult) =>
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
+                        stage
                       />
                     )
                   ) : null}
@@ -213,52 +388,137 @@ function Study() {
             )}
           </View>
           <View style={s.footer}>
-            {current?.contentType === 'QUIZ' && !answered.has(current.contentId) ? (
-              <Text style={s.hint}>답안을 확인한 뒤 다음으로 이동하세요.</Text>
-            ) : null}
-            {replay ? (
-              <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
-            ) : null}
-            {lessonDone ? (
-              <AnimatedReveal style={s.reward} duration={400} delay={120} offsetY={8}>
-                <CompletionStar />
-                <Text style={s.body}>
-                  {reward
-                    ? `보상 ${reward.rewards.length}건 · 별 ${reward.wallet.star} · 별가루 ${reward.wallet.stardust}`
-                    : '레슨 완료 결과를 받았습니다.'}
-                </Text>
-                {wallet ? (
-                  <Text style={s.body}>
-                    현재 잔액: 별 {wallet.star} · 별가루 {wallet.stardust}
-                  </Text>
+            {showConstellation ? (
+              <>
+                <StudyAction
+                  label="별자리 기록 보기"
+                  onPress={() => router.replace({ pathname: '/quiz', params: { view: 'record' } })}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  style={s.constellationHomeLink}
+                  onPress={leaveStudy}
+                >
+                  <Text style={s.constellationHomeText}>학습 홈으로</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                {replay ? (
+                  <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
                 ) : null}
-                {refreshNotice ? <Text style={s.hint}>{refreshNotice}</Text> : null}
-              </AnimatedReveal>
-            ) : null}
-            <View style={s.actions}>
-              <StudyAction
-                label="이전"
-                secondary
-                disabled={position === 0 || task.busy}
-                onPress={() => setPosition(position - 1)}
-              />
-              <StudyAction
-                label={lessonDone || (replay && last) ? '레슨 목록' : last ? '레슨 완료' : '다음'}
-                disabled={
-                  !current ||
-                  task.busy ||
-                  (!lessonDone &&
-                    current?.contentType === 'QUIZ' &&
-                    !answered.has(current.contentId))
-                }
-                onPress={
-                  lessonDone || (replay && last) ? () => router.back() : () => void advance()
-                }
-              />
-            </View>
+                {!lessonDone && position > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={task.busy}
+                    onPress={() => setPosition(position - 1)}
+                    style={s.previous}
+                  >
+                    <Text style={s.previousText}>이전</Text>
+                  </Pressable>
+                ) : null}
+                {current?.contentType !== 'QUIZ' ||
+                answered.has(current.contentId) ||
+                lessonDone ? (
+                  <StudyAction
+                    label={
+                      lessonDone
+                        ? !firstGuestStudy && constellationCompleted
+                          ? '완성한 별자리 보기'
+                          : '완료'
+                        : replay && last
+                          ? '레슨 목록'
+                          : last
+                            ? '레슨 완료'
+                            : '다음'
+                    }
+                    secondary={current?.contentType === 'TEXT' && !lessonDone}
+                    disabled={
+                      !current ||
+                      task.busy ||
+                      (!lessonDone &&
+                        current?.contentType === 'QUIZ' &&
+                        !answered.has(current.contentId))
+                    }
+                    onPress={
+                      lessonDone
+                        ? () =>
+                            firstGuestStudy
+                              ? finishStudyFlow()
+                              : constellationCompleted
+                                ? setShowConstellation(true)
+                                : leaveStudy()
+                        : replay && last
+                          ? leaveStudy
+                          : () => void advance()
+                    }
+                  />
+                ) : null}
+              </>
+            )}
           </View>
         </>
       ) : null}
+      <Modal
+        visible={resumeOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setResumeOpen(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalPanel}>
+            <Text style={s.modalTitle}>이어서 탐험할까요?</Text>
+            <Text style={s.modalCopy}>마지막으로 보던 부분부터 이어갈 수 있어요.</Text>
+            <View style={s.modalActions}>
+              <Pressable
+                accessibilityRole="button"
+                style={s.modalSecondary}
+                onPress={() => {
+                  setPosition(0);
+                  setResumeOpen(false);
+                }}
+              >
+                <Text style={s.modalSecondaryText}>처음부터</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                style={s.modalPrimary}
+                onPress={() => {
+                  setPosition(resumePosition);
+                  setResumeOpen(false);
+                }}
+              >
+                <Text style={s.modalPrimaryText}>이어서</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={exitOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExitOpen(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalPanel}>
+            <Text style={s.modalTitle}>잠시 탐험을 멈출까요?</Text>
+            <Text style={s.modalCopy}>여기까지의 진행은 저장돼요. 다음에 이어서 볼 수 있어요.</Text>
+            <View style={s.modalActions}>
+              <Pressable
+                accessibilityRole="button"
+                style={s.modalSecondary}
+                onPress={() => setExitOpen(false)}
+              >
+                <Text style={s.modalSecondaryText}>계속 학습하기</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" style={s.modalPrimary} onPress={leaveStudy}>
+                <Text style={s.modalPrimaryText}>나가기</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </UserScreen>
   );
 }
@@ -287,204 +547,268 @@ function StudyAction({
   );
 }
 
+type DialogueMessage = {
+  key: string;
+  speaker: '초롱이' | '별지기';
+  text: string;
+};
+
+function getDialogueContent(content: Content): { messages: DialogueMessage[]; source?: string } {
+  const raw = content.body?.trim() ?? '';
+  const sourceMatch = raw.match(/(?:^|\r?\n)\s*((?:출처\s*[·:]|Source\s*:)[^\r\n]*)\s*$/i);
+  const body = sourceMatch ? raw.slice(0, sourceMatch.index).trim() : raw;
+  const turns = [...body.matchAll(/(?:^|\r?\n)\s*(초롱이|별지기)\s*[:：]\s*/g)];
+  const messages: DialogueMessage[] =
+    turns.length && turns[0].index === 0
+      ? turns.map((turn, index) => ({
+          key: `${content.contentId}-${index}`,
+          speaker: turn[1] as DialogueMessage['speaker'],
+          text: body.slice(turn.index + turn[0].length, turns[index + 1]?.index).trim(),
+        }))
+      : body
+        ? [{ key: `${content.contentId}-0`, speaker: '별지기', text: body }]
+        : [];
+  return { messages, source: sourceMatch?.[1] };
+}
+
+function getDialogueStack(
+  contents: Content[],
+  position: number,
+  visibleCount: number,
+): { messages: DialogueMessage[]; source?: string } {
+  let first = position;
+  while (first > 0 && contents[first - 1].contentType === 'TEXT') first -= 1;
+
+  const messages: DialogueMessage[] = [];
+  let source: string | undefined;
+  for (let index = first; index <= position; index += 1) {
+    const entry = getDialogueContent(contents[index]);
+    messages.push(...(index === position ? entry.messages.slice(0, visibleCount) : entry.messages));
+    if (entry.source) source = entry.source;
+  }
+  return { messages, source };
+}
+
 function DialogueText({
-  contentId,
-  body,
+  messages,
+  source,
   disabled,
   onPress,
 }: {
-  contentId: number;
-  body: string | null;
+  messages: DialogueMessage[];
+  source?: string;
   disabled: boolean;
   onPress: () => void;
 }) {
-  const [visible, setVisible] = useState(body);
-  const [outgoing, setOutgoing] = useState<string | null>(null);
-  const previous = useRef({ contentId, body });
-  const progress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    let active = true;
-    const changed = previous.current.contentId !== contentId;
-    progress.stopAnimation();
-    progress.setValue(0);
-    setOutgoing(changed ? previous.current.body : null);
-    setVisible(body);
-    previous.current = { contentId, body };
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .catch(() => false)
-      .then((reduceMotion) => {
-        if (!active) return;
-        if (reduceMotion) {
-          progress.setValue(1);
-          setOutgoing(null);
-          return;
-        }
-        Animated.timing(progress, {
-          toValue: 1,
-          duration: 280,
-          delay: changed ? 80 : 0,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: Platform.OS !== 'web',
-        }).start(({ finished }) => {
-          if (active && finished) setOutgoing(null);
-        });
-      });
-    return () => {
-      active = false;
-      progress.stopAnimation();
-    };
-  }, [body, contentId, progress]);
-
+  const scroll = useRef<ScrollView>(null);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityHint="다음 학습 콘텐츠로 이동"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={s.explanation}
+    <ScrollView
+      ref={scroll}
+      style={s.content}
+      contentContainerStyle={s.explanationScroll}
+      onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
     >
-      {outgoing !== null ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            s.dialogueOverlay,
-            {
-              opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-              transform: [
-                { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -8] }) },
-              ],
-            },
-          ]}
-        >
-          <Text style={s.explanationText}>{outgoing}</Text>
-        </Animated.View>
-      ) : null}
-      <Animated.View
-        style={{
-          opacity: progress,
-          transform: [
-            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
-          ],
-        }}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityHint="다음 학습 콘텐츠로 이동"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={onPress}
+        style={s.explanation}
       >
-        <Text style={s.explanationText}>{visible}</Text>
-      </Animated.View>
-    </Pressable>
+        <View style={s.dialogue}>
+          {messages.map((message) => (
+            <AnimatedReveal
+              key={message.key}
+              duration={280}
+              offsetY={8}
+              style={[s.bubble, message.speaker === '초롱이' && s.catBubble]}
+            >
+              <Text style={s.bubbleLabel}>{message.speaker}</Text>
+              <Text style={s.explanationText}>{message.text}</Text>
+            </AnimatedReveal>
+          ))}
+        </View>
+        {source ? <Text style={s.source}>{source}</Text> : null}
+      </Pressable>
+    </ScrollView>
   );
 }
 
 function CompletionStar() {
   const progress = useRef(new Animated.Value(0)).current;
+  const started = useRef(false);
   useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .catch(() => false)
-      .then((reduceMotion) => {
-        if (!active || reduceMotion) return;
-        Animated.sequence([
-          Animated.delay(300),
-          Animated.timing(progress, {
-            toValue: 1,
-            duration: 500,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: Platform.OS !== 'web',
-          }),
-          Animated.timing(progress, {
-            toValue: 2,
-            duration: 700,
-            easing: Easing.inOut(Easing.cubic),
-            useNativeDriver: Platform.OS !== 'web',
-          }),
-        ]).start();
-      });
-    return () => {
-      active = false;
-      progress.stopAnimation();
-    };
+    return () => progress.stopAnimation();
   }, [progress]);
-  const opacity = progress.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 1, 0] });
+  const reveal = () => {
+    if (started.current) return;
+    started.current = true;
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 700,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  };
   return (
-    <Animated.View pointerEvents="none" style={s.starOverlay}>
-      <Animated.View
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        opacity: progress,
+        transform: [
+          { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
+          { rotate: progress.interpolate({ inputRange: [0, 1], outputRange: ['-10deg', '0deg'] }) },
+        ],
+      }}
+    >
+      <Image
+        source={require('../../../assets/study-result-star.png')}
+        onLoad={reveal}
         style={[
-          s.starGlow,
-          {
-            opacity: progress.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0.12, 0] }),
-            transform: [
-              {
-                scale: progress.interpolate({ inputRange: [0, 1, 2], outputRange: [0.5, 1.6, 2] }),
-              },
-            ],
-          },
+          s.resultStar,
+          Platform.OS === 'web' ? ({ imageRendering: 'pixelated' } as unknown as ImageStyle) : null,
         ]}
+        resizeMode="contain"
       />
-      <Animated.View
-        style={{
-          opacity,
-          transform: [
-            { scale: progress.interpolate({ inputRange: [0, 1, 2], outputRange: [0.7, 1.2, 1] }) },
-          ],
-        }}
-      >
-        <Ionicons name="star" size={24} color="#273a52" />
-      </Animated.View>
     </Animated.View>
   );
 }
 
 const s = StyleSheet.create({
-  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2 },
-  backText: { color: '#273a52', fontSize: 12 },
-  progress: { color: '#7b8795', fontSize: 12 },
-  content: { flex: 1, minHeight: 0 },
-  explanation: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
-  dialogueOverlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingTop: 8 },
+  progressWrap: { flex: 1, gap: 9, paddingTop: 10 },
+  segments: { flexDirection: 'row', gap: 4, height: 4 },
+  segment: { flex: 1, borderRadius: 4, backgroundColor: '#eeecf1' },
+  segmentOn: { backgroundColor: '#494050' },
+  back: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38 },
+  progress: { color: '#888591', fontSize: 12 },
+  resultTitle: { color: '#282636', fontSize: 21, fontWeight: '700', textAlign: 'center' },
+  resultSubtitle: { color: '#888591', fontSize: 14, textAlign: 'center' },
+  rewardAmount: {
+    color: '#aa8746',
+    backgroundColor: '#faf6ec',
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    fontWeight: '700',
+  },
+  completion: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 17 },
+  constellationCompletion: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 6,
   },
-  explanationText: { color: '#273a52', fontSize: 17, lineHeight: 28, textAlign: 'center' },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', gap: 14, paddingVertical: 12 },
-  body: { color: '#273a52', fontSize: 14, lineHeight: 21 },
-  media: { height: 260, width: '100%' },
-  footer: { gap: 8, paddingBottom: 8 },
+  constellationLabel: { color: '#a49caf', fontSize: 12, letterSpacing: 1 },
+  constellationPicture: { width: '100%', marginTop: 25 },
+  constellationTitle: { color: '#282636', fontSize: 25, fontWeight: '700', marginTop: 18 },
+  constellationSubtitle: { color: '#888591', fontSize: 14, marginTop: 17, textAlign: 'center' },
+  constellationDate: { color: '#888591', fontSize: 12, marginTop: 24 },
+  constellationReward: {
+    color: '#aa8746',
+    backgroundColor: '#faf6ec',
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    marginTop: 27,
+    fontSize: 13,
+  },
+  constellationHomeLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
+  constellationHomeText: { color: '#817790', fontSize: 13 },
+  content: { flex: 1, minHeight: 0 },
+  explanationScroll: { flexGrow: 1 },
+  explanation: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 22 },
+  dialogue: { gap: 24 },
+  bubble: { borderRadius: 20, backgroundColor: '#f4f1f8', padding: 20 },
+  catBubble: { backgroundColor: '#fbf7ed', marginLeft: 38 },
+  bubbleLabel: { color: '#9c8ca9', fontSize: 12, marginBottom: 7 },
+  explanationText: { color: '#282636', fontSize: 17, lineHeight: 32 },
+  source: { color: '#b0a7b9', fontSize: 11, lineHeight: 19, marginTop: 15 },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    gap: 23,
+    paddingVertical: 22,
+    paddingHorizontal: 7,
+  },
+  quizScrollContent: {
+    flexGrow: 1,
+    gap: 15,
+    paddingTop: 30,
+    paddingBottom: 16,
+    paddingHorizontal: 7,
+  },
+  body: { color: '#282636', fontSize: 17, lineHeight: 32 },
+  conceptTitle: {
+    color: '#756387',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  conceptImage: {
+    borderWidth: 1,
+    borderColor: '#e9e4ee',
+    borderRadius: 19,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  media: { height: 220, width: '100%' },
+  htmlMedia: { height: 267 },
+  footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
+  previous: { alignSelf: 'center', minHeight: 28, paddingHorizontal: 12, justifyContent: 'center' },
+  previousText: { color: '#8e8498', fontSize: 12 },
   hint: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
-  actions: { flexDirection: 'row', gap: 8 },
   action: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 5,
-    backgroundColor: '#273a52',
+    width: '100%',
+    minHeight: 52,
+    borderRadius: 13,
+    backgroundColor: '#373044',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
   actionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
-  secondaryText: { color: '#273a52' },
+  secondary: { backgroundColor: '#f3f1f6' },
+  secondaryText: { color: '#655b76' },
   disabled: { opacity: 0.45 },
-  reward: { padding: 12, borderRadius: 6, backgroundColor: '#eef2f5', gap: 4 },
-  starOverlay: {
-    position: 'absolute',
-    top: 0,
-    right: 16,
-    bottom: 0,
-    width: 24,
+  resultStar: { width: 125, height: 125 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: '#34273c63',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalPanel: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#fff',
+    borderRadius: 23,
+    padding: 25,
+    gap: 12,
+  },
+  modalTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
+  modalCopy: { color: '#807188', fontSize: 13, lineHeight: 22 },
+  modalActions: { flexDirection: 'row', gap: 9, marginTop: 12 },
+  modalPrimary: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 13,
+    backgroundColor: '#373044',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  starGlow: {
-    position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#273a52',
+  modalPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  modalSecondary: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 13,
+    backgroundColor: '#f3f1f6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  modalSecondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
 });

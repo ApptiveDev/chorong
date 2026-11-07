@@ -12,7 +12,12 @@ type MockState = {
   placements: typeof room.placements;
   inventory: typeof inventory;
   completed: Set<number>;
+  startedLessons: Set<number>;
   rewardedLessons: Set<number>;
+  completedConstellations: Map<number, string>;
+  studyAnswers: Map<number, boolean>;
+  reviewedToday: Map<number, string>;
+  activeReview: Map<number, number>;
   blockedUsers: { userId: number; nickname: string; blockedAt: string }[];
 };
 const state: MockState = {
@@ -22,7 +27,12 @@ const state: MockState = {
   placements: [...room.placements],
   inventory: [...inventory],
   completed: new Set(),
+  startedLessons: new Set(),
   rewardedLessons: new Set(),
+  completedConstellations: new Map(),
+  studyAnswers: new Map(),
+  reviewedToday: new Map(),
+  activeReview: new Map(),
   blockedUsers: [{ userId: 5, nickname: '별이', blockedAt: '2026-10-30T00:00:00Z' }],
 };
 const scenario = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
@@ -36,10 +46,31 @@ const id = (options: { path?: Record<string, string | number> }, key: string) =>
   Number(options.path?.[key]);
 const lesson = (lessonId: number) => lessons.find((item) => item.lessonId === lessonId);
 const card = (housingId: number) => socialCards.find((item) => item.housingId === housingId);
-const completion = () => ({
-  rewards: [{ type: 'WALLET' as const, currency: 'STAR' as const, amount: 5 }],
+const courseDone = (courseId: number) =>
+  courses
+    .find((item) => item.courseId === courseId)
+    ?.lessons.every(
+      (item) => item.status === 'COMPLETED' || state.rewardedLessons.has(item.lessonId),
+    ) ?? false;
+const completion = (courseId?: number, newBadge = false) => ({
+  rewards: [
+    { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 },
+    ...(newBadge
+      ? [
+          { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 },
+          {
+            type: 'CONSTELLATION' as const,
+            badge: {
+              type: 'CONSTELLATION',
+              constellationId: courses.find((item) => item.courseId === courseId)?.constellation
+                ?.constellationId,
+            },
+          },
+        ]
+      : []),
+  ],
   wallet: state.wallet,
-  courseCompleted: false,
+  courseCompleted: courseId ? courseDone(courseId) : false,
 });
 const auth = () => ({
   accessToken: 'mock-access',
@@ -52,6 +83,41 @@ const body = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+const firstLessonQuiz = (quizId: number) =>
+  lessons[0].contents.find((content) => content.quiz?.quizId === quizId)?.quiz;
+const scoreFirstLessonAnswer = (quizId: number, raw: unknown) => {
+  const selected = firstLessonQuiz(quizId);
+  if (!selected) return null;
+  const expected = selected.options?.answer as number[];
+  const kind = selected.options?.mockHtmlType;
+  const answer = body(raw);
+  const order = answer.order;
+  const correct =
+    kind === 'range'
+      ? Array.isArray(answer.texts) &&
+        Math.abs(Number(answer.texts[0]) - Math.log10(expected[0])) <= 0.3
+      : kind === 'match'
+        ? Array.isArray(order) && expected.every((value, index) => order[index] === value)
+        : kind === 'multi'
+          ? Array.isArray(answer.texts) &&
+            JSON.stringify(answer.texts.map(Number).sort()) === JSON.stringify([...expected].sort())
+          : kind === 'ox'
+            ? answer.value === (expected[0] === 0)
+            : answer.index === expected[0];
+  const explanations: Record<number, string> = {
+    11001: '태양에서는 불이 타는 대신, 원자핵이 합쳐지는 핵융합이 일어나요.',
+    11002: '합쳐질 수소가 있어야 빛나요. 불이 아니라서 산소나 불씨는 필요 없어요.',
+    11003: '헬륨은 합쳐지기 전보다 약 0.7% 가벼워요. 줄어든 질량이 빛과 열이 돼요.',
+    11004:
+      '태양은 1초마다 약 400만 톤의 질량을 에너지로 바꿔요. 아주 작은 변화가 쉬지 않고 일어나요.',
+    11005: '빛이 된 만큼 질량이 줄어요. 그래도 태양은 워낙 커서 앞으로 50억 년쯤 더 빛나요.',
+    11006: '태양과 밤하늘의 별은 핵융합으로 빛나요. 모닥불과 촛불은 산소와 반응하며 타는 불이에요.',
+    11007:
+      '수소가 헬륨으로 합쳐질 때 줄어든 질량이 빛과 열이 돼요. 태양은 1초마다 약 400만 톤을 에너지로 바꾸죠.',
+    11008: '태양 속에서는 아무것도 타지 않아요. 원자핵이 합쳐지며 줄어든 질량이 빛과 열이 돼요.',
+  };
+  return { correct, expected, explanation: explanations[quizId] };
+};
 
 export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
   if (
@@ -131,21 +197,41 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
               )
               .map(({ lessons, description, ...summary }) => summary),
       });
-    case 'API-402':
-      return response(
-        courses.find((item) => item.courseId === id(options, 'courseId')) ?? courses[0],
-      );
+    case 'API-402': {
+      const selected =
+        courses.find((item) => item.courseId === id(options, 'courseId')) ?? courses[0];
+      return response({
+        ...selected,
+        lessons: selected.lessons.map((item) => ({
+          ...item,
+          status: state.startedLessons.has(item.lessonId)
+            ? lesson(item.lessonId)?.contents.every((content) =>
+                state.completed.has(content.contentId),
+              )
+              ? 'COMPLETED'
+              : 'IN_PROGRESS'
+            : item.status,
+        })),
+      });
+    }
     case 'API-403':
       return response(lesson(id(options, 'lessonId')) ?? lessons[0]);
     case 'API-404': {
       const selected = lesson(id(options, 'lessonId')) ?? lessons[0];
+      state.startedLessons.add(selected.lessonId);
+      const completedContents = selected.contents.filter((content) =>
+        state.completed.has(content.contentId),
+      );
+      const lastContentId = completedContents.at(-1)?.contentId ?? null;
       return response({
         reviewRequired: false,
         review: null,
         progress: {
           status: 'IN_PROGRESS',
-          lastContentId: null,
-          resumeContentId: selected.contents[0]?.contentId ?? null,
+          lastContentId,
+          resumeContentId:
+            selected.contents.find((content) => !state.completed.has(content.contentId))
+              ?.contentId ?? null,
         },
         contents: empty ? [] : selected.contents,
       });
@@ -158,9 +244,18 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       );
       const done =
         !!selected && selected.contents.every((content) => state.completed.has(content.contentId));
+      let newBadge = false;
       if (done && selected && !state.rewardedLessons.has(selected.lessonId)) {
         state.rewardedLessons.add(selected.lessonId);
-        state.wallet = { ...state.wallet, star: state.wallet.star + 5 };
+        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+        if (
+          courseDone(selected.courseId) &&
+          !state.completedConstellations.has(selected.courseId)
+        ) {
+          state.completedConstellations.set(selected.courseId, new Date().toISOString());
+          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 10 };
+          newBadge = true;
+        }
       }
       return response({
         progress: {
@@ -172,19 +267,31 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                 ?.contentId ?? null),
         },
         lessonCompleted: done,
-        completion: done ? completion() : null,
+        completion: done ? completion(selected?.courseId, newBadge) : null,
       });
     }
     case 'API-406':
-    case 'API-502':
+    case 'API-502': {
+      const quizId =
+        apiId === 'API-406'
+          ? id(options, 'quizId')
+          : state.activeReview.get(id(options, 'reviewItemId'));
+      const scored = quizId ? scoreFirstLessonAnswer(quizId, input.answer) : null;
+      if (scored && quizId) {
+        if (apiId === 'API-406' && input.replay !== true)
+          state.studyAnswers.set(quizId, scored.correct);
+        if (apiId === 'API-502' && scored.correct)
+          state.reviewedToday.set(quizId, new Date().toISOString().slice(0, 10));
+      }
       return response({
         attemptId: 1,
-        isCorrect: true,
-        correctAnswer: { index: 0 },
-        explanation: '내용을 잘 이해했어요.',
+        isCorrect: scored?.correct ?? true,
+        correctAnswer: scored ? { answer: scored.expected } : { index: 0 },
+        explanation: scored?.explanation ?? '내용을 잘 이해했어요.',
         streakDays: 2,
         ...(apiId === 'API-502' ? { excludedUntil: null } : {}),
       });
+    }
     case 'API-407':
       return response(completion());
     case 'API-408':
@@ -194,14 +301,65 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           completedLessons: item.completedLessons,
           totalLessons: item.totalLessons,
         })),
-        current: { lessonId: 12, courseId: 1, status: 'UNLOCKED' },
+        current: state.startedLessons.size
+          ? {
+              lessonId: [...state.startedLessons].at(-1)!,
+              courseId: lesson([...state.startedLessons].at(-1)!)?.courseId ?? 1,
+              status: 'IN_PROGRESS',
+            }
+          : { lessonId: 12, courseId: 1, status: 'UNLOCKED' },
       });
-    case 'API-501':
+    case 'API-501': {
+      if (empty)
+        return response({
+          reviewItems: [],
+          message: '복습할 문제가 없습니다.',
+          rewardEligible: false,
+        });
+      const requestedLessonId = Number(body(options.query).lessonId);
+      if (requestedLessonId > 0 && requestedLessonId !== 11)
+        return response({
+          reviewItems: [
+            {
+              reviewItemId: 1,
+              quiz: (lesson(requestedLessonId) ?? lessons[1]).contents.at(-1)!.quiz,
+            },
+          ],
+          message: null,
+          rewardEligible: true,
+        });
+      if (state.rewardedLessons.has(11) && state.studyAnswers.size) {
+        const today = new Date().toISOString().slice(0, 10);
+        const available = [...state.studyAnswers].filter(
+          ([quizId]) => state.reviewedToday.get(quizId) !== today,
+        );
+        const wrong = available.filter(([, correct]) => !correct).map(([quizId]) => quizId);
+        const right = available.filter(([, correct]) => correct).map(([quizId]) => quizId);
+        const shuffle = (values: number[]) => [...values].sort(() => Math.random() - 0.5);
+        const selected =
+          wrong.length >= 4 && right.length >= 1
+            ? shuffle([...shuffle(wrong).slice(0, 4), ...shuffle(right).slice(0, 1)])
+            : [];
+        state.activeReview = new Map(selected.map((quizId, index) => [index + 1, quizId]));
+        return response({
+          reviewItems: selected.map((quizId, index) => ({
+            reviewItemId: index + 1,
+            quiz: firstLessonQuiz(quizId),
+          })),
+          message: selected.length
+            ? null
+            : available.length < 5
+              ? '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.'
+              : '복습을 구성할 문제가 부족해요. 이번 체험판은 틀린 문제 4개와 맞힌 문제 1개로 구성해요.',
+          rewardEligible: selected.length > 0,
+        });
+      }
       return response({
-        reviewItems: empty ? [] : [{ reviewItemId: 1, quiz: lessons[0].contents.at(-1)!.quiz }],
-        message: empty ? '복습할 문제가 없습니다.' : null,
-        rewardEligible: !empty,
+        reviewItems: [],
+        message: '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.',
+        rewardEligible: false,
       });
+    }
     case 'API-503':
       return response({
         rewards: [{ type: 'WALLET', currency: 'STARDUST', amount: 3 }],
@@ -271,16 +429,41 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       );
     case 'API-802': {
       const selected = card(id(options, 'housingId')) ?? socialCards[0];
-      const socialPlacements = room.placements.map((item, index) => ({
-        ...item,
-        placementId: selected.housingId * 10 + index,
-        inventoryId: `social-${selected.housingId}-${item.itemId}`,
-        transform: {
-          ...item.transform,
-          x: selected.housingId === 2 ? 0.35 : selected.housingId === 3 ? 0.65 : 0.5,
-          y: selected.housingId === 4 ? 0.38 : 0.63,
-        },
-      }));
+      const layout =
+        selected.housingId === 2
+          ? [
+              [105, 2, 0.48, 0.78],
+              [108, 2, 0.26, 0.62],
+              [107, 0, 0.73, 0.49],
+              [104, 1, 0.8, 0.76],
+              [106, 3, 0.52, 0.53],
+            ]
+          : selected.housingId === 3
+            ? [
+                [105, 1, 0.45, 0.76],
+                [101, 1, 0.33, 0.66],
+                [102, 0, 0.52, 0.57],
+                [104, 1, 0.78, 0.57],
+                [104, 3, 0.22, 0.81],
+              ]
+            : [
+                [105, 0, 0.48, 0.77],
+                [101, 4, 0.32, 0.66],
+                [106, 0, 0.7, 0.55],
+              ];
+      const socialPlacements = layout.map(([itemId, colorIndex, x, y], index) => {
+        const item = shopItems.find((candidate) => candidate.itemId === itemId)!;
+        const option = item.options[colorIndex];
+        return {
+          placementId: selected.housingId * 10 + index,
+          inventoryId: `social-${selected.housingId}-${index}`,
+          area: 'INTERIOR' as const,
+          transform: { x, y, rotation: 0, layer: index },
+          itemId,
+          optionId: option.optionId,
+          option: option.option,
+        };
+      });
       return response({
         housing: {
           housingId: selected.housingId,
@@ -367,7 +550,14 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         {
           rewards: empty
             ? []
-            : [{ type: 'WALLET', source: { lessonId: 11 }, grantedAt: '2026-11-01T09:00:00Z' }],
+            : [
+                ...[...state.completedConstellations].map(([courseId, grantedAt]) => ({
+                  type: 'CONSTELLATION',
+                  source: { courseId },
+                  grantedAt,
+                })),
+                { type: 'WALLET', source: { lessonId: 11 }, grantedAt: '2026-11-01T09:00:00Z' },
+              ],
         },
         true,
       );
@@ -380,8 +570,12 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
               courseId: course.courseId,
               name: course.constellation!.name,
               starCount: course.totalLessons,
-              earnedStars: course.completedLessons,
-              badgeEarned: false,
+              earnedStars:
+                course.completedLessons +
+                course.lessons.filter(
+                  (item) => item.status !== 'COMPLETED' && state.rewardedLessons.has(item.lessonId),
+                ).length,
+              badgeEarned: state.completedConstellations.has(course.courseId),
               imageUrl: null,
             })),
       });

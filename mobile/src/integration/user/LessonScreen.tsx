@@ -104,7 +104,11 @@ export default function LessonScreen() {
             onPress={() =>
               router.push({
                 pathname: '/learn/study/[lessonId]',
-                params: { lessonId: String(lesson.lessonId), title: lesson.title },
+                params: {
+                  lessonId: String(lesson.lessonId),
+                  title: lesson.title,
+                  resume: currentStatus === 'IN_PROGRESS' ? 'true' : 'false',
+                },
               })
             }
           >

@@ -166,17 +166,17 @@ export const courses: CourseDetail[] = [
     title: '작은곰자리',
     category: '교양',
     totalLessons: 4,
-    completedLessons: 1,
-    constellation: { constellationId: 1, name: '작은곰자리' },
+    completedLessons: 0,
+    constellation: { constellationId: 1, name: '빛을 찾아서' },
     description: '우주, 경제, 예술에서 시작하는 네 가지 이야기',
     lessons: [
       {
         lessonId: 11,
-        title: '별빛의 여행',
+        title: '별은 왜 빛날까',
         order: 1,
-        status: 'COMPLETED',
+        status: 'UNLOCKED',
         unlocksAt: null,
-        completedAt: '2026-11-01T09:00:00Z',
+        completedAt: null,
       },
       {
         lessonId: 12,
@@ -296,18 +296,160 @@ const topicPages = (lessonId: number, cards: string[], quizQuestion: string): Co
     quiz: quiz(lessonId * 10 + 1, quizQuestion),
   },
 ];
+const firstLessonSource = '출처 · OpenStax Astronomy 2e 16.1 · 16.2 · NASA Sun Facts';
+const firstLessonQuestions = [
+  {
+    kind: 'ox',
+    label: '질문',
+    question: '태양은 거대한 불덩어리다.',
+    choices: ['O', 'X'],
+    answer: [1],
+    explanation: '태양에서는 불이 타는 대신, 원자핵이 합쳐지는 핵융합이 일어나요.',
+  },
+  {
+    kind: 'blank',
+    label: '핵융합',
+    question: '태양이 계속 빛나려면\n무엇이 있어야 할까요?',
+    choices: ['산소가', '수소가', '불씨가'],
+    answer: [1],
+    explanation: '합쳐질 수소가 있어야 빛나요. 불이 아니라서 산소나 불씨는 필요 없어요.',
+  },
+  {
+    kind: 'single',
+    label: '줄어든 질량',
+    question: '수소 넷이 헬륨 하나가 되면,\n무게는?',
+    choices: ['더 무거워져', '똑같아', '조금 가벼워져'],
+    answer: [2],
+    explanation: '헬륨은 합쳐지기 전보다 약 0.7% 가벼워요. 줄어든 질량이 빛과 열이 돼요.',
+  },
+  {
+    kind: 'range',
+    label: '줄어든 질량',
+    question: '태양이 1초에 빛으로 바꾸는\n질량은 어느 정도일까요?',
+    choices: [],
+    answer: [4000000],
+    explanation:
+      '태양은 1초마다 약 400만 톤의 질량을 에너지로 바꿔요. 아주 작은 변화가 쉬지 않고 일어나요.',
+  },
+  {
+    kind: 'ox',
+    label: '줄어든 질량',
+    question: '태양은 빛을 낼수록\n조금씩 가벼워진다.',
+    choices: ['O', 'X'],
+    answer: [0],
+    explanation: '빛이 된 만큼 질량이 줄어요. 그래도 태양은 워낙 커서 앞으로 50억 년쯤 더 빛나요.',
+  },
+  {
+    kind: 'multi',
+    label: '다른 별',
+    question: '핵융합으로 빛나는 걸\n모두 고르세요.',
+    choices: ['태양', '밤하늘의 별', '모닥불', '촛불'],
+    answer: [0, 1],
+    explanation:
+      '태양과 밤하늘의 별은 핵융합으로 빛나요. 모닥불과 촛불은 산소와 반응하며 타는 불이에요.',
+  },
+  {
+    kind: 'match',
+    label: '정리',
+    question: '서로 이어지는 이야기를\n짝지어 주세요.',
+    choices: [],
+    left: ['줄어든 질량', '수소 원자핵 넷', '모닥불', '1초마다'],
+    right: ['약 400만 톤', '빛과 열', '산소로 탐', '헬륨 하나'],
+    answer: [1, 3, 2, 0],
+    explanation:
+      '수소가 헬륨으로 합쳐질 때 줄어든 질량이 빛과 열이 돼요. 태양은 1초마다 약 400만 톤을 에너지로 바꾸죠.',
+  },
+  {
+    kind: 'single',
+    label: '정리',
+    question: '친구가 “태양은 거대한\n불덩어리야”래요.\n뭐라고 해줄까요?',
+    choices: [
+      '맞아, 엄청 큰 불이야',
+      '아니, 원자핵이 합쳐져',
+      '아니, 뜨거운 돌이야',
+      '아니, 산소가 타는 거야',
+    ],
+    answer: [1],
+    explanation:
+      '태양 속에서는 아무것도 타지 않아요. 원자핵이 합쳐지며 줄어든 질량이 빛과 열이 돼요.',
+  },
+] as const;
+const firstLessonSteps = [
+  { quiz: 0 },
+  {
+    label: '핵융합',
+    body: `별지기: 태양이 불이었다면 몇천 년 만에 다 탔을 거예요. 그런데 벌써 46억 년째 빛나고 있어요.\n초롱이: 그럼 불이 아니라는 거냥?\n${firstLessonSource}`,
+  },
+  {
+    label: '핵융합',
+    image: 'fusion',
+    body: '태양 한가운데서는 수소 원자핵 넷이 부딪쳐 헬륨 하나로 합쳐져요. 이게 핵융합이에요.',
+  },
+  { quiz: 1 },
+  { quiz: 2 },
+  {
+    label: '줄어든 질량',
+    image: 'mass',
+    body: '헬륨은 합쳐지기 전 수소 넷보다 약 0.7% 가벼워요. 사라진 것처럼 보이는 질량은 빛과 열이 돼요.',
+  },
+  {
+    label: '줄어든 질량',
+    body: `초롱이: 겨우 그만큼으로 저렇게 밝다냥?\n별지기: 한 번은 아주 작아요. 대신 태양 속에서는 이 일이 쉬지 않고 일어나요.\n${firstLessonSource}`,
+  },
+  { quiz: 3 },
+  {
+    label: '줄어든 질량',
+    body: `별지기: 태양은 1초에 약 400만 톤을 빛과 열로 바꿔요.\n초롱이: 매초 그렇게나 많이? 태양은 엄청 큰 별이구나냥!\n${firstLessonSource}`,
+  },
+  { quiz: 4 },
+  {
+    label: '다른 별',
+    image: 'star',
+    body: '밤하늘의 별들도 태양처럼 중심에서 핵융합을 하며 빛나요. 태양도 별이에요.',
+  },
+  { quiz: 5 },
+  { quiz: 6 },
+  { quiz: 7 },
+] as const;
+export const firstLessonContents: Content[] = firstLessonSteps.map((step, index) => {
+  const question = 'quiz' in step ? firstLessonQuestions[step.quiz] : null;
+  return {
+    contentId: 1101 + index,
+    order: index + 1,
+    contentType: question ? 'QUIZ' : 'image' in step ? 'IMAGE' : 'TEXT',
+    body: 'body' in step ? step.body : null,
+    mediaUrl: question ? null : 'image' in step ? `mock-study-${step.image}` : null,
+    quiz: question
+      ? {
+          quizId: 11001 + ('quiz' in step ? step.quiz : 0),
+          type:
+            question.kind === 'ox'
+              ? 'OX'
+              : question.kind === 'match'
+                ? 'ORDERING'
+                : question.kind === 'blank' || question.kind === 'range'
+                  ? 'FILL_BLANK'
+                  : 'MULTIPLE_CHOICE',
+          question: question.question,
+          options: {
+            mockHtmlType: question.kind,
+            label: question.label,
+            choices: question.choices.map((label, choiceIndex) => ({ index: choiceIndex, label })),
+            answer: [...question.answer],
+            ...('left' in question ? { left: question.left, right: question.right } : {}),
+          },
+          hint: null,
+        }
+      : null,
+  };
+});
 export const lessons: Lesson[] = [
   {
     lessonId: 11,
     courseId: 1,
-    title: '별빛의 여행',
-    description: '별빛이 우리 눈에 도착하는 과정을 살펴봅니다.',
-    contents: pages(11, [
-      '별은 스스로 빛을 냅니다.',
-      '빛은 우주 공간을 지나 지구에 도착합니다.',
-      '멀리 있는 별빛은 오래전에 출발했습니다.',
-      '별빛은 지구까지 여행합니다.',
-    ]),
+    title: '별은 왜 빛날까',
+    description: '태양과 별이 빛나는 원리를 알아봅니다.',
+    contents: firstLessonContents,
   },
   {
     lessonId: 12,
@@ -368,7 +510,7 @@ export const me: Me = {
   nickname: '초롱이',
   status: 'ACTIVE',
   providers: ['EMAIL'],
-  wallet: { star: 120, stardust: 35 },
+  wallet: { star: 120, stardust: 180 },
   progress: { completedLessons: 1, totalLessons: 15 },
   housing: { isPublic: true, likeCount: 4 },
   onboardingCompleted: true,
@@ -377,43 +519,33 @@ export const me: Me = {
   lastStudyDate: '2026-11-01',
 };
 
+const furnitureColors = ['크림', '세이지', '라벤더', '로즈', '블루'];
+const furnitureCatalog = [
+  { itemId: 101, name: '의자', kind: 'chair', price: 30 },
+  { itemId: 102, name: '책상', kind: 'desk', price: 40 },
+  { itemId: 104, name: '화분', kind: 'plant', price: 20 },
+  { itemId: 105, name: '러그', kind: 'rug', price: 20 },
+  { itemId: 106, name: '조명', kind: 'lamp', price: 30 },
+  { itemId: 107, name: '책장', kind: 'shelf', price: 50 },
+  { itemId: 108, name: '침대', kind: 'bed', price: 40 },
+];
 export const shopItems: ShopItem[] = [
-  {
-    itemId: 101,
-    name: '별빛 의자',
-    itemType: 'FURNITURE',
+  ...furnitureCatalog.map(({ itemId, name, kind, price }) => ({
+    itemId,
+    name,
+    itemType: 'FURNITURE' as const,
     unlocked: true,
     unlockHint: null,
-    minPrice: { currency: 'STAR', amount: 30 },
-    options: [
-      {
-        optionId: 1001,
-        option: { color: '파랑' },
-        currency: 'STAR',
-        price: 30,
-        previewAsset: 'chair-blue',
-        owned: true,
-      },
-    ],
-  },
-  {
-    itemId: 102,
-    name: '달빛 탁자',
-    itemType: 'FURNITURE',
-    unlocked: true,
-    unlockHint: null,
-    minPrice: { currency: 'STAR', amount: 50 },
-    options: [
-      {
-        optionId: 1002,
-        option: { color: '흰색' },
-        currency: 'STAR',
-        price: 50,
-        previewAsset: 'table-white',
-        owned: false,
-      },
-    ],
-  },
+    minPrice: { currency: 'STARDUST' as const, amount: price },
+    options: furnitureColors.map((color, index) => ({
+      optionId: itemId * 10 + index + 1,
+      option: { color },
+      currency: 'STARDUST' as const,
+      price,
+      previewAsset: `${kind}-${color}`,
+      owned: itemId === 101 && index === 4,
+    })),
+  })),
   {
     itemId: 103,
     name: '작은 별',
@@ -437,7 +569,7 @@ export const inventory: InventoryItem[] = [
   {
     inventoryId: 'inv-101',
     itemId: 101,
-    optionId: 1001,
+    optionId: 1015,
     itemType: 'FURNITURE',
     name: '별빛 의자',
     option: { color: '파랑' },
@@ -466,7 +598,7 @@ export const room: HousingDetail = {
       area: 'INTERIOR',
       transform: { x: 0.4, y: 0.65, rotation: 0, layer: 1 },
       itemId: 101,
-      optionId: 1001,
+      optionId: 1015,
       option: { color: '파랑' },
     },
   ],
@@ -475,17 +607,17 @@ export const room: HousingDetail = {
 export const socialCards: HousingCard[] = [
   {
     housingId: 2,
-    ownerNickname: '하늘',
-    name: '하늘의 별방',
-    likeCount: 8,
+    ownerNickname: '별지기',
+    name: '궤도의 작은 방',
+    likeCount: 12,
     likedByMe: false,
     preview: [],
   },
   {
     housingId: 3,
-    ownerNickname: '달이',
-    name: '달이의 우주',
-    likeCount: 5,
+    ownerNickname: '달빛',
+    name: '달빛 정원',
+    likeCount: 27,
     likedByMe: false,
     preview: [],
   },

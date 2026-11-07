@@ -9,16 +9,18 @@ export function UserScreen({
   children,
   member = false,
   scroll = true,
+  showTitle = true,
 }: {
   title: string;
   children: ReactNode;
   member?: boolean;
   scroll?: boolean;
+  showTitle?: boolean;
 }) {
   const session = useIntegration();
   const content = (
     <>
-      <Text style={styles.title}>{title}</Text>
+      {showTitle ? <Text style={styles.title}>{title}</Text> : null}
       {session.notice ? <Text style={styles.error}>{session.notice}</Text> : null}
       {!session.ready ? (
         <ActivityIndicator accessibilityLabel="계정 확인 중" />

@@ -15,6 +15,7 @@ export function QuizRenderer({
   disabled,
   checkPairs,
   onComplete,
+  graded,
 }: {
   quiz: Quiz;
   response: QuizResponse;
@@ -22,6 +23,7 @@ export function QuizRenderer({
   disabled: boolean;
   checkPairs: (response: FlipCardUserResponse) => Promise<QuizPreviewResult>;
   onComplete: (result: QuizPreviewResult) => void;
+  graded?: boolean;
 }) {
   switch (quiz.interactionType) {
     case 'MULTIPLE_CHOICE':
@@ -32,6 +34,8 @@ export function QuizRenderer({
           selected={'selectedOptionIds' in response ? response.selectedOptionIds : []}
           onChange={(selectedOptionIds) => onChange({ selectedOptionIds })}
           disabled={disabled}
+          wireframe
+          graded={graded}
         />
       );
     case 'TAP':

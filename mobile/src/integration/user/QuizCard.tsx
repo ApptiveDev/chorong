@@ -6,11 +6,12 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useTask } from '../hooks';
-import { Field, styles } from '../ui';
+import { styles } from '../ui';
 import { UserStatus } from './Screen';
 import { AnimatedReveal } from './AnimatedReveal';
 
@@ -33,11 +34,13 @@ export function QuizCard({
   submit,
   onGraded,
   disabled = false,
+  stage = false,
 }: {
   quiz: Quiz;
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
   onGraded: (result: AnswerResult) => void;
   disabled?: boolean;
+  stage?: boolean;
 }) {
   const task = useTask();
   const [selected, setSelected] = useState<number | null>(null),
@@ -45,6 +48,8 @@ export function QuizCard({
   const [ox, setOx] = useState<'O' | 'X' | ''>(''),
     [ordered, setOrdered] = useState<number[]>([]);
   const choices = choicesFromServer(quiz.options?.choices);
+  const isWireframeQuiz =
+    quiz.type === 'MULTIPLE_CHOICE' || quiz.type === 'OX' || quiz.type === 'FILL_BLANK';
   const items = choicesFromServer(quiz.options?.items);
   const order = ordered.length ? ordered : (items?.map((x) => x.index) ?? []);
   const move = (from: number, by: number) => {
@@ -74,8 +79,8 @@ export function QuizCard({
     (quiz.type === 'MULTIPLE_CHOICE' && !choices?.length) ||
     (quiz.type === 'ORDERING' && !items?.length);
   return (
-    <View style={{ gap: 12 }}>
-      <Text style={styles.subtitle}>{quiz.question}</Text>
+    <View style={[quizStyles.layout, stage && isWireframeQuiz && quizStyles.stage]}>
+      <Text style={isWireframeQuiz ? quizStyles.question : styles.subtitle}>{quiz.question}</Text>
       {quiz.hint ? <Text style={styles.text}>힌트: {quiz.hint}</Text> : null}
       {quiz.type === 'MULTIPLE_CHOICE' &&
         choices?.map((c) => (
@@ -83,13 +88,36 @@ export function QuizCard({
             key={c.index}
             label={c.label}
             selected={selected === c.index}
+            graded={
+              task.result
+                ? (task.result as AnswerResult).isCorrect
+                  ? selected === c.index
+                    ? 'correct'
+                    : undefined
+                  : selected === c.index
+                    ? 'wrong'
+                    : undefined
+                : undefined
+            }
+            wireframe
             secondary
             disabled={disabled || !!task.result || task.busy}
             onPress={() => setSelected(c.index)}
           />
         ))}
       {quiz.type === 'FILL_BLANK' ? (
-        <Field label="빈칸 답 (한 줄에 하나씩)" value={text} onChange={setText} multiline />
+        <TextInput
+          accessibilityLabel="빈칸 답"
+          placeholder="?"
+          placeholderTextColor="#aaa1b3"
+          value={text}
+          onChangeText={setText}
+          editable={!disabled && !task.busy && !task.result}
+          multiline
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={quizStyles.blankInput}
+        />
       ) : null}
       {quiz.type === 'OX' ? (
         <View style={quizStyles.row}>
@@ -99,6 +127,15 @@ export function QuizCard({
               label={value}
               secondary
               selected={ox === value}
+              graded={
+                task.result && ox === value
+                  ? (task.result as AnswerResult).isCorrect
+                    ? 'correct'
+                    : 'wrong'
+                  : undefined
+              }
+              ox
+              wireframe
               disabled={disabled || !!task.result || task.busy}
               onPress={() => setOx(value)}
             />
@@ -129,21 +166,55 @@ export function QuizCard({
           선택지 형식 확인 대기. 개발자 진단 화면에서 서버 응답을 확인하세요.
         </Text>
       ) : null}
-      <QuizAction
-        label="정답 확인"
-        disabled={disabled || task.busy || !!task.result || contractMissing}
-        onPress={() => void task.run(() => submit(answer()), onGraded)}
-      />
+      {!(stage && isWireframeQuiz && task.result) ? (
+        <View style={stage && isWireframeQuiz && quizStyles.checkArea}>
+          <QuizAction
+            label="정답 확인"
+            primary={stage && isWireframeQuiz}
+            disabled={
+              disabled ||
+              task.busy ||
+              !!task.result ||
+              contractMissing ||
+              (quiz.type === 'MULTIPLE_CHOICE' && selected === null) ||
+              (quiz.type === 'FILL_BLANK' && !text.trim()) ||
+              (quiz.type === 'OX' && !ox)
+            }
+            onPress={() => void task.run(() => submit(answer()), onGraded)}
+          />
+        </View>
+      ) : null}
       <UserStatus task={task} />
       {task.result ? (
-        <AnimatedReveal style={styles.card} duration={280} offsetY={8}>
-          <Text style={styles.subtitle}>
-            {(task.result as AnswerResult).isCorrect ? '정답' : '오답'}
+        <AnimatedReveal
+          style={
+            isWireframeQuiz
+              ? [
+                  (task.result as AnswerResult).isCorrect
+                    ? quizStyles.goodFeedback
+                    : quizStyles.feedback,
+                  stage && quizStyles.stageFeedback,
+                ]
+              : styles.card
+          }
+          duration={280}
+          offsetY={8}
+        >
+          <Text style={isWireframeQuiz ? quizStyles.feedbackTitle : styles.subtitle}>
+            {isWireframeQuiz
+              ? (task.result as AnswerResult).isCorrect
+                ? '맞았어요!'
+                : '함께 확인해 볼까요?'
+              : (task.result as AnswerResult).isCorrect
+                ? '정답'
+                : '오답'}
           </Text>
           <Text style={styles.text}>{(task.result as AnswerResult).explanation}</Text>
-          <Text style={styles.text}>
-            채점 결과를 확인했습니다. 다음 콘텐츠로 이동할 수 있습니다.
-          </Text>
+          {!isWireframeQuiz ? (
+            <Text style={styles.text}>
+              채점 결과를 확인했습니다. 다음 콘텐츠로 이동할 수 있습니다.
+            </Text>
+          ) : null}
         </AnimatedReveal>
       ) : null}
     </View>
@@ -156,12 +227,20 @@ function QuizAction({
   disabled = false,
   secondary = false,
   selected = false,
+  graded,
+  ox = false,
+  wireframe = false,
+  primary = false,
 }: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
   secondary?: boolean;
   selected?: boolean;
+  graded?: 'correct' | 'wrong';
+  ox?: boolean;
+  wireframe?: boolean;
+  primary?: boolean;
 }) {
   const selection = useRef(new Animated.Value(selected ? 1 : 0)).current;
   useEffect(() => {
@@ -194,27 +273,73 @@ function QuizAction({
       onPress={onPress}
       style={[
         quizStyles.action,
+        primary && quizStyles.primary,
+        wireframe && quizStyles.option,
+        ox && quizStyles.oxAction,
         secondary && quizStyles.secondary,
         secondary && {
           borderColor: selection.interpolate({
             inputRange: [0, 1],
-            outputRange: ['#dce2e8', '#273a52'],
+            outputRange: [
+              ox ? 'transparent' : wireframe ? '#e6e0ec' : '#dce2e8',
+              ox ? '#8c779f' : wireframe ? '#746287' : '#273a52',
+            ],
           }),
           backgroundColor: selection.interpolate({
             inputRange: [0, 1],
-            outputRange: ['#fff', '#eef2f5'],
+            outputRange: ['#fff', ox ? '#f3eef8' : wireframe ? '#f4f0f8' : '#eef2f5'],
           }),
         },
-        disabled && quizStyles.disabled,
+        graded === 'correct' && quizStyles.correct,
+        graded === 'wrong' && quizStyles.wrong,
+        disabled && !wireframe && quizStyles.disabled,
       ]}
     >
-      <Text style={[quizStyles.actionText, secondary && quizStyles.secondaryText]}>{label}</Text>
+      <Text
+        style={[
+          quizStyles.actionText,
+          secondary && quizStyles.secondaryText,
+          wireframe && quizStyles.optionText,
+          ox && !selected && quizStyles.oxIdleText,
+          wireframe && selected && quizStyles.selectedText,
+          graded === 'correct' && quizStyles.correctText,
+          graded === 'wrong' && quizStyles.wrongText,
+          ox && quizStyles.oxText,
+        ]}
+      >
+        {label}
+      </Text>
     </AnimatedPressable>
   );
 }
 
 const quizStyles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 8 },
+  layout: { gap: 12 },
+  stage: { flexGrow: 1, paddingTop: 6 },
+  checkArea: { marginTop: 'auto', paddingTop: 18 },
+  row: { flexDirection: 'row', gap: 20, justifyContent: 'center', marginVertical: 10 },
+  question: {
+    color: '#282636',
+    fontSize: 21,
+    fontWeight: '700',
+    lineHeight: 34,
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  feedbackTitle: { color: '#477656', fontSize: 15, fontWeight: '700' },
+  blankInput: {
+    alignSelf: 'center',
+    minWidth: 120,
+    maxWidth: '100%',
+    minHeight: 54,
+    borderBottomWidth: 2,
+    borderColor: '#746284',
+    color: '#746284',
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+  },
   action: {
     minHeight: 44,
     borderRadius: 5,
@@ -223,8 +348,22 @@ const quizStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  primary: { minHeight: 52, borderRadius: 13, backgroundColor: '#373044' },
   actionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  option: { minHeight: 54, borderRadius: 13, padding: 14 },
+  optionText: { color: '#282636', fontSize: 14, fontWeight: '400' },
+  selectedText: { color: '#594567' },
+  correctText: { color: '#477656' },
+  wrongText: { color: '#ad6262' },
   secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
   secondaryText: { color: '#273a52' },
+  oxAction: { flex: 1, maxWidth: 120, height: 120 },
+  oxText: { fontSize: 70, fontWeight: '200' },
+  oxIdleText: { color: '#a29ca8' },
+  correct: { borderColor: '#83ac92', backgroundColor: '#eff7f1' },
+  wrong: { borderColor: '#d3a4a4', backgroundColor: '#fdf1f1' },
+  feedback: { backgroundColor: '#f5f3f8', borderRadius: 14, padding: 17, gap: 5 },
+  goodFeedback: { backgroundColor: '#f0f6f1', borderRadius: 14, padding: 17, gap: 5 },
+  stageFeedback: { marginTop: 'auto' },
   disabled: { opacity: 0.45 },
 });

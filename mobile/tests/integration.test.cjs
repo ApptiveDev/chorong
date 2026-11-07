@@ -505,3 +505,86 @@ test('server error code, HTTP status and request ID remain inspectable without s
   assert.equal(trace.requestId, 'request-1');
   assert.equal(redact(trace).code, 'LESSON_LOCKED');
 });
+test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 연결한다', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const lesson = await api.learning.lesson(11);
+  assert.equal(lesson.title, '별은 왜 빛날까');
+  assert.equal(lesson.contents.length, 14);
+  assert.equal(lesson.contents.filter((content) => content.quiz).length, 8);
+  assert.match(lesson.contents[1].body, /46억 년째/);
+  const answers = [
+    { value: true },
+    { index: 0 },
+    { index: 0 },
+    { texts: ['3'] },
+    { value: true },
+    { texts: ['0', '2'] },
+    { order: [1, 3, 2, 0] },
+    { index: 1 },
+  ];
+  const graded = [];
+  for (const [index, content] of lesson.contents.filter((entry) => entry.quiz).entries()) {
+    graded.push((await api.learning.answer(content.quiz.quizId, answers[index])).isCorrect);
+  }
+  assert.deepEqual(graded, [false, false, false, false, true, false, true, true]);
+  assert.equal((await api.review.next(11)).reviewItems.length, 0);
+  for (const content of lesson.contents) await api.learning.completeContent(content.contentId);
+  const review = await api.review.next(11);
+  assert.equal(review.reviewItems.length, 5);
+  assert.equal(review.reviewItems.filter((item) => !graded[item.quiz.quizId - 11001]).length, 4);
+  assert.equal(review.reviewItems.filter((item) => graded[item.quiz.quizId - 11001]).length, 1);
+  const first = review.reviewItems[0];
+  const answer =
+    first.quiz.options.mockHtmlType === 'ox'
+      ? { value: first.quiz.options.answer[0] === 0 }
+      : first.quiz.options.mockHtmlType === 'range'
+        ? { texts: [String(Math.log10(first.quiz.options.answer[0]))] }
+        : first.quiz.options.mockHtmlType === 'match'
+          ? { order: first.quiz.options.answer }
+          : first.quiz.options.mockHtmlType === 'multi'
+            ? { texts: first.quiz.options.answer.map(String) }
+            : { index: first.quiz.options.answer[0] };
+  assert.equal((await api.review.answer(first.reviewItemId, answer)).isCorrect, true);
+  assert.equal(
+    (await api.review.next(11)).reviewItems.some((item) => item.quiz.quizId === first.quiz.quizId),
+    false,
+  );
+  const course = await api.learning.course(1);
+  let completedCourse;
+  for (const summary of course.lessons.filter((item) => item.lessonId !== 11)) {
+    const nextLesson = await api.learning.lesson(summary.lessonId);
+    for (const content of nextLesson.contents)
+      completedCourse = await api.learning.completeContent(content.contentId);
+  }
+  assert.equal(completedCourse.lessonCompleted, true);
+  assert.equal(completedCourse.completion.courseCompleted, true);
+  assert.deepEqual(
+    completedCourse.completion.rewards
+      .filter((item) => item.type === 'WALLET')
+      .map((item) => item.amount),
+    [5, 10],
+  );
+  assert.equal(
+    completedCourse.completion.rewards.some((item) => item.type === 'CONSTELLATION'),
+    true,
+  );
+  assert.equal(
+    (await api.benefits.constellations()).constellations.find((item) => item.courseId === 1).name,
+    '빛을 찾아서',
+  );
+  assert.equal(
+    (await api.benefits.rewards({ size: 100 })).data.rewards.some(
+      (item) => item.type === 'CONSTELLATION' && item.source.courseId === 1,
+    ),
+    true,
+  );
+});

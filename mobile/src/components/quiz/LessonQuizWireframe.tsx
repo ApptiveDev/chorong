@@ -26,12 +26,14 @@ export function LessonQuizWireframe({
   disabled,
   submitLegacy,
   onAnswered,
+  stage = false,
 }: {
   lessonId: number;
   quiz: LegacyQuiz;
   disabled: boolean;
   submitLegacy: (answer: QuizAnswer) => Promise<AnswerResult>;
   onAnswered: () => void;
+  stage?: boolean;
 }) {
   const [quiz, setQuiz] = useState<InteractiveQuiz | null>(null);
   const [response, setResponse] = useState<QuizResponse | null>(null);
@@ -74,11 +76,17 @@ export function LessonQuizWireframe({
           disabled={disabled}
           submit={submitLegacy}
           onGraded={onAnswered}
+          stage={stage}
         />
       </View>
     );
   }
   const issue = responseIssue(quiz, response);
+  const wireframeType =
+    quiz.interactionType === 'MULTIPLE_CHOICE' ||
+    quiz.interactionType === 'SLIDER' ||
+    quiz.interactionType === 'MATCHING' ||
+    quiz.interactionType === 'FILL_BLANK';
   const submit = async () => {
     if (busy || disabled || issue) return;
     setBusy(true);
@@ -94,14 +102,17 @@ export function LessonQuizWireframe({
     }
   };
   return (
-    <View style={s.card}>
-      <Text style={s.eyebrow}>조작 퀴즈 · {labels[quiz.interactionType]}</Text>
-      <Text style={s.question}>{quiz.question}</Text>
+    <View style={[s.card, wireframeType && s.wireframeCard, stage && wireframeType && s.stage]}>
+      {!(stage && wireframeType) ? (
+        <Text style={s.eyebrow}>조작 퀴즈 · {labels[quiz.interactionType]}</Text>
+      ) : null}
+      <Text style={[s.question, wireframeType && s.wireframeQuestion]}>{quiz.question}</Text>
       <Text style={s.instruction}>{quiz.instruction}</Text>
       <QuizRenderer
         quiz={quiz}
         response={response}
         disabled={disabled || busy}
+        graded={result?.correct ?? undefined}
         onChange={(next) => {
           setResponse(next);
           setResult(null);
@@ -113,7 +124,7 @@ export function LessonQuizWireframe({
           if (next.completed) onAnswered();
         }}
       />
-      {quiz.interactionType !== 'FLIP_CARD' ? (
+      {quiz.interactionType !== 'FLIP_CARD' && !(stage && wireframeType && disabled) ? (
         <>
           {issue ? <Text style={s.instruction}>{issue}</Text> : null}
           <Pressable
@@ -121,7 +132,11 @@ export function LessonQuizWireframe({
             accessibilityState={{ disabled: disabled || busy || !!issue }}
             disabled={disabled || busy || !!issue}
             onPress={() => void submit()}
-            style={[s.button, (disabled || busy || !!issue) && s.disabled]}
+            style={[
+              s.button,
+              stage && wireframeType && s.stageButton,
+              (disabled || busy || !!issue) && s.disabled,
+            ]}
           >
             <Text style={s.buttonText}>{busy ? '확인 중' : '정답 확인'}</Text>
           </Pressable>
@@ -133,8 +148,24 @@ export function LessonQuizWireframe({
         </Text>
       ) : null}
       {result ? (
-        <AnimatedReveal style={s.result} duration={280} offsetY={8}>
-          <Text style={s.question}>{result.correct ? '정답입니다.' : '다시 살펴보세요.'}</Text>
+        <AnimatedReveal
+          style={[
+            s.result,
+            wireframeType && (result.correct ? s.goodFeedback : s.feedback),
+            stage && wireframeType && s.stageFeedback,
+          ]}
+          duration={280}
+          offsetY={8}
+        >
+          <Text style={s.question}>
+            {wireframeType
+              ? result.correct
+                ? '맞았어요!'
+                : '함께 확인해 볼까요?'
+              : result.correct
+                ? '정답입니다.'
+                : '다시 살펴보세요.'}
+          </Text>
           <Text style={s.instruction}>{result.explanation}</Text>
         </AnimatedReveal>
       ) : null}
@@ -151,8 +182,17 @@ const s = StyleSheet.create({
     gap: 12,
     backgroundColor: '#fff',
   },
+  wireframeCard: { borderWidth: 0, padding: 0 },
+  stage: { flexGrow: 1 },
   eyebrow: { color: '#7b8795', fontSize: 11 },
   question: { color: '#273a52', fontSize: 16, fontWeight: '700', lineHeight: 23 },
+  wireframeQuestion: {
+    color: '#282636',
+    fontSize: 21,
+    lineHeight: 34,
+    textAlign: 'center',
+    marginVertical: 18,
+  },
   instruction: { color: '#536578', fontSize: 12, lineHeight: 19 },
   button: {
     backgroundColor: '#273a52',
@@ -161,8 +201,12 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  stageButton: { marginTop: 'auto', minHeight: 52, borderRadius: 13, backgroundColor: '#373044' },
   buttonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   disabled: { opacity: 0.45 },
   error: { color: '#b91c1c', fontSize: 12 },
   result: { backgroundColor: '#eef2f5', borderRadius: 6, padding: 12, gap: 5 },
+  feedback: { backgroundColor: '#f5f3f8', borderRadius: 14, padding: 17 },
+  goodFeedback: { backgroundColor: '#f0f6f1', borderRadius: 14, padding: 17 },
+  stageFeedback: { marginTop: 'auto' },
 });
