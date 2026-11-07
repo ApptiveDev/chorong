@@ -7,9 +7,15 @@ import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Me } from '../models';
 import { UserStatus } from './Screen';
+import { WelcomeCat } from './WelcomeScreen';
 
-type Dialog = 'logout' | 'withdraw' | null;
-const navy = '#273a52';
+type Dialog = 'nickname' | 'logout' | 'withdraw' | null;
+const providers: Record<string, string> = {
+  EMAIL: '이메일',
+  GOOGLE: 'Google',
+  KAKAO: '카카오',
+  APPLE: 'Apple',
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -18,107 +24,93 @@ export default function ProfileScreen() {
   const [me, setMe] = useState<Me | null>(null);
   const [nickname, setNickname] = useState('');
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [confirmText, setConfirmText] = useState('');
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [notice, setNotice] = useState('');
-  const load = () =>
-    task.run(async () => {
+
+  useEffect(() => {
+    if (!session.ready || session.user?.status !== 'ACTIVE') return;
+    void task.run(async () => {
       const result = await api.account.me();
       setMe(result);
-      setNickname(result.nickname);
       return result;
     });
-  useEffect(() => {
-    if (session.ready && session.authenticated) void load();
-  }, [session.ready, session.authenticated]);
-  const save = () =>
+  }, [session.ready, session.user?.status]);
+
+  const saveNickname = () => {
+    const next = nickname.trim();
+    if (!next || task.busy) return;
     void task.run(async () => {
-      const result = await api.account.update({ nickname: nickname.trim() });
+      const result = await api.account.update({ nickname: next });
       setMe(result);
-      setNotice('닉네임이 저장됐습니다.');
+      setDialog(null);
+      setNotice('닉네임을 변경했어요.');
+      return result;
     });
-  const finish = () =>
+  };
+  const finish = () => {
+    if (task.busy || !dialog) return;
     void task.run(async () => {
       if (dialog === 'logout') await api.account.logout(false);
       if (dialog === 'withdraw') await api.account.withdraw();
       setDialog(null);
       router.replace('/more');
     });
+  };
+  const provider = me?.providers.find((item) => item !== 'GUEST');
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Pressable accessibilityRole="button" style={s.back} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={18} color={navy} />
-          <Text style={s.backText}>제어실</Text>
-        </Pressable>
-        <Text style={s.title}>프로필과 계정</Text>
+        <View style={s.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="제어실로 돌아가기"
+            onPress={() => router.replace('/more')}
+            style={s.back}
+          >
+            <Ionicons name="arrow-back" size={23} color="#282636" />
+          </Pressable>
+          <Text style={s.title}>프로필과 계정</Text>
+        </View>
         <UserStatus task={task} />
         {notice ? <Text style={s.notice}>{notice}</Text> : null}
-        {!session.authenticated ? (
+        {session.user?.status === 'ACTIVE' ? (
           <>
-            <Text style={s.muted}>로그인하면 프로필을 볼 수 있습니다.</Text>
-            <Action title="로그인" onPress={() => router.push('/account')} />
-          </>
-        ) : me ? (
-          <>
-            <View style={s.account}>
-              <Text style={s.accountName}>{me.nickname}</Text>
-              <Text style={s.muted}>{me.status === 'GUEST' ? '게스트 로그인' : '회원'}</Text>
-            </View>
-            <Text style={s.label}>닉네임</Text>
-            <TextInput
-              accessibilityLabel="닉네임"
-              value={nickname}
-              onChangeText={setNickname}
-              autoCorrect={false}
-              style={s.input}
-            />
-            <Action
-              title="닉네임 저장"
-              disabled={task.busy || !nickname.trim() || nickname.trim() === me.nickname}
-              onPress={save}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: detailsOpen }}
-              onPress={() => setDetailsOpen((value) => !value)}
-              style={s.detailsToggle}
-            >
-              <Text style={s.label}>계정 정보</Text>
-              <Ionicons
-                name={detailsOpen ? 'chevron-up' : 'chevron-down'}
-                size={16}
-                color="#7b8795"
-              />
-            </Pressable>
-            {detailsOpen ? (
-              <View style={s.account}>
-                <Text style={s.muted}>
-                  완료한 레슨 {me.progress.completedLessons}/{me.progress.totalLessons}
-                </Text>
-                <Text style={s.muted}>
-                  별 {me.wallet.star} · 별가루 {me.wallet.stardust}
+            <View style={s.profileCard}>
+              <WelcomeCat size={46} />
+              <View style={s.profileText}>
+                <Text style={s.name}>{me?.nickname ?? session.user.nickname}</Text>
+                <Text style={s.provider}>
+                  {provider ? `${providers[provider] ?? provider}로 로그인` : '회원'}
                 </Text>
               </View>
-            ) : null}
+            </View>
+            <View style={s.group}>
+              <ProfileRow
+                title="닉네임 변경하기"
+                onPress={() => {
+                  setNickname(me?.nickname ?? session.user?.nickname ?? '');
+                  setDialog('nickname');
+                }}
+                last
+              />
+            </View>
+            <View style={s.group}>
+              <ProfileRow title="로그아웃" onPress={() => setDialog('logout')} />
+              <ProfileRow title="회원 탈퇴" onPress={() => setDialog('withdraw')} last />
+            </View>
           </>
-        ) : null}
+        ) : (
+          <View style={s.guest}>
+            <Text style={s.copy}>로그인하면 프로필을 볼 수 있어요.</Text>
+            <Pressable
+              accessibilityRole="button"
+              style={s.primary}
+              onPress={() => router.push('/account')}
+            >
+              <Text style={s.primaryText}>로그인하기</Text>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
-      {session.authenticated ? (
-        <View style={s.footer}>
-          <Outline title="로그아웃" onPress={() => setDialog('logout')} />
-          {session.user?.status === 'ACTIVE' ? (
-            <Outline
-              title="회원 탈퇴"
-              danger
-              onPress={() => {
-                setConfirmText('');
-                setDialog('withdraw');
-              }}
-            />
-          ) : null}
-        </View>
-      ) : null}
       <Modal
         visible={dialog !== null}
         transparent
@@ -128,29 +120,61 @@ export default function ProfileScreen() {
         <View style={s.overlay}>
           <View style={s.modal}>
             <Text style={s.modalTitle}>
-              {dialog === 'logout' ? '로그아웃할까요?' : '회원 탈퇴'}
+              {dialog === 'nickname'
+                ? '닉네임 변경'
+                : dialog === 'logout'
+                  ? '로그아웃할까요?'
+                  : '회원 탈퇴할까요?'}
             </Text>
-            <Text style={s.muted}>
-              {dialog === 'logout'
-                ? '로그아웃하면 다시 로그인해야 합니다.'
-                : '탈퇴하면 계정 데이터가 삭제됩니다. 계속하려면 아래에 탈퇴를 입력하세요.'}
+            <Text style={s.modalCopy}>
+              {dialog === 'nickname'
+                ? '다른 별지기에게 보여줄 이름이에요.'
+                : dialog === 'logout'
+                  ? '다시 로그인하면 계정 기록을 볼 수 있어요.'
+                  : '계정과 기록이 삭제되며 되돌릴 수 없어요.'}
             </Text>
-            {dialog === 'withdraw' ? (
-              <TextInput
-                accessibilityLabel="탈퇴 확인 입력"
-                placeholder="탈퇴"
-                value={confirmText}
-                onChangeText={setConfirmText}
-                style={s.input}
-              />
+            {dialog === 'nickname' ? (
+              <>
+                <Text style={s.inputLabel}>닉네임</Text>
+                <TextInput
+                  accessibilityLabel="닉네임"
+                  placeholder="닉네임을 입력해 주세요."
+                  placeholderTextColor="#aaa1b3"
+                  value={nickname}
+                  onChangeText={setNickname}
+                  maxLength={16}
+                  autoCorrect={false}
+                  style={s.input}
+                />
+              </>
             ) : null}
-            <Action
-              title={dialog === 'logout' ? '로그아웃' : '탈퇴 확인'}
-              disabled={task.busy || (dialog === 'withdraw' && confirmText !== '탈퇴')}
-              onPress={finish}
-            />
-            <Outline title="취소" onPress={() => setDialog(null)} />
             <UserStatus task={task} />
+            <View style={s.actions}>
+              <Pressable
+                accessibilityRole="button"
+                style={s.secondary}
+                onPress={() => setDialog(null)}
+              >
+                <Text style={s.secondaryText}>취소</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{
+                  disabled: task.busy || (dialog === 'nickname' && !nickname.trim()),
+                }}
+                disabled={task.busy || (dialog === 'nickname' && !nickname.trim())}
+                onPress={dialog === 'nickname' ? saveNickname : finish}
+                style={[
+                  s.primary,
+                  dialog === 'withdraw' && s.danger,
+                  (task.busy || (dialog === 'nickname' && !nickname.trim())) && s.disabled,
+                ]}
+              >
+                <Text style={[s.primaryText, dialog === 'withdraw' && s.dangerText]}>
+                  {dialog === 'nickname' ? '저장' : dialog === 'logout' ? '로그아웃' : '회원 탈퇴'}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -158,98 +182,105 @@ export default function ProfileScreen() {
   );
 }
 
-function Action({
+function ProfileRow({
   title,
   onPress,
-  disabled = false,
+  last = false,
 }: {
   title: string;
   onPress: () => void;
-  disabled?: boolean;
+  last?: boolean;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[s.primary, disabled && s.disabled]}
-    >
-      <Text style={s.primaryText}>{title}</Text>
-    </Pressable>
-  );
-}
-function Outline({
-  title,
-  onPress,
-  danger = false,
-}: {
-  title: string;
-  onPress: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={s.outline}>
-      <Text style={[s.outlineText, danger && s.danger]}>{title}</Text>
+    <Pressable accessibilityRole="button" onPress={onPress} style={[s.row, last && s.rowLast]}>
+      <Text style={s.rowText}>{title}</Text>
+      <Text style={s.chevron}>›</Text>
     </Pressable>
   );
 }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
-  content: { padding: 18, gap: 11, flexGrow: 1 },
-  back: { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start' },
-  backText: { fontSize: 12, color: navy },
-  title: { textAlign: 'center', color: navy, fontSize: 17, fontWeight: '700', marginBottom: 8 },
-  account: {
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    backgroundColor: '#f8f9fb',
-    borderRadius: 5,
-    padding: 14,
-    gap: 3,
-  },
-  accountName: { color: navy, fontSize: 14, fontWeight: '700' },
-  label: { color: navy, fontSize: 12, fontWeight: '600' },
-  muted: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
-  input: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 4,
-    paddingHorizontal: 10,
-    color: navy,
-    fontSize: 13,
-  },
-  primary: {
-    minHeight: 44,
-    borderRadius: 4,
-    backgroundColor: navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  disabled: { opacity: 0.45 },
-  detailsToggle: {
+  content: { flexGrow: 1, padding: 24 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40, marginBottom: 23 },
+  back: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  title: { color: '#282636', fontSize: 21, lineHeight: 32, letterSpacing: -0.7, fontWeight: '700' },
+  profileCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
-    paddingVertical: 7,
+    gap: 15,
+    padding: 13,
+    borderRadius: 22,
+    backgroundColor: '#f2edf7',
   },
-  footer: { paddingHorizontal: 18, paddingBottom: 16, gap: 6, backgroundColor: '#fff' },
-  outline: {
-    minHeight: 42,
+  profileText: { gap: 5 },
+  name: { color: '#282636', fontSize: 17, fontWeight: '700' },
+  provider: { color: '#888591', fontSize: 12 },
+  group: {
     borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 4,
+    borderColor: '#eeeaf3',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 3,
+    marginTop: 20,
+  },
+  row: {
+    minHeight: 59,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f2eff6',
+  },
+  rowLast: { borderBottomWidth: 0 },
+  rowText: { color: '#282636', fontSize: 14 },
+  chevron: { color: '#b3abbc', fontSize: 19 },
+  guest: { gap: 20 },
+  copy: { color: '#807188', fontSize: 13, lineHeight: 23 },
+  notice: { color: '#655b76', fontSize: 12, marginBottom: 10 },
+  overlay: {
+    flex: 1,
+    backgroundColor: '#34273c63',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 24,
   },
-  outlineText: { color: navy, fontSize: 12 },
-  danger: { color: '#ad6262' },
-  notice: { color: navy, fontSize: 12 },
-  overlay: { flex: 1, backgroundColor: '#273a5299', justifyContent: 'center', padding: 24 },
-  modal: { backgroundColor: '#fff', borderRadius: 6, padding: 17, gap: 10 },
-  modalTitle: { color: navy, fontSize: 16, fontWeight: '700' },
+  modal: { width: '100%', maxWidth: 354, borderRadius: 23, backgroundColor: '#fff', padding: 25 },
+  modalTitle: { color: '#282636', fontSize: 20, lineHeight: 30, fontWeight: '700' },
+  modalCopy: { color: '#807188', fontSize: 13, lineHeight: 23, marginTop: 12 },
+  inputLabel: { color: '#9a8ba7', fontSize: 12, marginTop: 15, marginBottom: 7 },
+  input: {
+    minHeight: 47,
+    borderWidth: 1,
+    borderColor: '#ded4e5',
+    borderRadius: 11,
+    paddingHorizontal: 12,
+    backgroundColor: '#fbf9fd',
+    color: '#4e3f5b',
+    fontSize: 14,
+  },
+  actions: { flexDirection: 'row', gap: 9, marginTop: 22 },
+  secondary: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 13,
+    backgroundColor: '#f3f1f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  secondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
+  primary: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 13,
+    backgroundColor: '#302b38',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  primaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  danger: { backgroundColor: '#fff0f0' },
+  dangerText: { color: '#b56060' },
+  disabled: { opacity: 0.38 },
 });

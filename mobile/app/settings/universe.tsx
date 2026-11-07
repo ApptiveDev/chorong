@@ -1,131 +1,184 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { integrationApi as api, useMockApi } from '../../src/integration/runtime';
 import { mockVisibility } from '../../src/integration/mockVisibility';
 import { useIntegration, useTask } from '../../src/integration/hooks';
-import type { Me } from '../../src/integration/models';
+import type { BlockedUser, Me } from '../../src/integration/models';
 import { UserStatus } from '../../src/integration/user/Screen';
+import { ControlSwitch } from '../../src/integration/user/ControlSwitch';
 
 export default function UniverseSettings() {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
   const [me, setMe] = useState<Me | null>(null);
-  const [confirmPublic, setConfirmPublic] = useState<boolean | null>(null);
+  const [users, setUsers] = useState<BlockedUser[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [confirmPrivate, setConfirmPrivate] = useState(false);
+  const [unblockUser, setUnblockUser] = useState<BlockedUser | null>(null);
+  const [dialogVisible, setDialogVisible] = useState(false);
   const mockPublic = useSyncExternalStore(
     mockVisibility.subscribe,
     mockVisibility.get,
     mockVisibility.get,
   );
   const isPublic = useMockApi ? mockPublic : (me?.housing.isPublic ?? false);
+
   const load = () =>
     task.run(async () => {
-      const data = await api.account.me();
-      setMe(data);
+      const [account, page] = await Promise.all([
+        api.account.me(),
+        api.social.blocks({ size: 20 }),
+      ]);
+      setMe(account);
+      setUsers(page.data.users);
+      setCursor(page.meta.nextCursor);
     });
   useEffect(() => {
-    if (session.ready && session.authenticated) void load();
-  }, [session.ready, session.authenticated]);
-  const togglePush = () =>
+    if (session.ready && session.user?.status === 'ACTIVE') void load();
+  }, [session.ready, session.user?.status]);
+
+  const changeVisibility = (value: boolean) =>
     void task.run(async () => {
-      if (!me) return;
-      setMe(await api.account.update({ pushEnabled: !me.pushEnabled }));
+      const housing = await api.room.update({ isPublic: value });
+      setMe((current) =>
+        current
+          ? { ...current, housing: { ...current.housing, isPublic: housing.isPublic } }
+          : current,
+      );
+      if (useMockApi) mockVisibility.set(housing.isPublic);
+      setDialogVisible(false);
     });
+  const loadMore = () =>
+    void task.run(async () => {
+      if (!cursor) return;
+      const page = await api.social.blocks({ size: 20, cursor });
+      setUsers((current) => [...current, ...page.data.users]);
+      setCursor(page.meta.nextCursor);
+    });
+  const unblock = () =>
+    void task.run(async () => {
+      if (!unblockUser) return;
+      await api.social.unblock(unblockUser.userId);
+      const page = await api.social.blocks({ size: 20 });
+      setUsers(page.data.users);
+      setCursor(page.meta.nextCursor);
+      setDialogVisible(false);
+    });
+
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={s.content}>
-        <Pressable accessibilityRole="button" style={s.back} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={18} color="#273a52" />
-          <Text style={s.text}>제어실</Text>
-        </Pressable>
-        <Text style={s.title}>우주선 관리하기</Text>
+        <View style={s.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="제어실로 돌아가기"
+            onPress={() => router.back()}
+            style={s.back}
+          >
+            <Ionicons name="chevron-back" size={24} color="#282636" />
+          </Pressable>
+          <Text style={s.title}>우주선 관리하기</Text>
+        </View>
         <UserStatus task={task} />
-        {!session.authenticated ? (
-          <Text style={s.text}>로그인하면 설정을 볼 수 있습니다.</Text>
-        ) : (
+        {session.user?.status === 'ACTIVE' ? (
           <>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: session.user?.status !== 'ACTIVE' }}
-              disabled={session.user?.status !== 'ACTIVE'}
-              style={s.row}
-              onPress={() => router.push('/settings/blocked')}
-            >
-              <Text style={s.text}>차단한 사용자</Text>
-              <Ionicons name="chevron-forward" size={17} color="#7b8795" />
-            </Pressable>
-            <View style={s.row}>
-              <View>
-                <Text style={s.text}>우주선 공개</Text>
-                <Text style={s.caption}>공개하면 다른 우주선을 구경할 수 있어요.</Text>
-              </View>
-              <Switch
+            <View style={s.group}>
+              <Pressable
+                accessibilityRole="switch"
                 accessibilityLabel="우주선 공개"
-                value={isPublic}
-                disabled={!me || task.busy || session.user?.status !== 'ACTIVE'}
-                onValueChange={setConfirmPublic}
-              />
-            </View>
-            <View style={s.row}>
-              <Text style={s.text}>학습 알림</Text>
-              <Switch
-                accessibilityLabel="학습 알림"
-                value={me?.pushEnabled ?? false}
+                accessibilityState={{ checked: isPublic, disabled: !me || task.busy }}
                 disabled={!me || task.busy}
-                onValueChange={togglePush}
-              />
+                onPress={() => {
+                  if (!isPublic) return changeVisibility(true);
+                  setUnblockUser(null);
+                  setConfirmPrivate(true);
+                  setDialogVisible(true);
+                }}
+                style={s.settingRow}
+              >
+                <Text style={s.label}>우주선 공개</Text>
+                <ControlSwitch value={isPublic} />
+              </Pressable>
+            </View>
+            <View style={s.blockedSection}>
+              <Text style={s.sectionTitle}>차단한 사용자</Text>
+              {!task.busy && !task.error && users.length === 0 ? (
+                <Text style={s.empty}>차단한 사용자가 없어요.</Text>
+              ) : null}
+              {users.map((user) => (
+                <View key={user.userId} style={s.blockedRow}>
+                  <Text style={s.label}>{user.nickname}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={task.busy}
+                    onPress={() => {
+                      setConfirmPrivate(false);
+                      setUnblockUser(user);
+                      setDialogVisible(true);
+                    }}
+                    style={s.unblockButton}
+                  >
+                    <Text style={s.unblockText}>해제</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {cursor ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={task.busy}
+                  onPress={loadMore}
+                  style={s.moreButton}
+                >
+                  <Text style={s.unblockText}>더 보기</Text>
+                </Pressable>
+              ) : null}
             </View>
           </>
+        ) : (
+          <Text style={s.empty}>로그인하면 우주선을 관리할 수 있어요.</Text>
         )}
       </ScrollView>
       <Modal
-        visible={confirmPublic !== null}
+        visible={dialogVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setConfirmPublic(null)}
+        onRequestClose={() => {
+          setDialogVisible(false);
+        }}
       >
         <View style={s.overlay}>
           <View style={s.dialog}>
             <Text style={s.dialogTitle}>
-              {confirmPublic ? '공개하고 구경할까요?' : '비공개로 전환할까요?'}
+              {confirmPrivate ? '우주선을 비공개로 바꿀까요?' : '차단을 해제할까요?'}
             </Text>
-            <Text style={s.text}>
-              {confirmPublic
-                ? '닉네임과 저장된 우주선이 공개돼요.'
-                : '비공개하면 다른 우주선을 구경할 수 없어요!'}
+            <Text style={s.dialogCopy}>
+              {confirmPrivate
+                ? '다른 별지기에게 보이지 않고, 다른 우주선도 구경할 수 없어요.'
+                : '이 사용자의 우주선이 다시 구경 목록에 나타날 수 있어요.'}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              disabled={task.busy}
-              onPress={() => {
-                const isPublic = Boolean(confirmPublic);
-                void task.run(async () => {
-                  const housing = await api.room.update({ isPublic });
-                  setMe(
-                    (current) =>
-                      current && {
-                        ...current,
-                        housing: { ...current.housing, isPublic: housing.isPublic },
-                      },
-                  );
-                  if (useMockApi) mockVisibility.set(housing.isPublic);
-                  setConfirmPublic(null);
-                });
-              }}
-              style={s.primary}
-            >
-              <Text style={s.primaryText}>{confirmPublic ? '공개하기' : '비공개로 전환하기'}</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setConfirmPublic(null)}
-              style={s.cancel}
-            >
-              <Text style={s.text}>취소</Text>
-            </Pressable>
+            <View style={s.actions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setDialogVisible(false);
+                }}
+                style={s.secondary}
+              >
+                <Text style={s.secondaryText}>취소</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={task.busy}
+                onPress={() => (confirmPrivate ? changeVisibility(false) : unblock())}
+                style={s.primary}
+              >
+                <Text style={s.primaryText}>{confirmPrivate ? '비공개로 변경' : '해제'}</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -135,50 +188,80 @@ export default function UniverseSettings() {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
-  content: { padding: 18, gap: 8 },
-  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2 },
-  title: {
-    textAlign: 'center',
-    color: '#273a52',
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 14,
-  },
-  row: {
-    minHeight: 48,
+  content: { paddingHorizontal: 24, paddingTop: 22, paddingBottom: 40, flexGrow: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
+  back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  title: { color: '#282636', fontSize: 21, fontWeight: '700' },
+  group: {
     borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    borderColor: '#eeeaf3',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 3,
   },
-  text: { color: '#273a52', fontSize: 12 },
-  caption: { color: '#7b8795', fontSize: 10, marginTop: 3 },
+  settingRow: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  label: { color: '#282636', fontSize: 14 },
+  blockedSection: { marginTop: 65 },
+  sectionTitle: { color: '#282636', fontSize: 15, fontWeight: '700', marginBottom: 14 },
+  empty: { color: '#aaa3b1', fontSize: 13, paddingVertical: 16 },
+  blockedRow: {
+    borderWidth: 1,
+    borderColor: '#e4deea',
+    borderRadius: 12,
+    padding: 13,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  unblockButton: {
+    paddingVertical: 9,
+    paddingHorizontal: 17,
+    borderRadius: 9,
+    backgroundColor: '#f0edf4',
+  },
+  unblockText: { color: '#655b76', fontSize: 12 },
+  moreButton: { alignSelf: 'center', padding: 12 },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(27,39,56,0.47)',
+    backgroundColor: '#34273c63',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 24,
   },
-  dialog: { backgroundColor: '#fff', borderRadius: 8, padding: 17, gap: 12 },
-  dialogTitle: { color: '#273a52', fontSize: 16, fontWeight: '700' },
+  dialog: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+    backgroundColor: '#fff',
+    borderRadius: 23,
+    padding: 25,
+    gap: 16,
+  },
+  dialogTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
+  dialogCopy: { color: '#807188', fontSize: 13, lineHeight: 22 },
+  actions: { flexDirection: 'row', gap: 9, marginTop: 8 },
   primary: {
-    minHeight: 42,
-    backgroundColor: '#273a52',
-    borderRadius: 5,
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: '#373044',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  cancel: {
-    minHeight: 42,
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 5,
+  primaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  secondary: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: '#f3f1f6',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  secondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
 });

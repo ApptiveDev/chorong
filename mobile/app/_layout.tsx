@@ -17,13 +17,14 @@ export default function RootLayout() {
           <Stack.Screen name="learn/course/[courseId]" options={{ title: '코스' }} />
           <Stack.Screen name="learn/lesson/[lessonId]" options={{ title: '레슨' }} />
           <Stack.Screen name="learn/study/[lessonId]" options={{ headerShown: false }} />
-          <Stack.Screen name="room/[mode]" options={{ title: '꾸미기' }} />
+          <Stack.Screen name="room/[mode]" options={{ headerShown: false }} />
           <Stack.Screen name="social/[housingId]" options={{ title: '다른 우주' }} />
           <Stack.Screen name="integration" options={{ headerShown: false }} />
           <Stack.Screen name="settings/profile" options={{ title: '프로필' }} />
           <Stack.Screen name="settings/my-info" options={{ title: '내 정보' }} />
           <Stack.Screen name="settings/contact" options={{ headerShown: false }} />
           <Stack.Screen name="settings/universe" options={{ headerShown: false }} />
+          <Stack.Screen name="settings/notifications" options={{ headerShown: false }} />
           <Stack.Screen name="settings/blocked" options={{ headerShown: false }} />
           <Stack.Screen name="settings/terms" options={{ headerShown: false }} />
           <Stack.Screen name="settings/privacy" options={{ headerShown: false }} />
