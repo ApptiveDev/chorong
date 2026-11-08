@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../../src/integration/hooks';
@@ -9,14 +9,16 @@ import { WelcomeCat } from '../../src/integration/user/WelcomeScreen';
 
 export default function More() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const session = useIntegration();
   const member = session.authenticated && session.user?.status === 'ACTIVE';
   const go = (path: string) => router.push(path as Href);
   if (member) return <MemberControlRoom nickname={session.user?.nickname ?? '별지기'} go={go} />;
-  return <GuestControlRoom go={go} />;
+  return <GuestControlRoom go={go} returnTo={returnTo === '/social' ? returnTo : undefined} />;
 }
 
-function GuestControlRoom({ go }: { go: (path: string) => void }) {
+function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; returnTo?: '/social' }) {
+  const router = useRouter();
   const [socialNotice, setSocialNotice] = useState(false);
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
@@ -31,7 +33,14 @@ function GuestControlRoom({ go }: { go: (path: string) => void }) {
           <AuthOption title="Apple로 계속하기" onPress={() => setSocialNotice(true)} apple />
           <AuthOption title="Google로 계속하기" onPress={() => setSocialNotice(true)} />
           <AuthOption title="카카오로 계속하기" onPress={() => setSocialNotice(true)} kakao />
-          <AuthOption title="이메일로 로그인하기" onPress={() => go('/account')} />
+          <AuthOption
+            title="이메일로 로그인하기"
+            onPress={() =>
+              returnTo
+                ? router.push({ pathname: '/account', params: { returnTo } })
+                : go('/account')
+            }
+          />
         </View>
         {socialNotice ? <Text style={s.authNotice}>소셜 로그인은 준비 중입니다.</Text> : null}
         <Text style={s.guestNote}>비회원 기록은 이 기기에만 남아요.</Text>

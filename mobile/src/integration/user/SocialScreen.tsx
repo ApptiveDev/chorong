@@ -51,7 +51,9 @@ export default function SocialScreen() {
   const [index, setIndex] = useState(0);
   const [cursor, setCursor] = useState<string | null>(null);
   const [showOwn, setShowOwn] = useState(true);
-  const [dialog, setDialog] = useState<'public' | 'private' | 'menu' | 'report' | null>(null);
+  const [dialog, setDialog] = useState<'login' | 'public' | 'private' | 'menu' | 'report' | null>(
+    null,
+  );
   const [reason, setReason] = useState<ReportReason>('OTHER');
   const [detail, setDetail] = useState('');
   const [notice, setNotice] = useState('');
@@ -68,7 +70,7 @@ export default function SocialScreen() {
       setOwn(myRoom);
       setInventory(owned.items);
       setShopItems(shop.items);
-      if (!myRoom.housing.isPublic) {
+      if (session.user?.status !== 'ACTIVE' || !myRoom.housing.isPublic) {
         setCards([]);
         setCursor(null);
         setVisit(null);
@@ -85,9 +87,18 @@ export default function SocialScreen() {
       setLoaded(true);
     });
   useEffect(() => {
-    if (session.ready && session.user?.status === 'ACTIVE') load();
+    if (session.ready && session.authenticated) load();
+  }, [session.ready, session.user?.status]);
+  useEffect(() => {
+    if (!session.ready) return;
+    if (session.user?.status === 'GUEST') setDialog('login');
+    else setDialog((current) => (current === 'login' ? null : current));
   }, [session.ready, session.user?.status]);
   const browse = () => {
+    if (session.user?.status !== 'ACTIVE') {
+      setDialog('login');
+      return;
+    }
     if (!isPublic) {
       setDialog('public');
       return;
@@ -183,7 +194,7 @@ export default function SocialScreen() {
       layer: placement.transform.layer,
     }));
   return (
-    <UserScreen title="다른 우주선 구경" member scroll={false} showTitle={false}>
+    <UserScreen title="다른 우주선 구경" scroll={false} showTitle={false}>
       <View style={s.socialPage}>
         <View style={s.socialHeader}>
           <Pressable
@@ -281,7 +292,22 @@ export default function SocialScreen() {
       >
         <View style={s.overlay}>
           <View style={s.dialog}>
-            {dialog === 'public' ? (
+            {dialog === 'login' ? (
+              <>
+                <Text style={s.dialogTitle}>다른 우주선을 구경해요</Text>
+                <Text style={s.dialogText}>로그인하면 다른 탐험가의 우주선을 볼 수 있어요.</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setDialog(null);
+                    router.push({ pathname: '/more', params: { returnTo: '/social' } });
+                  }}
+                  style={s.primaryButton}
+                >
+                  <Text style={s.primaryText}>로그인·회원가입</Text>
+                </Pressable>
+              </>
+            ) : dialog === 'public' ? (
               <>
                 <Text style={s.dialogTitle}>공개하고 구경할까요?</Text>
                 <Text style={s.dialogText}>
@@ -374,7 +400,7 @@ export default function SocialScreen() {
               onPress={() => setDialog(null)}
               style={s.outlineButton}
             >
-              <Text style={s.outlineText}>취소</Text>
+              <Text style={s.outlineText}>{dialog === 'login' ? '나중에 하기' : '취소'}</Text>
             </Pressable>
           </View>
         </View>

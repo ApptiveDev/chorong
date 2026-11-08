@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +10,8 @@ import { WelcomeCat } from './WelcomeScreen';
 
 export default function AccountScreen() {
   const router = useRouter();
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const afterLogin = returnTo === '/social' ? '/social' : '/quiz';
   const session = useIntegration();
   const task = useTask();
   const [email, setEmail] = useState('');
@@ -22,7 +24,7 @@ export default function AccountScreen() {
     void task.run(async () => {
       await api.account.login(email.trim(), password);
       setPassword('');
-      router.replace('/quiz');
+      router.replace(afterLogin);
     });
   const signup = () =>
     void task.run(
@@ -37,7 +39,7 @@ export default function AccountScreen() {
     void task.run(async () => {
       await api.account.verify(verificationId, code.trim());
       setCode('');
-      router.replace('/quiz');
+      router.replace(afterLogin);
     });
 
   return (
