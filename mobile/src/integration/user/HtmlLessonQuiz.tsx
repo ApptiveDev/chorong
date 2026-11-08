@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
 
 type HtmlKind = 'ox' | 'blank' | 'single' | 'range' | 'multi' | 'match';
 type Choice = { index: number; label: string };
@@ -23,11 +24,13 @@ export function HtmlLessonQuiz({
   disabled,
   submit,
   onGraded,
+  registerFooter,
 }: {
   quiz: Quiz;
   disabled: boolean;
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
   onGraded: (result: AnswerResult) => void;
+  registerFooter?: RegisterQuizFooter;
 }) {
   const kind = quiz.options?.mockHtmlType as HtmlKind;
   const choices = (quiz.options?.choices ?? []) as Choice[];
@@ -88,6 +91,7 @@ export function HtmlLessonQuiz({
       setBusy(false);
     }
   };
+  useQuizFooter(quiz.quizId, ready && !checked && !busy, () => void check(), registerFooter);
   const setPair = (index: number) => {
     if (checked || activeLeft === null) return;
     setPairs((previous) => {
@@ -194,7 +198,7 @@ export function HtmlLessonQuiz({
         </View>
       ) : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
-      {!result ? (
+      {!registerFooter && !result ? (
         <Pressable
           accessibilityRole="button"
           disabled={!ready || busy || disabled}

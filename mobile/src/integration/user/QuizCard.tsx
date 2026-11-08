@@ -14,6 +14,7 @@ import { useTask } from '../hooks';
 import { styles } from '../ui';
 import { UserStatus } from './Screen';
 import { AnimatedReveal } from './AnimatedReveal';
+import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -35,12 +36,14 @@ export function QuizCard({
   onGraded,
   disabled = false,
   stage = false,
+  registerFooter,
 }: {
   quiz: Quiz;
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
   onGraded: (result: AnswerResult) => void;
   disabled?: boolean;
   stage?: boolean;
+  registerFooter?: RegisterQuizFooter;
 }) {
   const task = useTask();
   const [selected, setSelected] = useState<number | null>(null),
@@ -78,6 +81,20 @@ export function QuizCard({
   const contractMissing =
     (quiz.type === 'MULTIPLE_CHOICE' && !choices?.length) ||
     (quiz.type === 'ORDERING' && !items?.length);
+  const canCheck =
+    !disabled &&
+    !task.busy &&
+    !task.result &&
+    !contractMissing &&
+    (quiz.type !== 'MULTIPLE_CHOICE' || selected !== null) &&
+    (quiz.type !== 'FILL_BLANK' || !!text.trim()) &&
+    (quiz.type !== 'OX' || !!ox);
+  useQuizFooter(
+    quiz.quizId,
+    canCheck,
+    () => void task.run(() => submit(answer()), onGraded),
+    registerFooter,
+  );
   return (
     <View style={[quizStyles.layout, stage && isWireframeQuiz && quizStyles.stage]}>
       <Text style={isWireframeQuiz ? quizStyles.question : styles.subtitle}>{quiz.question}</Text>
@@ -166,7 +183,7 @@ export function QuizCard({
           선택지 형식 확인 대기. 개발자 진단 화면에서 서버 응답을 확인하세요.
         </Text>
       ) : null}
-      {!(stage && isWireframeQuiz && task.result) ? (
+      {!registerFooter && !(stage && isWireframeQuiz && task.result) ? (
         <View style={stage && isWireframeQuiz && quizStyles.checkArea}>
           <QuizAction
             label="정답 확인"

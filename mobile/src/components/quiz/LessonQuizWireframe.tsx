@@ -7,6 +7,7 @@ import type { AnswerResult, Quiz as LegacyQuiz, QuizAnswer } from '../../integra
 import { QuizCard } from '../../integration/user/QuizCard';
 import { AnimatedReveal } from '../../integration/user/AnimatedReveal';
 import { QuizRenderer } from './QuizRenderer';
+import { useQuizFooter, type RegisterQuizFooter } from '../../integration/user/quizFooter';
 
 const labels: Record<InteractiveQuiz['interactionType'], string> = {
   SLIDER: '값 움직이기',
@@ -27,6 +28,7 @@ export function LessonQuizWireframe({
   submitLegacy,
   onAnswered,
   stage = false,
+  registerFooter,
 }: {
   lessonId: number;
   quiz: LegacyQuiz;
@@ -34,6 +36,7 @@ export function LessonQuizWireframe({
   submitLegacy: (answer: QuizAnswer) => Promise<AnswerResult>;
   onAnswered: () => void;
   stage?: boolean;
+  registerFooter?: RegisterQuizFooter;
 }) {
   const [quiz, setQuiz] = useState<InteractiveQuiz | null>(null);
   const [response, setResponse] = useState<QuizResponse | null>(null);
@@ -66,29 +69,9 @@ export function LessonQuizWireframe({
     };
   }, [lessonId]);
 
-  if (loading) return <ActivityIndicator accessibilityLabel="퀴즈 불러오는 중" />;
-  if (!quiz || !response) {
-    return (
-      <View style={s.card}>
-        {error ? <Text style={s.error}>{error}</Text> : null}
-        <QuizCard
-          quiz={legacyQuiz}
-          disabled={disabled}
-          submit={submitLegacy}
-          onGraded={onAnswered}
-          stage={stage}
-        />
-      </View>
-    );
-  }
-  const issue = responseIssue(quiz, response);
-  const wireframeType =
-    quiz.interactionType === 'MULTIPLE_CHOICE' ||
-    quiz.interactionType === 'SLIDER' ||
-    quiz.interactionType === 'MATCHING' ||
-    quiz.interactionType === 'FILL_BLANK';
+  const issue = quiz && response ? responseIssue(quiz, response) : '퀴즈 불러오는 중';
   const submit = async () => {
-    if (busy || disabled || issue) return;
+    if (!quiz || !response || busy || disabled || issue) return;
     setBusy(true);
     setError(null);
     try {
@@ -101,6 +84,34 @@ export function LessonQuizWireframe({
       setBusy(false);
     }
   };
+  useQuizFooter(
+    legacyQuiz.quizId,
+    !!quiz && !!response && !disabled && !busy && !issue && !result,
+    () => void submit(),
+    registerFooter,
+  );
+
+  if (loading) return <ActivityIndicator accessibilityLabel="퀴즈 불러오는 중" />;
+  if (!quiz || !response) {
+    return (
+      <View style={s.card}>
+        {error ? <Text style={s.error}>{error}</Text> : null}
+        <QuizCard
+          quiz={legacyQuiz}
+          disabled={disabled}
+          submit={submitLegacy}
+          onGraded={onAnswered}
+          stage={stage}
+          registerFooter={registerFooter}
+        />
+      </View>
+    );
+  }
+  const wireframeType =
+    quiz.interactionType === 'MULTIPLE_CHOICE' ||
+    quiz.interactionType === 'SLIDER' ||
+    quiz.interactionType === 'MATCHING' ||
+    quiz.interactionType === 'FILL_BLANK';
   return (
     <View style={[s.card, wireframeType && s.wireframeCard, stage && wireframeType && s.stage]}>
       {!(stage && wireframeType) ? (
@@ -124,7 +135,9 @@ export function LessonQuizWireframe({
           if (next.completed) onAnswered();
         }}
       />
-      {quiz.interactionType !== 'FLIP_CARD' && !(stage && wireframeType && disabled) ? (
+      {!registerFooter &&
+      quiz.interactionType !== 'FLIP_CARD' &&
+      !(stage && wireframeType && disabled) ? (
         <>
           {issue ? <Text style={s.instruction}>{issue}</Text> : null}
           <Pressable

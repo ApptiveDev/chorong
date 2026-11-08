@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { integrationApi as api, client } from '../runtime';
@@ -9,6 +9,7 @@ import { QuizCard } from './QuizCard';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { UserScreen, UserStatus } from './Screen';
+import type { RegisterQuizFooter } from './quizFooter';
 
 export function ReviewScreen() {
   const { lessonId } = useLocalSearchParams<{ lessonId?: string }>(),
@@ -20,6 +21,14 @@ export function ReviewScreen() {
     [position, setPosition] = useState(0);
   const [sessionKey, setSessionKey] = useState('');
   const [exitOpen, setExitOpen] = useState(false);
+  const [quizFooter, setQuizFooter] = useState<{
+    quizId: number;
+    enabled: boolean;
+    onPress: () => void;
+  } | null>(null);
+  const registerQuizFooter = useCallback<RegisterQuizFooter>((quizId, enabled, onPress) => {
+    setQuizFooter({ quizId, enabled, onPress });
+  }, []);
   const loadedFor = useRef<string | null>(null);
   const load = () =>
     task.run(async () => {
@@ -102,6 +111,7 @@ export function ReviewScreen() {
                   disabled={done.includes(current.reviewItemId)}
                   submit={(answer) => api.review.answer(current.reviewItemId, answer)}
                   onGraded={() => setDone((old) => [...old, current.reviewItemId])}
+                  registerFooter={registerQuizFooter}
                 />
               ) : (
                 <QuizCard
@@ -112,24 +122,42 @@ export function ReviewScreen() {
                     setDone((old) => [...old, current.reviewItemId])
                   }
                   stage
+                  registerFooter={registerQuizFooter}
                 />
               )}
             </ScrollView>
           </AnimatedReveal>
         </View>
       ) : null}
-      {current && !notice && done.includes(current.reviewItemId) ? (
+      {current && !notice ? (
         <View style={reviewStyles.footer}>
           <Pressable
             accessibilityRole="button"
-            disabled={task.busy}
-            style={[reviewStyles.primary, task.busy && reviewStyles.disabled]}
-            onPress={() =>
-              position === items.length - 1 ? void complete() : setPosition(position + 1)
+            disabled={
+              task.busy ||
+              (!done.includes(current.reviewItemId) &&
+                (quizFooter?.quizId !== current.quiz.quizId || !quizFooter?.enabled))
+            }
+            style={[
+              reviewStyles.primary,
+              (task.busy ||
+                (!done.includes(current.reviewItemId) &&
+                  (quizFooter?.quizId !== current.quiz.quizId || !quizFooter?.enabled))) &&
+                reviewStyles.disabled,
+            ]}
+            onPress={
+              done.includes(current.reviewItemId)
+                ? () =>
+                    position === items.length - 1 ? void complete() : setPosition(position + 1)
+                : () => quizFooter?.onPress()
             }
           >
             <Text style={reviewStyles.primaryText}>
-              {position === items.length - 1 ? '복습 완료' : '다음'}
+              {!done.includes(current.reviewItemId)
+                ? '정답 확인'
+                : position === items.length - 1
+                  ? '복습 완료'
+                  : '다음'}
             </Text>
           </Pressable>
         </View>

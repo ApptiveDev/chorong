@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -31,6 +31,7 @@ import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { HomeStars } from './CoursesScreen';
+import type { RegisterQuizFooter } from './quizFooter';
 
 export default function StudyScreen() {
   const { generation } = useIntegration();
@@ -55,6 +56,14 @@ function Study() {
   const [lessonDone, setLessonDone] = useState(false),
     [reward, setReward] = useState<LessonCompleteResponse | null>(null);
   const [showConstellation, setShowConstellation] = useState(false);
+  const [quizFooter, setQuizFooter] = useState<{
+    quizId: number;
+    enabled: boolean;
+    onPress: () => void;
+  } | null>(null);
+  const registerQuizFooter = useCallback<RegisterQuizFooter>((quizId, enabled, onPress) => {
+    setQuizFooter({ quizId, enabled, onPress });
+  }, []);
   const [constellationName, setConstellationName] = useState('별자리');
   const [constellationDate, setConstellationDate] = useState<string | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
@@ -232,6 +241,9 @@ function Study() {
         </View>
       ) : null}
       <UserStatus task={task} />
+      {replay && !lessonDone ? (
+        <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
+      ) : null}
       {start?.reviewRequired ? (
         <>
           <Text style={styles.text}>복습을 마친 뒤 이 레슨을 다시 시작하세요.</Text>
@@ -346,6 +358,7 @@ function Study() {
                         onGraded={() =>
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
+                        registerFooter={registerQuizFooter}
                       />
                     ) : useMockApi ? (
                       <LessonQuizWireframe
@@ -360,6 +373,7 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         stage
+                        registerFooter={registerQuizFooter}
                       />
                     ) : (
                       <QuizCard
@@ -373,6 +387,7 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         stage
+                        registerFooter={registerQuizFooter}
                       />
                     )
                   ) : null}
@@ -404,25 +419,13 @@ function Study() {
               </>
             ) : (
               <>
-                {replay ? (
-                  <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
-                ) : null}
-                {!lessonDone && position > 0 ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={task.busy}
-                    onPress={() => setPosition(position - 1)}
-                    style={s.previous}
-                  >
-                    <Text style={s.previousText}>이전</Text>
-                  </Pressable>
-                ) : null}
-                {current?.contentType !== 'QUIZ' ||
-                answered.has(current.contentId) ||
-                lessonDone ? (
-                  <StudyAction
-                    label={
-                      lessonDone
+                <StudyAction
+                  label={
+                    !lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId)
+                      ? '정답 확인'
+                      : lessonDone
                         ? !firstGuestStudy && constellationCompleted
                           ? '완성한 별자리 보기'
                           : '완료'
@@ -431,17 +434,21 @@ function Study() {
                           : last
                             ? '레슨 완료'
                             : '다음'
-                    }
-                    secondary={current?.contentType === 'TEXT' && !lessonDone}
-                    disabled={
-                      !current ||
-                      task.busy ||
-                      (!lessonDone &&
-                        current?.contentType === 'QUIZ' &&
-                        !answered.has(current.contentId))
-                    }
-                    onPress={
-                      lessonDone
+                  }
+                  secondary={current?.contentType === 'TEXT' && !lessonDone}
+                  disabled={
+                    !current ||
+                    task.busy ||
+                    (current.contentType === 'QUIZ' &&
+                      !answered.has(current.contentId) &&
+                      (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
+                  }
+                  onPress={
+                    !lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId)
+                      ? () => quizFooter?.onPress()
+                      : lessonDone
                         ? () =>
                             firstGuestStudy
                               ? finishStudyFlow()
@@ -451,9 +458,20 @@ function Study() {
                         : replay && last
                           ? leaveStudy
                           : () => void advance()
-                    }
-                  />
-                ) : null}
+                  }
+                />
+                <View style={s.previousSlot}>
+                  {!lessonDone && position > 0 ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={task.busy}
+                      onPress={() => setPosition(position - 1)}
+                      style={s.previous}
+                    >
+                      <Text style={s.previousText}>이전</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </>
             )}
           </View>
@@ -758,6 +776,7 @@ const s = StyleSheet.create({
   media: { height: 220, width: '100%' },
   htmlMedia: { height: 267 },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
+  previousSlot: { minHeight: 28, justifyContent: 'center' },
   previous: { alignSelf: 'center', minHeight: 28, paddingHorizontal: 12, justifyContent: 'center' },
   previousText: { color: '#8e8498', fontSize: 12 },
   hint: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
