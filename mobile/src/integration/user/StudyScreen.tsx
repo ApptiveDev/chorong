@@ -265,7 +265,7 @@ function Study() {
       title={params.title ?? '학습'}
       scroll={false}
       showTitle={false}
-      completion={completionView}
+      dark={completionView}
     >
       {completionView ? <StatusBar style="light" /> : null}
       {start ? (
@@ -318,7 +318,7 @@ function Study() {
           <StudyAction
             label="복습하기"
             onPress={() =>
-              router.push({ pathname: '/review', params: { lessonId: String(lessonId) } })
+              router.push({ pathname: '/review-start', params: { lessonId: String(lessonId) } })
             }
           />
         </>

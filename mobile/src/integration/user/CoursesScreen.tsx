@@ -218,7 +218,7 @@ function Courses() {
               </View>
               <View style={s.reviewEntry}>
                 <Text style={s.reviewPrompt}>배운 내용을 떠올려볼까요?</Text>
-                <Pressable accessibilityRole="button" onPress={() => router.push('/review')}>
+                <Pressable accessibilityRole="button" onPress={() => router.push('/review-start')}>
                   <Text style={s.textLink}>복습하기 ›</Text>
                 </Pressable>
               </View>
