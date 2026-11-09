@@ -76,7 +76,12 @@ export default function ReviewStartScreen() {
           pointerEvents="none"
           style={[
             s.orbits,
-            { top: top(12), left: 33.5 * scale, width: 679 * scale, height: 848 * scale },
+            {
+              top: top(12),
+              left: canvas.width - 361.5 * scale,
+              width: 679 * scale,
+              height: 848 * scale,
+            },
           ]}
         >
           <ReviewOrbits />
@@ -170,6 +175,7 @@ const s = StyleSheet.create({
     borderWidth: 4,
     borderColor: '#161616',
     borderRadius: 8,
+    boxShadow: '0px 0px 10px 0px #161616',
   },
   cardTitleWrap: {
     alignItems: 'center',
