@@ -11,7 +11,6 @@ import { useQuizFooter, type RegisterQuizFooter } from '../../integration/user/q
 
 const labels: Record<InteractiveQuiz['interactionType'], string> = {
   SLIDER: '값 움직이기',
-  SWIPE: '좌우로 밀기',
   TAP: '카드 고르기',
   DRAG_DROP: '끌어 놓기',
   SORT: '순서 바꾸기',

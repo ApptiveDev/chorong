@@ -6,7 +6,6 @@ import { MatchingQuiz } from './MatchingQuiz';
 import { SelectionQuiz } from './SelectionQuiz';
 import { SliderQuiz } from './SliderQuiz';
 import { SortQuiz } from './SortQuiz';
-import { SwipeQuiz } from './SwipeQuiz';
 
 export function QuizRenderer({
   quiz,
@@ -57,15 +56,6 @@ export function QuizRenderer({
               ? response.value
               : quiz.config.min
           }
-          onChange={(value) => onChange({ value })}
-          disabled={disabled}
-        />
-      );
-    case 'SWIPE':
-      return (
-        <SwipeQuiz
-          config={quiz.config}
-          value={'value' in response && typeof response.value === 'string' ? response.value : ''}
           onChange={(value) => onChange({ value })}
           disabled={disabled}
         />

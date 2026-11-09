@@ -76,16 +76,6 @@ export function prepareQuiz(raw: QuizSummary): Quiz {
         }
         break;
       }
-      case 'SWIPE':
-        valid =
-          object(c.left) &&
-          object(c.right) &&
-          text(c.left.value) &&
-          text(c.left.label) &&
-          text(c.right.value) &&
-          text(c.right.label) &&
-          c.left.value !== c.right.value;
-        break;
       case 'TAP':
         valid = selection(c.items);
         break;
@@ -133,8 +123,6 @@ export function initialResponse(quiz: Quiz): QuizResponse {
   switch (quiz.interactionType) {
     case 'SLIDER':
       return { value: quiz.config.initialValue ?? quiz.config.min };
-    case 'SWIPE':
-      return { value: '' };
     case 'TAP':
       return { selectedItemIds: [] };
     case 'MULTIPLE_CHOICE':
@@ -156,12 +144,6 @@ export function responseIssue(quiz: Quiz, response: QuizResponse): string | null
   switch (quiz.interactionType) {
     case 'SLIDER':
       return 'value' in response && finite(response.value) ? null : '슬라이더 값을 선택해 주세요.';
-    case 'SWIPE':
-      return 'value' in response &&
-        typeof response.value === 'string' &&
-        [quiz.config.left.value, quiz.config.right.value].includes(response.value)
-        ? null
-        : '왼쪽 또는 오른쪽 답을 선택해 주세요.';
     case 'TAP':
       return 'selectedItemIds' in response && response.selectedItemIds.length
         ? null

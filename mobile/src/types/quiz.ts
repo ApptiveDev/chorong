@@ -12,7 +12,6 @@ export type SliderConfig = {
 export type SelectionConfig = { selectionType: 'SINGLE' | 'MULTIPLE'; maxSelections?: number };
 export type QuizConfigs = {
   SLIDER: SliderConfig;
-  SWIPE: { left: { value: string; label: string }; right: { value: string; label: string } };
   TAP: SelectionConfig & { items: QuizItem[] };
   MULTIPLE_CHOICE: SelectionConfig & { options: QuizItem[] };
   DRAG_DROP: { items: QuizItem[]; targets: QuizItem[] };
@@ -39,7 +38,6 @@ export type Quiz = {
   };
 }[InteractionType];
 export type SliderUserResponse = { value: number };
-export type SwipeUserResponse = { value: string };
 export type TapUserResponse = { selectedItemIds: string[] };
 export type MultipleChoiceUserResponse = { selectedOptionIds: string[] };
 export type DragDropUserResponse = { placements: Record<string, string> };
@@ -50,7 +48,6 @@ export type FlipCardUserResponse = { pairs: CardPair[] };
 export type FillBlankUserResponse = { texts: string[] };
 export type QuizUserResponses = {
   SLIDER: SliderUserResponse;
-  SWIPE: SwipeUserResponse;
   TAP: TapUserResponse;
   MULTIPLE_CHOICE: MultipleChoiceUserResponse;
   DRAG_DROP: DragDropUserResponse;
