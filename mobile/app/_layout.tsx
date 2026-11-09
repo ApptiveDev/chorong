@@ -15,6 +15,18 @@ export default function RootLayout() {
       display: FontDisplay.BLOCK,
     },
     KimmLight: { uri: require('../assets/fonts/KIMM_Light.ttf'), display: FontDisplay.BLOCK },
+    PretendardBold: {
+      uri: require('../assets/fonts/Pretendard-Bold.otf'),
+      display: FontDisplay.BLOCK,
+    },
+    PretendardLight: {
+      uri: require('../assets/fonts/Pretendard-Light.otf'),
+      display: FontDisplay.BLOCK,
+    },
+    PretendardRegular: {
+      uri: require('../assets/fonts/Pretendard-Regular.otf'),
+      display: FontDisplay.BLOCK,
+    },
   });
 
   if (fontError) throw fontError;

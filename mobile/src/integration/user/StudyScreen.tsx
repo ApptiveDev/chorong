@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Animated,
   Easing,
   Image,
-  type ImageStyle,
+  type ImageSourcePropType,
   Linking,
   Modal,
   Platform,
@@ -13,8 +14,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type {
   Content,
   LessonStartResponse,
@@ -33,12 +36,27 @@ import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { HomeStars } from './CoursesScreen';
 import type { RegisterQuizFooter } from './quizFooter';
 
+const completionStarSource = require('../../../assets/completion-star.png');
+const completionArcSource = require('../../../assets/completion-arc.png');
+const completionDustSource = require('../../../assets/completion-dust.png');
+const localStudyImages: Record<string, ImageSourcePropType> = {
+  'mock-study-fusion': require('../../../assets/study-fusion.png'),
+  'mock-study-mass': require('../../../assets/study-mass.png'),
+  'mock-study-star': require('../../../assets/study-star.png'),
+};
+
+function studyImageSource(mediaUrl: string): ImageSourcePropType {
+  return localStudyImages[mediaUrl] ?? { uri: mediaUrl };
+}
+
 export default function StudyScreen() {
   const { generation } = useIntegration();
   return <Study key={generation} />;
 }
 function Study() {
   const session = useIntegration();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
       lessonId: string;
       replay?: string;
@@ -109,6 +127,32 @@ function Study() {
       active = false;
     };
   }, [lessonId, replay]);
+  useEffect(() => {
+    if (!start) return;
+    const urls = new Set(
+      start.contents
+        .filter((content) => content.contentType === 'IMAGE' && content.mediaUrl)
+        .map((content) => content.mediaUrl!)
+        .filter((url) => !localStudyImages[url]),
+    );
+    urls.forEach((url) => {
+      void Image.prefetch(url).catch(() => false);
+    });
+  }, [start]);
+  const preloadSources: { source: ImageSourcePropType; width: number; height: number }[] = start
+    ? [
+        { source: completionStarSource, width: 212, height: 212 },
+        { source: completionArcSource, width: 402, height: 463 },
+        { source: completionDustSource, width: 18, height: 20 },
+        ...Object.entries(localStudyImages)
+          .filter(([mediaUrl]) =>
+            start.contents.some(
+              (content) => content.contentType === 'IMAGE' && content.mediaUrl === mediaUrl,
+            ),
+          )
+          .map(([, source]) => ({ source, width: 354, height: 267 })),
+      ]
+    : [];
   const contents = start?.contents ?? [],
     current = contents[position];
   const progressLabel = current?.quiz?.options?.mockHtmlType
@@ -211,9 +255,27 @@ function Study() {
     ? (reward?.rewards.filter((item) => item.type === 'WALLET' && item.currency === 'STARDUST')[1]
         ?.amount ?? 0)
     : 0;
+  const completionView = Boolean(
+    start && !start.reviewRequired && lessonDone && !showConstellation,
+  );
+  const completionScale = Math.min(Math.min(windowWidth, 480) / 402, windowHeight / 874, 1);
+  const completionTop = (value: number) => Math.max(0, value * completionScale - insets.top);
   return (
-    <UserScreen title={params.title ?? '학습'} scroll={false} showTitle={false}>
-      {!showConstellation ? (
+    <UserScreen
+      title={params.title ?? '학습'}
+      scroll={false}
+      showTitle={false}
+      completion={completionView}
+    >
+      {completionView ? <StatusBar style="light" /> : null}
+      {start ? (
+        <View pointerEvents="none" style={s.imagePreload}>
+          {preloadSources.map(({ source, width, height }, index) => (
+            <Image key={index} source={source} style={{ width, height }} />
+          ))}
+        </View>
+      ) : null}
+      {!showConstellation && !completionView ? (
         <View style={s.header}>
           <Pressable
             accessibilityRole="button"
@@ -240,7 +302,13 @@ function Study() {
           </View>
         </View>
       ) : null}
-      <UserStatus task={task} />
+      {completionView ? (
+        <View style={s.completionStatus}>
+          <UserStatus task={task} />
+        </View>
+      ) : (
+        <UserStatus task={task} />
+      )}
       {replay && !lessonDone ? (
         <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
       ) : null}
@@ -282,16 +350,46 @@ function Study() {
               </View>
             ) : lessonDone ? (
               <View style={s.completion}>
-                <CompletionStar />
-                <Text style={s.resultTitle}>학습을 마쳤어요</Text>
-                <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
+                <Image
+                  source={completionArcSource}
+                  resizeMode="stretch"
+                  style={[
+                    s.completionArc,
+                    {
+                      top: completionTop(209),
+                      height: 463 * completionScale,
+                    },
+                  ]}
+                />
+                <View style={[s.completionStarWrap, { top: completionTop(124) }]}>
+                  <CompletionStar size={212 * completionScale} />
+                </View>
+                <Text style={[s.resultTitle, { top: completionTop(400) }]}>별을 밝혔어요 !</Text>
+                <View style={[s.resultSubtitleUnderline, { top: completionTop(458) }]}>
+                  <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
+                </View>
                 {stardustReward > 0 ? (
-                  <Text style={s.rewardAmount}>별가루 +{stardustReward}</Text>
+                  <View style={[s.rewardRow, { top: completionTop(520) }]}>
+                    <Image
+                      source={completionDustSource}
+                      style={s.rewardIcon}
+                      resizeMode="contain"
+                    />
+                    <Text style={s.rewardAmount}>별가루 +{stardustReward}</Text>
+                  </View>
                 ) : null}
-                {constellationCompleted ? <Text style={s.hint}>별자리가 완성되었어요.</Text> : null}
-                {wallet ? <Text style={s.body}>✦ {wallet.stardust}</Text> : null}
-                {refreshNotice.startsWith('완료 처리됨') ? (
-                  <Text style={s.hint}>{refreshNotice}</Text>
+                {constellationCompleted || wallet || refreshNotice.startsWith('완료 처리됨') ? (
+                  <View style={[s.completionDetails, { top: completionTop(556) }]}>
+                    {constellationCompleted ? (
+                      <Text style={s.completionDetail}>별자리가 완성되었어요.</Text>
+                    ) : null}
+                    {wallet ? (
+                      <Text style={s.completionBalance}>보유 별가루: {wallet.stardust}</Text>
+                    ) : null}
+                    {refreshNotice.startsWith('완료 처리됨') ? (
+                      <Text style={s.completionDetail}>{refreshNotice}</Text>
+                    ) : null}
+                  </View>
                 ) : null}
               </View>
             ) : current?.contentType === 'TEXT' ? (
@@ -321,15 +419,7 @@ function Study() {
                       <Text style={s.conceptTitle}>{progressLabel}</Text>
                       <View style={s.conceptImage}>
                         <Image
-                          source={
-                            current.mediaUrl === 'mock-study-fusion'
-                              ? require('../../../assets/study-fusion.png')
-                              : current.mediaUrl === 'mock-study-mass'
-                                ? require('../../../assets/study-mass.png')
-                                : current.mediaUrl === 'mock-study-star'
-                                  ? require('../../../assets/study-star.png')
-                                  : { uri: current.mediaUrl }
-                          }
+                          source={studyImageSource(current.mediaUrl)}
                           style={[
                             s.media,
                             current.mediaUrl.startsWith('mock-study-') && s.htmlMedia,
@@ -402,7 +492,13 @@ function Study() {
               </View>
             )}
           </View>
-          <View style={s.footer}>
+          <View
+            style={[
+              s.footer,
+              completionView && s.completionFooter,
+              completionView && { bottom: Math.max(12, 89 * completionScale - insets.bottom) },
+            ]}
+          >
             {showConstellation ? (
               <>
                 <StudyAction
@@ -420,15 +516,14 @@ function Study() {
             ) : (
               <>
                 <StudyAction
+                  completion={completionView}
                   label={
                     !lessonDone &&
                     current?.contentType === 'QUIZ' &&
                     !answered.has(current.contentId)
                       ? '정답 확인'
                       : lessonDone
-                        ? !firstGuestStudy && constellationCompleted
-                          ? '완성한 별자리 보기'
-                          : '완료'
+                        ? '완료'
                         : replay && last
                           ? '레슨 목록'
                           : last
@@ -460,18 +555,20 @@ function Study() {
                           : () => void advance()
                   }
                 />
-                <View style={s.previousSlot}>
-                  {!lessonDone && position > 0 ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={task.busy}
-                      onPress={() => setPosition(position - 1)}
-                      style={s.previous}
-                    >
-                      <Text style={s.previousText}>이전</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+                {!completionView ? (
+                  <View style={s.previousSlot}>
+                    {!lessonDone && position > 0 ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={task.busy}
+                        onPress={() => setPosition(position - 1)}
+                        style={s.previous}
+                      >
+                        <Text style={s.previousText}>이전</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </>
             )}
           </View>
@@ -546,11 +643,13 @@ function StudyAction({
   onPress,
   secondary = false,
   disabled = false,
+  completion = false,
 }: {
   label: string;
   onPress: () => void;
   secondary?: boolean;
   disabled?: boolean;
+  completion?: boolean;
 }) {
   return (
     <Pressable
@@ -558,9 +657,18 @@ function StudyAction({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[s.action, secondary && s.secondary, disabled && s.disabled]}
+      style={[
+        s.action,
+        secondary && s.secondary,
+        completion && s.completionAction,
+        disabled && s.disabled,
+      ]}
     >
-      <Text style={[s.actionText, secondary && s.secondaryText]}>{label}</Text>
+      <Text
+        style={[s.actionText, secondary && s.secondaryText, completion && s.completionActionText]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -653,7 +761,7 @@ function DialogueText({
   );
 }
 
-function CompletionStar() {
+function CompletionStar({ size }: { size: number }) {
   const progress = useRef(new Animated.Value(0)).current;
   const started = useRef(false);
   useEffect(() => {
@@ -681,12 +789,9 @@ function CompletionStar() {
       }}
     >
       <Image
-        source={require('../../../assets/study-result-star.png')}
+        source={completionStarSource}
         onLoad={reveal}
-        style={[
-          s.resultStar,
-          Platform.OS === 'web' ? ({ imageRendering: 'pixelated' } as unknown as ImageStyle) : null,
-        ]}
+        style={{ width: size, height: size }}
         resizeMode="contain"
       />
     </Animated.View>
@@ -701,17 +806,66 @@ const s = StyleSheet.create({
   segmentOn: { backgroundColor: '#494050' },
   back: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38 },
   progress: { color: '#888591', fontSize: 12 },
-  resultTitle: { color: '#282636', fontSize: 21, fontWeight: '700', textAlign: 'center' },
-  resultSubtitle: { color: '#888591', fontSize: 14, textAlign: 'center' },
-  rewardAmount: {
-    color: '#aa8746',
-    backgroundColor: '#faf6ec',
-    borderRadius: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    fontWeight: '700',
+  resultTitle: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    color: '#f1f1f1',
+    fontSize: 24,
+    fontFamily: 'PretendardBold',
+    textAlign: 'center',
+    textShadowColor: '#f1f1f1',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
   },
-  completion: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 17 },
+  resultSubtitleUnderline: {
+    position: 'absolute',
+    alignSelf: 'center',
+    maxWidth: '80%',
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#aaa',
+  },
+  resultSubtitle: {
+    color: '#aaa',
+    fontSize: 14,
+    lineHeight: 16,
+    includeFontPadding: false,
+    fontFamily: 'PretendardLight',
+    textAlign: 'center',
+  },
+  rewardAmount: {
+    color: '#ffde23',
+    fontSize: 16,
+    fontFamily: 'PretendardLight',
+    textShadowColor: '#f1f1f1',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 2,
+  },
+  completion: { flex: 1, alignItems: 'center', backgroundColor: '#161616' },
+  imagePreload: { position: 'absolute', width: 1, height: 1, opacity: 0 },
+  completionStatus: { position: 'absolute', top: 4, alignSelf: 'center', zIndex: 2 },
+  completionArc: { position: 'absolute', left: 0, right: 0, width: '100%' },
+  completionStarWrap: { position: 'absolute', alignSelf: 'center' },
+  rewardRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  rewardIcon: { width: 18, height: 20 },
+  completionDetails: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: 3 },
+  completionDetail: { color: '#aaa', fontSize: 12, fontFamily: 'PretendardLight' },
+  completionBalance: {
+    color: '#aaa',
+    fontSize: 12,
+    fontFamily: 'PretendardRegular',
+    fontWeight: '400',
+    textAlign: 'center',
+  },
   constellationCompletion: {
     flex: 1,
     alignItems: 'center',
@@ -776,6 +930,16 @@ const s = StyleSheet.create({
   media: { height: 220, width: '100%' },
   htmlMedia: { height: 267 },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
+  completionFooter: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: '80%',
+    maxWidth: 322,
+    height: 48,
+    paddingBottom: 0,
+    gap: 0,
+    backgroundColor: 'transparent',
+  },
   previousSlot: { minHeight: 28, justifyContent: 'center' },
   previous: { alignSelf: 'center', minHeight: 28, paddingHorizontal: 12, justifyContent: 'center' },
   previousText: { color: '#8e8498', fontSize: 12 },
@@ -790,10 +954,21 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
   },
   actionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  completionAction: {
+    minHeight: 48,
+    borderRadius: 4,
+    backgroundColor: '#f1f1f1',
+    boxShadow: '0px 0px 4px 0px #f1f1f1',
+  },
+  completionActionText: {
+    color: '#161616',
+    fontSize: 16,
+    fontFamily: 'PretendardRegular',
+    fontWeight: '400',
+  },
   secondary: { backgroundColor: '#f3f1f6' },
   secondaryText: { color: '#655b76' },
   disabled: { opacity: 0.45 },
-  resultStar: { width: 125, height: 125 },
   modalOverlay: {
     flex: 1,
     backgroundColor: '#34273c63',

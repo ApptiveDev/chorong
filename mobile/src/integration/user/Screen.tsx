@@ -10,12 +10,14 @@ export function UserScreen({
   member = false,
   scroll = true,
   showTitle = true,
+  completion = false,
 }: {
   title: string;
   children: ReactNode;
   member?: boolean;
   scroll?: boolean;
   showTitle?: boolean;
+  completion?: boolean;
 }) {
   const session = useIntegration();
   const content = (
@@ -36,7 +38,7 @@ export function UserScreen({
   );
   return (
     <SafeAreaView
-      style={screenStyles.safe}
+      style={[screenStyles.safe, completion && screenStyles.completionSafe]}
       edges={scroll ? ['top', 'right', 'left'] : ['top', 'right', 'bottom', 'left']}
     >
       {scroll ? (
@@ -44,7 +46,9 @@ export function UserScreen({
           {content}
         </ScrollView>
       ) : (
-        <View style={screenStyles.fixedPage}>{content}</View>
+        <View style={[screenStyles.fixedPage, completion && screenStyles.completionPage]}>
+          {content}
+        </View>
       )}
     </SafeAreaView>
   );
@@ -52,6 +56,8 @@ export function UserScreen({
 const screenStyles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
   fixedPage: { flex: 1, minHeight: 0, paddingHorizontal: 18, paddingTop: 12, gap: 8 },
+  completionSafe: { backgroundColor: '#161616' },
+  completionPage: { paddingHorizontal: 0, paddingTop: 0, gap: 0, overflow: 'hidden' },
 });
 export function UserStatus({ task }: { task: ReturnType<typeof useTask> }) {
   const message = task.error?.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '');
