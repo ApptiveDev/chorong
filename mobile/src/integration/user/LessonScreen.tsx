@@ -108,32 +108,19 @@ export default function LessonScreen() {
                   lessonId: String(lesson.lessonId),
                   title: lesson.title,
                   resume: currentStatus === 'IN_PROGRESS' ? 'true' : 'false',
+                  replay: currentStatus === 'COMPLETED' ? 'true' : 'false',
                 },
               })
             }
           >
             <Text style={s.primaryText}>
-              {currentStatus === 'IN_PROGRESS' ? '이어하기' : '학습 시작'}
+              {currentStatus === 'COMPLETED'
+                ? '다시 학습하기'
+                : currentStatus === 'IN_PROGRESS'
+                  ? '이어하기'
+                  : '학습 시작'}
             </Text>
           </Pressable>
-          {currentStatus === 'COMPLETED' ? (
-            <Pressable
-              accessibilityRole="button"
-              style={s.secondary}
-              onPress={() =>
-                router.push({
-                  pathname: '/learn/study/[lessonId]',
-                  params: {
-                    lessonId: String(lesson.lessonId),
-                    replay: 'true',
-                    title: lesson.title,
-                  },
-                })
-              }
-            >
-              <Text style={s.secondaryText}>다시 학습하기</Text>
-            </Pressable>
-          ) : null}
         </>
       ) : null}
       {task.error ? (

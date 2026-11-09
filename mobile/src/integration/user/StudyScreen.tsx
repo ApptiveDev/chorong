@@ -117,11 +117,13 @@ function Study() {
           : data.contents.findIndex((c) => c.contentId === data.progress.lastContentId);
       if (data.progress.lastContentId !== null && lastIndex < 0)
         throw new Error('완료 위치가 콘텐츠 목록에 없습니다.');
-      setPosition(index);
-      setResumePosition(index);
+      setPosition(replay ? 0 : index);
+      setResumePosition(replay ? 0 : index);
       if (!replay && (params.resume === 'true' || data.progress.lastContentId !== null))
         setResumeOpen(true);
-      setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
+      setCompleted(
+        replay ? new Set() : new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)),
+      );
       return data;
     });
     return () => {
