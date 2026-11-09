@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -8,11 +9,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  type TextStyle,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { useTask } from '../hooks';
+import { useIntegration, useTask } from '../hooks';
 import { integrationApi as api, useMockApi } from '../runtime';
 
 export function WelcomeCat({ size = 120 }: { size?: number }) {
@@ -40,9 +42,20 @@ export function WelcomeCat({ size = 120 }: { size?: number }) {
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const session = useIntegration();
   const task = useTask();
+  const [loadedImages, setLoadedImages] = useState(0);
+  const imagesReady = loadedImages === 0b111111111;
+  const sceneReady = imagesReady && session.ready;
+  const markImageLoaded = (index: number) => {
+    setLoadedImages((previous) => previous | (1 << index));
+  };
   const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
   const start = () => {
+    if (session.authenticated) {
+      router.replace('/quiz');
+      return;
+    }
     if (!platform && !useMockApi) return;
     void task.run(async () => {
       await api.account.guest(platform ?? 'ANDROID');
@@ -74,86 +87,125 @@ export default function WelcomeScreen() {
   return (
     <SafeAreaView style={s.page}>
       <StatusBar style="light" />
-      <Image
-        source={require('../../../assets/onboarding/space-background.png')}
-        style={s.background}
-        resizeMode="stretch"
-      />
-      <Image source={require('../../../assets/onboarding/star-small.png')} style={s.starTop} />
-      <Image source={require('../../../assets/onboarding/star-large.png')} style={s.starRight} />
-      <Image source={require('../../../assets/onboarding/star-medium.png')} style={s.starLeft} />
-      <Image source={require('../../../assets/onboarding/star-small-alt.png')} style={s.starMid} />
-      <Image
-        source={require('../../../assets/onboarding/star-large.png')}
-        style={s.starLowerLeft}
-      />
-      <Image
-        source={require('../../../assets/onboarding/star-small.png')}
-        style={s.starLowerSmall}
-      />
-      <Image source={require('../../../assets/onboarding/star-footer.png')} style={s.starFooter} />
-      <ScrollView contentContainerStyle={s.content}>
-        <View style={s.center}>
-          <View style={s.titleGroup}>
-            <Text allowFontScaling={false} style={s.titleSmall}>
-              작은 배움이 모이는
-            </Text>
-            <Text allowFontScaling={false} style={s.titleLarge}>
-              나만의 우주
-            </Text>
+      <View
+        style={[s.scene, !sceneReady && s.sceneHidden]}
+        pointerEvents={sceneReady ? 'auto' : 'none'}
+      >
+        <Image
+          source={require('../../../assets/onboarding/space-background.png')}
+          style={s.background}
+          resizeMode="stretch"
+          onLoadEnd={() => markImageLoaded(0)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-small.png')}
+          style={s.starTop}
+          onLoadEnd={() => markImageLoaded(1)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-large.png')}
+          style={s.starRight}
+          onLoadEnd={() => markImageLoaded(2)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-medium.png')}
+          style={s.starLeft}
+          onLoadEnd={() => markImageLoaded(3)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-small-alt.png')}
+          style={s.starMid}
+          onLoadEnd={() => markImageLoaded(4)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-large.png')}
+          style={s.starLowerLeft}
+          onLoadEnd={() => markImageLoaded(5)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-small.png')}
+          style={s.starLowerSmall}
+          onLoadEnd={() => markImageLoaded(6)}
+        />
+        <Image
+          source={require('../../../assets/onboarding/star-footer.png')}
+          style={s.starFooter}
+          onLoadEnd={() => markImageLoaded(7)}
+        />
+        <ScrollView contentContainerStyle={s.content}>
+          <View style={s.center}>
+            <View style={s.titleGroup}>
+              <Text allowFontScaling={false} style={s.titleSmall}>
+                작은 배움이 모이는
+              </Text>
+              <Text allowFontScaling={false} style={s.titleLarge}>
+                나만의 우주
+              </Text>
+            </View>
+            <Image
+              source={require('../../../assets/onboarding/orbit.png')}
+              style={s.orbit}
+              onLoadEnd={() => markImageLoaded(8)}
+            />
+            <View style={s.descriptionGroup}>
+              <Text allowFontScaling={false} style={s.description}>
+                하나의 이야기를 배우고
+              </Text>
+              <Text allowFontScaling={false} style={[s.description, s.glowingDescription]}>
+                첫 별을 밝혀보세요.
+              </Text>
+            </View>
           </View>
-          <Image source={require('../../../assets/onboarding/orbit.png')} style={s.orbit} />
-          <View style={s.descriptionGroup}>
-            <Text allowFontScaling={false} style={s.description}>
-              하나의 이야기를 배우고
-            </Text>
-            <Text allowFontScaling={false} style={[s.description, s.glowingDescription]}>
-              첫 별을 밝혀보세요.
-            </Text>
+          <View style={s.footer}>
+            {task.busy ? (
+              <ActivityIndicator accessibilityLabel="불러오는 중" color="#f1f1f1" />
+            ) : null}
+            {task.error ? (
+              <Text allowFontScaling={false} accessibilityRole="alert" style={s.error}>
+                {task.error.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '')}
+              </Text>
+            ) : null}
+            {!session.authenticated && !platform && !useMockApi ? (
+              <Text allowFontScaling={false} style={s.webNotice}>
+                웹 비회원 시작은 현재 API에서 지원하지 않습니다.
+              </Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{
+                disabled: task.busy || (!session.authenticated && !platform && !useMockApi),
+              }}
+              disabled={task.busy || (!session.authenticated && !platform && !useMockApi)}
+              onPress={start}
+              style={[
+                s.primary,
+                (task.busy || (!session.authenticated && !platform && !useMockApi)) && s.disabled,
+              ]}
+            >
+              <Text allowFontScaling={false} style={s.primaryText}>
+                첫 학습 시작하기
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/account')}
+              style={s.secondary}
+            >
+              <Text allowFontScaling={false} style={s.secondaryText}>
+                로그인 / 회원가입
+              </Text>
+            </Pressable>
           </View>
-        </View>
-        <View style={s.footer}>
-          {task.busy ? (
-            <ActivityIndicator accessibilityLabel="불러오는 중" color="#f1f1f1" />
-          ) : null}
-          {task.error ? (
-            <Text allowFontScaling={false} accessibilityRole="alert" style={s.error}>
-              {task.error.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '')}
-            </Text>
-          ) : null}
-          {!platform && !useMockApi ? (
-            <Text allowFontScaling={false} style={s.webNotice}>
-              웹 비회원 시작은 현재 API에서 지원하지 않습니다.
-            </Text>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: task.busy || (!platform && !useMockApi) }}
-            disabled={task.busy || (!platform && !useMockApi)}
-            onPress={start}
-            style={[s.primary, (task.busy || (!platform && !useMockApi)) && s.disabled]}
-          >
-            <Text allowFontScaling={false} style={s.primaryText}>
-              첫 학습 시작하기
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/account')}
-            style={s.secondary}
-          >
-            <Text allowFontScaling={false} style={s.secondaryText}>
-              로그인 / 회원가입
-            </Text>
-          </Pressable>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#161616' },
+  scene: { flex: 1 },
+  sceneHidden: { opacity: 0 },
   background: { position: 'absolute', top: 0, width: '100%', height: '100%' },
   starTop: {
     position: 'absolute',
@@ -229,11 +281,14 @@ const s = StyleSheet.create({
   orbit: { width: 145, height: 145 },
   descriptionGroup: { alignItems: 'center', gap: 12, width: 174 },
   description: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 16, textAlign: 'center' },
-  glowingDescription: {
-    textShadowColor: '#f1f1f1',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
-  },
+  glowingDescription:
+    Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 4px #f1f1f1' } as TextStyle)
+      : {
+          textShadowColor: '#f1f1f1',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 4,
+        },
   footer: { width: '100%', maxWidth: 328, gap: 16 },
   primary: {
     height: 48,

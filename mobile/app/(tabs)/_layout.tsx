@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { ActivityIndicator, type ColorValue, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,6 @@ import {
   useHouseEditing,
 } from '../../src/components/house/HouseEditingContext';
 import { useIntegration } from '../../src/integration/hooks';
-import WelcomeScreen from '../../src/integration/user/WelcomeScreen';
 
 type DockIcon = 'home' | 'ship' | 'control';
 
@@ -56,7 +55,7 @@ function TabNavigator() {
         <ActivityIndicator accessibilityLabel="계정 확인 중" />
       </View>
     );
-  if (!session.authenticated) return <WelcomeScreen />;
+  if (!session.authenticated) return <Redirect href="/welcome" />;
 
   return (
     <Tabs

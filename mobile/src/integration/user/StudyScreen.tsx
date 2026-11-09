@@ -14,6 +14,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  type TextStyle,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -814,9 +815,13 @@ const s = StyleSheet.create({
     fontSize: 24,
     fontFamily: 'PretendardBold',
     textAlign: 'center',
-    textShadowColor: '#f1f1f1',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 3,
+    ...(Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 3px #f1f1f1' } as TextStyle)
+      : {
+          textShadowColor: '#f1f1f1',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 3,
+        }),
   },
   resultSubtitleUnderline: {
     position: 'absolute',
@@ -838,9 +843,13 @@ const s = StyleSheet.create({
     color: '#ffde23',
     fontSize: 16,
     fontFamily: 'PretendardLight',
-    textShadowColor: '#f1f1f1',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 2,
+    ...(Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 2px #f1f1f1' } as TextStyle)
+      : {
+          textShadowColor: '#f1f1f1',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 2,
+        }),
   },
   completion: { flex: 1, alignItems: 'center', backgroundColor: '#161616' },
   imagePreload: { position: 'absolute', width: 1, height: 1, opacity: 0 },

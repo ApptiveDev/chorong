@@ -37,6 +37,7 @@ export default function RootLayout() {
       <WebFrame>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="welcome" options={{ headerShown: false }} />
           <Stack.Screen name="account" options={{ headerShown: false }} />
           <Stack.Screen name="preview" options={{ title: 'UI 미리보기' }} />
           <Stack.Screen name="profile" options={{ headerShown: false }} />

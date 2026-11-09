@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient, Stop } from 'react-native-svg';
 import { UserScreen } from './Screen';
@@ -154,9 +154,13 @@ const s = StyleSheet.create({
   heading: {
     color: '#f1f1f1',
     fontFamily: 'PretendardBold',
-    textShadowColor: '#f1f1f1',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 2,
+    ...(Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 2px #f1f1f1' } as TextStyle)
+      : {
+          textShadowColor: '#f1f1f1',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 2,
+        }),
   },
   card: {
     position: 'absolute',
