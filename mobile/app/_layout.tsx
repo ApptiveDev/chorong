@@ -1,9 +1,25 @@
 import { Stack } from 'expo-router';
+import { FontDisplay, useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '../src/providers/AuthProvider';
 import { WebFrame } from '../src/components/WebFrame';
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    KkakdugiRegular: {
+      uri: require('../assets/fonts/KkakdugiDrafting-Regular.ttf'),
+      display: FontDisplay.BLOCK,
+    },
+    KkakdugiBold: {
+      uri: require('../assets/fonts/KkakdugiDrafting-Bold.ttf'),
+      display: FontDisplay.BLOCK,
+    },
+    KimmLight: { uri: require('../assets/fonts/KIMM_Light.ttf'), display: FontDisplay.BLOCK },
+  });
+
+  if (fontError) throw fontError;
+  if (!fontsLoaded) return null;
+
   return (
     <AuthProvider>
       <WebFrame>

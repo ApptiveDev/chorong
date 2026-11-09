@@ -1,10 +1,19 @@
 import { useRouter } from 'expo-router';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import {
+  ActivityIndicator,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { useTask } from '../hooks';
 import { integrationApi as api, useMockApi } from '../runtime';
-import { UserStatus } from './Screen';
 
 export function WelcomeCat({ size = 120 }: { size?: number }) {
   return (
@@ -64,70 +73,189 @@ export default function WelcomeScreen() {
 
   return (
     <SafeAreaView style={s.page}>
-      <View style={s.center}>
-        <View style={s.titleGroup}>
-          <Text style={s.titleSmall}>작은 배움이 모이는</Text>
-          <Text style={s.titleLarge}>나만의 우주</Text>
+      <StatusBar style="light" />
+      <Image
+        source={require('../../../assets/onboarding/space-background.png')}
+        style={s.background}
+        resizeMode="stretch"
+      />
+      <Image source={require('../../../assets/onboarding/star-small.png')} style={s.starTop} />
+      <Image source={require('../../../assets/onboarding/star-large.png')} style={s.starRight} />
+      <Image source={require('../../../assets/onboarding/star-medium.png')} style={s.starLeft} />
+      <Image source={require('../../../assets/onboarding/star-small-alt.png')} style={s.starMid} />
+      <Image
+        source={require('../../../assets/onboarding/star-large.png')}
+        style={s.starLowerLeft}
+      />
+      <Image
+        source={require('../../../assets/onboarding/star-small.png')}
+        style={s.starLowerSmall}
+      />
+      <Image source={require('../../../assets/onboarding/star-footer.png')} style={s.starFooter} />
+      <ScrollView contentContainerStyle={s.content}>
+        <View style={s.center}>
+          <View style={s.titleGroup}>
+            <Text allowFontScaling={false} style={s.titleSmall}>
+              작은 배움이 모이는
+            </Text>
+            <Text allowFontScaling={false} style={s.titleLarge}>
+              나만의 우주
+            </Text>
+          </View>
+          <Image source={require('../../../assets/onboarding/orbit.png')} style={s.orbit} />
+          <View style={s.descriptionGroup}>
+            <Text allowFontScaling={false} style={s.description}>
+              하나의 이야기를 배우고
+            </Text>
+            <Text allowFontScaling={false} style={[s.description, s.glowingDescription]}>
+              첫 별을 밝혀보세요.
+            </Text>
+          </View>
         </View>
-        <WelcomeCat />
-        <Text style={s.description}>하나의 이야기를 배우고{'\n'}첫 별을 밝혀보세요.</Text>
-      </View>
-      <View style={s.footer}>
-        <UserStatus task={task} />
-        {!platform && !useMockApi ? (
-          <Text style={s.webNotice}>웹 비회원 시작은 현재 API에서 지원하지 않습니다.</Text>
-        ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: task.busy || (!platform && !useMockApi) }}
-          disabled={task.busy || (!platform && !useMockApi)}
-          onPress={start}
-          style={[s.primary, (task.busy || (!platform && !useMockApi)) && s.disabled]}
-        >
-          <Text style={s.primaryText}>첫 학습 시작하기</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push('/account')}
-          style={s.secondary}
-        >
-          <Text style={s.secondaryText}>로그인·회원가입</Text>
-        </Pressable>
-      </View>
+        <View style={s.footer}>
+          {task.busy ? (
+            <ActivityIndicator accessibilityLabel="불러오는 중" color="#f1f1f1" />
+          ) : null}
+          {task.error ? (
+            <Text allowFontScaling={false} accessibilityRole="alert" style={s.error}>
+              {task.error.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '')}
+            </Text>
+          ) : null}
+          {!platform && !useMockApi ? (
+            <Text allowFontScaling={false} style={s.webNotice}>
+              웹 비회원 시작은 현재 API에서 지원하지 않습니다.
+            </Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: task.busy || (!platform && !useMockApi) }}
+            disabled={task.busy || (!platform && !useMockApi)}
+            onPress={start}
+            style={[s.primary, (task.busy || (!platform && !useMockApi)) && s.disabled]}
+          >
+            <Text allowFontScaling={false} style={s.primaryText}>
+              첫 학습 시작하기
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/account')}
+            style={s.secondary}
+          >
+            <Text allowFontScaling={false} style={s.secondaryText}>
+              로그인 / 회원가입
+            </Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#fbfaff' },
+  page: { flex: 1, backgroundColor: '#161616' },
+  background: { position: 'absolute', top: 0, width: '100%', height: '100%' },
+  starTop: {
+    position: 'absolute',
+    left: '12.4%',
+    top: 79,
+    width: 52,
+    height: 52,
+  },
+  starRight: {
+    position: 'absolute',
+    right: '11.4%',
+    top: 94,
+    width: 60,
+    height: 60,
+  },
+  starLeft: {
+    position: 'absolute',
+    left: '3.2%',
+    top: 179,
+    width: 56,
+    height: 56,
+  },
+  starMid: {
+    position: 'absolute',
+    right: '14.4%',
+    top: 302,
+    width: 52,
+    height: 52,
+  },
+  starLowerLeft: {
+    position: 'absolute',
+    left: '3.2%',
+    top: 544,
+    width: 60,
+    height: 60,
+  },
+  starLowerSmall: {
+    position: 'absolute',
+    left: '10.4%',
+    top: 524,
+    width: 52,
+    height: 52,
+  },
+  starFooter: {
+    position: 'absolute',
+    right: '8.9%',
+    bottom: 28,
+    width: 64,
+    height: 64,
+  },
+  content: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 109,
+    paddingHorizontal: 32,
+    paddingTop: 40,
+    paddingBottom: 12,
+  },
   center: {
-    flex: 1,
+    width: 174,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 36,
-    paddingHorizontal: 26,
+    gap: 56,
   },
-  titleGroup: { alignItems: 'center', gap: 4 },
-  titleSmall: { color: '#27223d', fontSize: 20, textAlign: 'center' },
-  titleLarge: { color: '#211d37', fontSize: 29, fontWeight: '700', textAlign: 'center' },
-  description: { color: '#817790', fontSize: 15, lineHeight: 25, textAlign: 'center' },
-  footer: { paddingHorizontal: 26, paddingBottom: 30, gap: 10 },
+  titleGroup: { alignItems: 'center', gap: 8, width: 174 },
+  titleSmall: {
+    color: '#f1f1f1',
+    fontFamily: 'KkakdugiRegular',
+    fontSize: 24,
+    textAlign: 'center',
+  },
+  titleLarge: { color: '#f1f1f1', fontFamily: 'KkakdugiBold', fontSize: 36, textAlign: 'center' },
+  orbit: { width: 145, height: 145 },
+  descriptionGroup: { alignItems: 'center', gap: 12, width: 174 },
+  description: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 16, textAlign: 'center' },
+  glowingDescription: {
+    textShadowColor: '#f1f1f1',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  footer: { width: '100%', maxWidth: 328, gap: 16 },
   primary: {
-    minHeight: 52,
-    borderRadius: 13,
-    backgroundColor: '#302b38',
+    height: 48,
+    borderRadius: 4,
+    backgroundColor: '#f1f1f1',
     alignItems: 'center',
     justifyContent: 'center',
+    boxShadow: '0px 0px 8px 0px rgba(241, 241, 241, 0.8)',
   },
-  primaryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  primaryText: { color: '#161616', fontFamily: 'KkakdugiRegular', fontSize: 16 },
   secondary: {
-    minHeight: 52,
-    borderRadius: 13,
-    backgroundColor: '#f2f0f5',
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#f1f1f1',
+    borderRadius: 4,
+    backgroundColor: '#161616',
     alignItems: 'center',
     justifyContent: 'center',
+    boxShadow: '0px 0px 8px 0px rgba(241, 241, 241, 0.8)',
   },
-  secondaryText: { color: '#655b76', fontSize: 15, fontWeight: '600' },
+  secondaryText: { color: '#f1f1f1', fontFamily: 'KkakdugiRegular', fontSize: 16 },
   disabled: { opacity: 0.38 },
-  webNotice: { color: '#817790', fontSize: 12, textAlign: 'center' },
+  error: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 14, textAlign: 'center' },
+  webNotice: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 12, textAlign: 'center' },
 });
