@@ -48,5 +48,5 @@ web-build/
 /해야할일.md
 /diff.md
 
-# OpenAPI 명세 사본 (로컬 전용)
-docs/openapi*.yaml
+# 이전 OpenAPI 명세 (로컬 전용). 현재 명세는 docs/openapi.yaml
+docs/openapi2.yaml
