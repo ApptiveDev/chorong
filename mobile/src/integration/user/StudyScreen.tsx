@@ -34,6 +34,7 @@ import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
+import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
@@ -169,10 +170,12 @@ function Study() {
   const designedStage = quizStage || narrationStage || conceptStage;
   const oxStage = quizStage && current.quiz?.type === 'OX';
   const fillBlankStage = quizStage && !!current.quiz && hasFillBlankChoices(current.quiz);
+  const matchingStage = quizStage && !!current.quiz && hasMatchingPairs(current.quiz);
   const instantQuiz =
     quizStage &&
     (current.quiz?.type === 'OX' ||
       fillBlankStage ||
+      matchingStage ||
       (current.quiz?.type === 'MULTIPLE_CHOICE' &&
         (!useMockApi || current.quiz.options?.mockHtmlType === 'single')) ||
       current.quiz?.options?.mockHtmlType === 'blank' ||
@@ -251,20 +254,30 @@ function Study() {
       await refreshAfterDone(result);
       return result;
     });
-  const advance = async () => {
-    if (!current || task.busy || lessonDone) return;
-    if (current.contentType === 'QUIZ' && !answered.has(current.contentId)) return;
+  const advance = async (justGraded = false) => {
+    if (!current || lessonDone) return;
+    if (task.busy) {
+      if (justGraded) throw new Error('다음 콘텐츠로 이동하지 못했습니다.');
+      return;
+    }
+    if (current.contentType === 'QUIZ' && !answered.has(current.contentId) && !justGraded) return;
     if (dialogue && visibleDialogueCount < dialogue.messages.length) {
       setDialogueReveal({ contentId: current.contentId, count: visibleDialogueCount + 1 });
       return;
     }
     if (!replay && !completed.has(current.contentId)) {
       const result = await completeContent(current);
-      if (!result) return;
+      if (!result) {
+        if (justGraded) throw new Error('다음 콘텐츠로 이동하지 못했습니다.');
+        return;
+      }
       if (result.lessonCompleted) return;
     }
     if (position < contents.length - 1) setPosition(position + 1);
-    else if (!replay) await completeLesson();
+    else if (!replay) {
+      const result = await completeLesson();
+      if (!result && justGraded) throw new Error('레슨을 완료하지 못했습니다.');
+    }
   };
   const last = position === contents.length - 1;
   const advanceConcept = () => {
@@ -495,12 +508,14 @@ function Study() {
                     current.contentType === 'QUIZ'
                       ? fillBlankStage
                         ? s.fillBlankScrollContent
-                        : [
-                            s.quizScrollContent,
-                            { paddingHorizontal: 36 * quizScale },
-                            oxStage && s.oxScrollContent,
-                            oxStage && { paddingTop: 200 * quizScale },
-                          ]
+                        : matchingStage
+                          ? s.matchingScrollContent
+                          : [
+                              s.quizScrollContent,
+                              { paddingHorizontal: 36 * quizScale },
+                              oxStage && s.oxScrollContent,
+                              oxStage && { paddingTop: 200 * quizScale },
+                            ]
                       : s.scrollContent
                   }
                 >
@@ -537,6 +552,26 @@ function Study() {
                             return;
                           }
                           return advance();
+                        }}
+                      />
+                    ) : matchingStage ? (
+                      <MatchingQuiz
+                        key={`${current.contentId}:${current.quiz.quizId}`}
+                        quiz={current.quiz}
+                        scale={quizScale}
+                        disabled={answered.has(current.contentId)}
+                        submit={(answer) =>
+                          api.learning.answer(current.quiz!.quizId, answer, replay)
+                        }
+                        onGraded={() =>
+                          setAnswered((previous) => new Set(previous).add(current.contentId))
+                        }
+                        onAdvance={() => {
+                          if (replay && last) {
+                            leaveStudy();
+                            return;
+                          }
+                          return advance(true);
                         }}
                       />
                     ) : useMockApi &&
@@ -683,7 +718,7 @@ function Study() {
               )}
             </View>
           ) : null}
-          {quizStage && !fillBlankStage && answered.has(current.contentId) ? (
+          {quizStage && !fillBlankStage && !matchingStage && answered.has(current.contentId) ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="다음 학습 콘텐츠로 이동"
@@ -966,6 +1001,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
   },
   fillBlankScrollContent: { flexGrow: 1 },
+  matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
