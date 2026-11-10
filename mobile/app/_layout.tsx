@@ -31,6 +31,10 @@ export default function RootLayout() {
       uri: require('../assets/fonts/Pretendard-Medium.otf'),
       display: FontDisplay.BLOCK,
     },
+    PretendardSemiBold: {
+      uri: require('../assets/fonts/Pretendard-SemiBold.otf'),
+      display: FontDisplay.BLOCK,
+    },
   });
 
   if (fontError) throw fontError;

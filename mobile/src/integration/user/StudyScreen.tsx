@@ -33,6 +33,7 @@ import { UserScreen, UserStatus } from './Screen';
 import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
+import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
@@ -167,9 +168,11 @@ function Study() {
   const conceptStage = !lessonDone && current?.contentType === 'IMAGE';
   const designedStage = quizStage || narrationStage || conceptStage;
   const oxStage = quizStage && current.quiz?.type === 'OX';
+  const fillBlankStage = quizStage && !!current.quiz && hasFillBlankChoices(current.quiz);
   const instantQuiz =
     quizStage &&
     (current.quiz?.type === 'OX' ||
+      fillBlankStage ||
       (current.quiz?.type === 'MULTIPLE_CHOICE' &&
         (!useMockApi || current.quiz.options?.mockHtmlType === 'single')) ||
       current.quiz?.options?.mockHtmlType === 'blank' ||
@@ -490,12 +493,14 @@ function Study() {
                   keyboardShouldPersistTaps="handled"
                   contentContainerStyle={
                     current.contentType === 'QUIZ'
-                      ? [
-                          s.quizScrollContent,
-                          { paddingHorizontal: 36 * quizScale },
-                          oxStage && s.oxScrollContent,
-                          oxStage && { paddingTop: 200 * quizScale },
-                        ]
+                      ? fillBlankStage
+                        ? s.fillBlankScrollContent
+                        : [
+                            s.quizScrollContent,
+                            { paddingHorizontal: 36 * quizScale },
+                            oxStage && s.oxScrollContent,
+                            oxStage && { paddingTop: 200 * quizScale },
+                          ]
                       : s.scrollContent
                   }
                 >
@@ -511,7 +516,32 @@ function Study() {
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && current.quiz ? (
-                    useMockApi && isHtmlLessonQuiz(current.quiz) && current.quiz.type !== 'OX' ? (
+                    fillBlankStage ? (
+                      <FillBlankQuiz
+                        key={current.contentId}
+                        quiz={current.quiz}
+                        scale={quizScale}
+                        disabled={answered.has(current.contentId)}
+                        submitChoiceIndex={
+                          useMockApi && current.quiz.options?.mockHtmlType === 'blank'
+                        }
+                        submit={(answer) =>
+                          api.learning.answer(current.quiz!.quizId, answer, replay)
+                        }
+                        onGraded={() =>
+                          setAnswered((previous) => new Set(previous).add(current.contentId))
+                        }
+                        onAdvance={() => {
+                          if (replay && last) {
+                            leaveStudy();
+                            return;
+                          }
+                          return advance();
+                        }}
+                      />
+                    ) : useMockApi &&
+                      isHtmlLessonQuiz(current.quiz) &&
+                      current.quiz.type !== 'OX' ? (
                       <HtmlLessonQuiz
                         key={current.contentId}
                         quiz={current.quiz}
@@ -653,7 +683,7 @@ function Study() {
               )}
             </View>
           ) : null}
-          {quizStage && answered.has(current.contentId) ? (
+          {quizStage && !fillBlankStage && answered.has(current.contentId) ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="다음 학습 콘텐츠로 이동"
@@ -935,6 +965,7 @@ const s = StyleSheet.create({
     paddingBottom: 16,
     paddingHorizontal: 7,
   },
+  fillBlankScrollContent: { flexGrow: 1 },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
