@@ -198,6 +198,27 @@ const scoreFirstLessonAnswer = (quizId: number, raw: unknown) => {
   };
   return { correct, expected, explanation: explanations[quizId] };
 };
+const scoreOtherLessonAnswer = (quizId: number, raw: unknown) => {
+  const selected = lessons
+    .slice(1)
+    .flatMap((item) => item.contents)
+    .find((content) => content.quiz?.quizId === quizId)?.quiz;
+  if (selected?.type !== 'MULTIPLE_CHOICE' || !Array.isArray(selected.options?.choices))
+    return null;
+  const yes = selected.options.choices.find(
+    (choice) =>
+      choice &&
+      typeof choice === 'object' &&
+      choice.label === '맞아요' &&
+      Number.isSafeInteger(choice.index),
+  );
+  if (!yes) return null;
+  return {
+    correct: body(raw).index === yes.index,
+    expected: [yes.index as number],
+    explanation: `정답은 '${yes.label}'입니다.`,
+  };
+};
 
 export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
   if (
@@ -371,18 +392,22 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         apiId === 'API-406'
           ? id(options, 'quizId')
           : state.activeReview.get(id(options, 'reviewItemId'));
-      const scored = quizId ? scoreFirstLessonAnswer(quizId, input.answer) : null;
-      if (scored && quizId) {
-        if (apiId === 'API-406' && input.replay !== true)
+      const scored = quizId
+        ? (scoreFirstLessonAnswer(quizId, input.answer) ??
+          scoreOtherLessonAnswer(quizId, input.answer))
+        : null;
+      if (!scored) throw new Error(`MOCK_QUIZ_NOT_FOUND: quizId=${quizId ?? 'unknown'}`);
+      if (quizId) {
+        if (apiId === 'API-406' && input.replay !== true && firstLessonQuiz(quizId))
           state.studyAnswers.set(quizId, scored.correct);
         if (apiId === 'API-502' && scored.correct)
           state.reviewedToday.set(quizId, new Date().toISOString().slice(0, 10));
       }
       return response({
         attemptId: 1,
-        isCorrect: scored?.correct ?? true,
-        correctAnswer: scored ? { answer: scored.expected } : { index: 0 },
-        explanation: scored?.explanation ?? '내용을 잘 이해했어요.',
+        isCorrect: scored.correct,
+        correctAnswer: { answer: scored.expected },
+        explanation: scored.explanation ?? '내용을 잘 이해했어요.',
         streakDays: 2,
         ...(apiId === 'API-502' ? { excludedUntil: null } : {}),
       });
@@ -419,17 +444,20 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           rewardEligible: false,
         });
       const requestedLessonId = Number(body(options.query).lessonId);
-      if (requestedLessonId > 0 && requestedLessonId !== 11)
+      if (requestedLessonId > 0 && requestedLessonId !== 11) {
+        const quiz = (lesson(requestedLessonId) ?? lessons[1]).contents.at(-1)!.quiz;
+        state.activeReview = new Map(quiz ? [[1, quiz.quizId]] : []);
         return response({
           reviewItems: [
             {
               reviewItemId: 1,
-              quiz: (lesson(requestedLessonId) ?? lessons[1]).contents.at(-1)!.quiz,
+              quiz,
             },
           ],
           message: null,
           rewardEligible: true,
         });
+      }
       if (state.rewardedLessons.has(11) && state.studyAnswers.size) {
         const today = new Date().toISOString().slice(0, 10);
         const available = [...state.studyAnswers].filter(

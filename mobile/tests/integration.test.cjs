@@ -613,6 +613,25 @@ test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 �
     true,
   );
 });
+test('달의 모양 목업은 맞아요만 정답으로 채점한다', () => {
+  const moon = mockApi('API-403', { path: { lessonId: 12 } }).data.data;
+  const quiz = moon.contents.find((content) => content.quiz)?.quiz;
+  assert.ok(quiz);
+  const grade = (index) =>
+    mockApi('API-406', {
+      path: { quizId: quiz.quizId },
+      body: { answer: { index } },
+    }).data.data;
+  assert.equal(grade(0).isCorrect, true);
+  assert.equal(grade(1).isCorrect, false);
+  assert.deepEqual(grade(1).correctAnswer, { answer: [0] });
+  mockApi('API-501', { query: { lessonId: 12 } });
+  const review = mockApi('API-502', {
+    path: { reviewItemId: 1 },
+    body: { answer: { index: 1 } },
+  }).data.data;
+  assert.equal(review.isCorrect, false);
+});
 
 test('목업 학습·별자리·하우징 상태는 저장본에서 복원된다', () => {
   const saved = JSON.parse(JSON.stringify(mockSnapshot()));
