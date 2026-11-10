@@ -1,6 +1,6 @@
 import { Redirect, Tabs } from 'expo-router';
-import { ActivityIndicator, type ColorValue, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import type { ComponentProps } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   HouseEditingProvider,
@@ -8,31 +8,50 @@ import {
 } from '../../src/components/house/HouseEditingContext';
 import { useIntegration } from '../../src/integration/hooks';
 
-type DockIcon = 'home' | 'ship' | 'control';
-
-const iconPaths: Record<DockIcon, string> = {
-  home: 'M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z',
-  ship: 'M7 9V6a5 5 0 0110 0v3M5 9h14l2 11H3L5 9zM9 13h6M9 17h6',
-  control: 'M4 7h16M4 17h16M8 4v6M16 14v6',
-};
-
-const dockItems: { name: string; label: string; icon: DockIcon }[] = [
-  { name: 'quiz', label: '학습', icon: 'home' },
-  { name: 'index', label: '우주선', icon: 'ship' },
-  { name: 'more', label: '제어실', icon: 'control' },
+const dockItems = [
+  { name: 'quiz', label: '학습' },
+  { name: 'index', label: '우주선' },
+  { name: 'more', label: '제어실' },
 ];
 
-function TabIcon({ icon, color }: { icon: DockIcon; color: ColorValue }) {
+type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0] & {
+  bottom: number;
+};
+
+function DockBar({ state, navigation, bottom }: DockBarProps) {
   return (
-    <Svg width={23} height={23} viewBox="0 0 24 24" fill="none">
-      <Path
-        d={iconPaths[icon]}
-        stroke={color}
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
+    <View style={[dockStyles.bar, { height: 64 + bottom, paddingBottom: bottom }]}>
+      <View style={dockStyles.items}>
+        {dockItems.map((item) => {
+          const routeIndex = state.routes.findIndex((route) => route.name === item.name);
+          const route = state.routes[routeIndex];
+          if (!route) return null;
+          const selected = state.index === routeIndex;
+          return (
+            <Pressable
+              key={route.key}
+              accessibilityRole="tab"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected }}
+              onPress={() => {
+                const event = navigation.emit({
+                  type: 'tabPress',
+                  target: route.key,
+                  canPreventDefault: true,
+                });
+                if (!selected && !event.defaultPrevented) navigation.navigate(route.name);
+              }}
+              onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
+              style={[dockStyles.item, selected && dockStyles.selected]}
+            >
+              <Text style={[dockStyles.label, selected && dockStyles.selectedLabel]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -59,20 +78,9 @@ function TabNavigator() {
 
   return (
     <Tabs
+      tabBar={(props) => (isEditing ? null : <DockBar {...props} bottom={bottom} />)}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#5a4d77',
-        tabBarInactiveTintColor: '#aaa6b2',
-        tabBarShowLabel: true,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '500', marginTop: 3 },
-        tabBarStyle: {
-          display: isEditing ? 'none' : 'flex',
-          height: 73 + bottom,
-          borderTopColor: '#f1eff5',
-          backgroundColor: '#ffffff',
-          paddingTop: 9,
-          paddingBottom: Math.max(9, bottom),
-        },
       }}
     >
       {dockItems.map((item) => (
@@ -81,7 +89,6 @@ function TabNavigator() {
           name={item.name}
           options={{
             title: item.label,
-            tabBarIcon: ({ color }) => <TabIcon icon={item.icon} color={color} />,
           }}
         />
       ))}
@@ -89,3 +96,18 @@ function TabNavigator() {
     </Tabs>
   );
 }
+
+const dockStyles = StyleSheet.create({
+  bar: { width: '100%', backgroundColor: '#161616' },
+  items: { width: '100%', height: 64, flexDirection: 'row' },
+  item: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
+  selected: { borderBottomWidth: 4, borderBottomColor: '#f1f1f1' },
+  label: {
+    color: '#f1f1f1',
+    fontSize: 16,
+    lineHeight: 15,
+    fontFamily: 'PretendardMedium',
+    includeFontPadding: false,
+  },
+  selectedLabel: { fontFamily: 'PretendardBold' },
+});
