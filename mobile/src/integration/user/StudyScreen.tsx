@@ -36,6 +36,8 @@ import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
+import { ConceptIllustration } from './ConceptIllustration';
+import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
 import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { HomeStars } from './CoursesScreen';
 import type { RegisterQuizFooter } from './quizFooter';
@@ -43,15 +45,6 @@ import type { RegisterQuizFooter } from './quizFooter';
 const completionStarSource = require('../../../assets/completion-star.png');
 const completionArcSource = require('../../../assets/completion-arc.png');
 const completionDustSource = require('../../../assets/completion-dust.png');
-const localStudyImages: Record<string, ImageSourcePropType> = {
-  'mock-study-fusion': require('../../../assets/study-fusion.png'),
-  'mock-study-mass': require('../../../assets/study-mass.png'),
-  'mock-study-star': require('../../../assets/study-star.png'),
-};
-
-function studyImageSource(mediaUrl: string): ImageSourcePropType {
-  return localStudyImages[mediaUrl] ?? { uri: mediaUrl };
-}
 
 export default function StudyScreen() {
   const { generation } = useIntegration();
@@ -84,6 +77,9 @@ function Study() {
     onPress: () => void;
   } | null>(null);
   const quizTapLocked = useRef(false);
+  const conceptTapLocked = useRef(false);
+  const conceptUnlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedLessonId = useRef<number | null>(null);
   const registerQuizFooter = useCallback<RegisterQuizFooter>((quizId, enabled, onPress) => {
     setQuizFooter({ quizId, enabled, onPress });
   }, []);
@@ -107,6 +103,7 @@ function Study() {
     void task.run(async () => {
       const data = await api.learning.start(lessonId, replay);
       if (!active) return data;
+      loadedLessonId.current = lessonId;
       setStart(data);
       setLessonDone(data.progress.status === 'COMPLETED' && !replay);
       const index =
@@ -135,36 +132,40 @@ function Study() {
     };
   }, [lessonId, replay]);
   useEffect(() => {
-    if (!start) return;
-    const urls = new Set(
-      start.contents
-        .filter((content) => content.contentType === 'IMAGE' && content.mediaUrl)
-        .map((content) => content.mediaUrl!)
-        .filter((url) => !localStudyImages[url]),
-    );
-    urls.forEach((url) => {
-      void Image.prefetch(url).catch(() => false);
-    });
-  }, [start]);
-  const preloadSources: { source: ImageSourcePropType; width: number; height: number }[] = start
-    ? [
-        { source: completionStarSource, width: 212, height: 212 },
-        { source: completionArcSource, width: 402, height: 463 },
-        { source: completionDustSource, width: 18, height: 20 },
-        ...Object.entries(localStudyImages)
-          .filter(([mediaUrl]) =>
-            start.contents.some(
-              (content) => content.contentType === 'IMAGE' && content.mediaUrl === mediaUrl,
-            ),
-          )
-          .map(([, source]) => ({ source, width: 354, height: 267 })),
-      ]
-    : [];
+    if (!start || loadedLessonId.current !== lessonId) return;
+    let active = true;
+    void prefetchLessonImages(start.contents, () => active);
+    return () => {
+      active = false;
+    };
+  }, [start, lessonId]);
+  useEffect(
+    () => () => {
+      if (conceptUnlockTimer.current) clearTimeout(conceptUnlockTimer.current);
+    },
+    [],
+  );
+  const preloadSources: { source: ImageSourcePropType; width: number; height: number }[] =
+    start && loadedLessonId.current === lessonId
+      ? [
+          { source: completionStarSource, width: 212, height: 212 },
+          { source: completionArcSource, width: 402, height: 463 },
+          { source: completionDustSource, width: 18, height: 20 },
+          ...Object.entries(localStudyImages)
+            .filter(([mediaUrl]) =>
+              start.contents.some(
+                (content) => content.contentType === 'IMAGE' && content.mediaUrl === mediaUrl,
+              ),
+            )
+            .map(([, source]) => ({ source, width: 354, height: 267 })),
+        ]
+      : [];
   const contents = start?.contents ?? [],
     current = contents[position];
   const quizStage = !lessonDone && current?.contentType === 'QUIZ';
   const narrationStage = !lessonDone && current?.contentType === 'TEXT';
-  const designedStage = quizStage || narrationStage;
+  const conceptStage = !lessonDone && current?.contentType === 'IMAGE';
+  const designedStage = quizStage || narrationStage || conceptStage;
   const oxStage = quizStage && current.quiz?.type === 'OX';
   const instantQuiz =
     quizStage &&
@@ -263,6 +264,18 @@ function Study() {
     else if (!replay) await completeLesson();
   };
   const last = position === contents.length - 1;
+  const advanceConcept = () => {
+    if (conceptTapLocked.current || task.busy) return;
+    conceptTapLocked.current = true;
+    void (async () => {
+      if (replay && last) leaveStudy();
+      else await advance();
+    })().finally(() => {
+      conceptUnlockTimer.current = setTimeout(() => {
+        conceptTapLocked.current = false;
+      }, 400);
+    });
+  };
   const stardustReward =
     reward?.rewards.find((item) => item.type === 'WALLET' && item.currency === 'STARDUST')
       ?.amount ?? 0;
@@ -459,6 +472,16 @@ function Study() {
                   await advance();
                 }}
               />
+            ) : current?.contentType === 'IMAGE' ? (
+              <AnimatedReveal key={current.contentId} style={s.content}>
+                <ConceptIllustration
+                  mediaUrl={current.mediaUrl}
+                  body={current.body}
+                  scale={quizScale}
+                  disabled={task.busy}
+                  onAdvance={advanceConcept}
+                />
+              </AnimatedReveal>
             ) : current ? (
               <AnimatedReveal key={current.contentId} style={s.content}>
                 <ScrollView
@@ -476,26 +499,10 @@ function Study() {
                       : s.scrollContent
                   }
                 >
-                  {current.body && (current.contentType !== 'IMAGE' || !current.mediaUrl) ? (
+                  {current.body ? (
                     <Text style={current.contentType === 'QUIZ' ? s.quizBody : s.body}>
                       {current.body}
                     </Text>
-                  ) : null}
-                  {current.contentType === 'IMAGE' && current.mediaUrl ? (
-                    <>
-                      <Text style={s.conceptTitle}>{progressLabel}</Text>
-                      <View style={s.conceptImage}>
-                        <Image
-                          source={studyImageSource(current.mediaUrl)}
-                          style={[
-                            s.media,
-                            current.mediaUrl.startsWith('mock-study-') && s.htmlMedia,
-                          ]}
-                          resizeMode="contain"
-                        />
-                      </View>
-                      {current.body ? <Text style={s.body}>{current.body}</Text> : null}
-                    </>
                   ) : null}
                   {current.contentType === 'VIDEO' && current.mediaUrl ? (
                     <StudyAction
@@ -559,7 +566,9 @@ function Study() {
               </View>
             )}
           </View>
-          {!narrationStage && !(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
+          {!narrationStage &&
+          !conceptStage &&
+          !(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
             <View
               style={[
                 s.footer,
@@ -928,23 +937,7 @@ const s = StyleSheet.create({
   },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
-  conceptTitle: {
-    color: '#756387',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 2,
-    textAlign: 'center',
-  },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
-  conceptImage: {
-    borderWidth: 1,
-    borderColor: '#e9e4ee',
-    borderRadius: 19,
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-  },
-  media: { height: 220, width: '100%' },
-  htmlMedia: { height: 267 },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
   completionFooter: {
     position: 'absolute',

@@ -27,6 +27,10 @@ export default function RootLayout() {
       uri: require('../assets/fonts/Pretendard-Regular.otf'),
       display: FontDisplay.BLOCK,
     },
+    PretendardMedium: {
+      uri: require('../assets/fonts/Pretendard-Medium.otf'),
+      display: FontDisplay.BLOCK,
+    },
   });
 
   if (fontError) throw fontError;

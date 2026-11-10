@@ -1,4 +1,5 @@
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
 export function QuizBackIcon() {
@@ -21,41 +22,60 @@ export function QuizQuestionRule() {
 }
 
 export function QuizBackdrop() {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const scale = Math.min(width / 402, height / 874, 1);
+  const backgroundWidth = Math.min(width, 480);
+  const directionX = Math.sin((196.2241314901484 * Math.PI) / 180);
+  const directionY = -Math.cos((196.2241314901484 * Math.PI) / 180);
+  const gradientLength = Math.abs(backgroundWidth * directionX) + Math.abs(height * directionY);
+  const gradientStartX = (backgroundWidth - directionX * gradientLength) / 2;
+  const gradientStartY = (height - directionY * gradientLength) / 2;
+  const ellipse = (x: number, y: number, size: number) => ({
+    left: x * scale,
+    top: y * scale,
+    width: size * scale,
+    height: size * scale,
+    borderRadius: (size * scale) / 2,
+    shadowRadius: 28 * scale,
+    elevation: 28 * scale,
+  });
+
   return (
-    <View pointerEvents="none" style={s.backdrop}>
+    <View pointerEvents="none" style={[s.backdrop, { top: -insets.top, bottom: -insets.bottom }]}>
       <Svg width="100%" height="100%" preserveAspectRatio="none">
         <Defs>
-          <LinearGradient id="quizBackground" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor="#e4e4e4" />
-            <Stop offset="0.52" stopColor="#f1f1f1" />
-            <Stop offset="1" stopColor="#d1d1d1" />
+          <LinearGradient
+            id="quizBackground"
+            gradientUnits="userSpaceOnUse"
+            x1={gradientStartX}
+            y1={gradientStartY}
+            x2={gradientStartX + directionX * gradientLength * 1.074}
+            y2={gradientStartY + directionY * gradientLength * 1.074}
+          >
+            <Stop offset="0" stopColor="#f1f1f1" />
+            <Stop offset={0.65356 / 1.074} stopColor="#f1f1f1" />
+            <Stop offset="1" stopColor="#161616" />
           </LinearGradient>
         </Defs>
-        <Rect width="100%" height="100%" fill="url(#quizBackground)" />
+        <Rect width="100%" height="100%" fill="#e4e4e4" />
+        <Rect width="100%" height="100%" fill="url(#quizBackground)" opacity={0.2} />
       </Svg>
-      <View style={[s.glow, s.glowTop]} />
-      <View style={[s.glow, s.glowSmall, s.glowRight]} />
-      <View style={[s.glow, s.glowSmall, s.glowLeft]} />
-      <View style={[s.glow, s.glowSmall, s.glowBottom]} />
+      <View style={[s.ellipse, ellipse(324, 164, 12)]} />
+      <View style={[s.ellipse, ellipse(346, 212, 8)]} />
+      <View style={[s.ellipse, ellipse(56, 640, 8)]} />
+      <View style={[s.ellipse, ellipse(256, 780, 8)]} />
     </View>
   );
 }
 
 const s = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFill },
-  glow: {
+  ellipse: {
     position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
     backgroundColor: '#f1f1f1',
     shadowColor: '#aaa',
+    shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
-    shadowRadius: 28,
   },
-  glowSmall: { width: 8, height: 8, borderRadius: 4 },
-  glowTop: { left: '81%', top: '19%' },
-  glowRight: { left: '87%', top: '24%' },
-  glowLeft: { left: '14%', top: '73%' },
-  glowBottom: { left: '64%', top: '89%' },
 });
