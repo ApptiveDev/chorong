@@ -21,12 +21,17 @@ data class ReviewAnswerResponse(
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val isCorrect: Boolean,
     val completed: Boolean,
-    val explanation: String,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val explanation: String?,
     val streakDays: Int,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val excludedUntil: Instant?,
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val correctAnswer: JsonNode?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val closeness: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val source: String? = null,
 )
 
 @Service
@@ -115,6 +120,8 @@ class ReviewAnswerService(
                 streakDays,
                 excludedUntil,
                 result.correctAnswer,
+                result.closeness,
+                result.source,
             )
         saveAnswer(reviewItemId, response)
         return response
@@ -151,6 +158,8 @@ class ReviewAnswerService(
                 streakDays,
                 excludedUntil,
                 result.correctAnswer,
+                result.closeness,
+                result.source,
             )
         saveAnswer(reviewItemId, response)
         return response

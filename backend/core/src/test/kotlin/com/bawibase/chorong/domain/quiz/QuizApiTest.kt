@@ -86,7 +86,7 @@ class QuizApiTest {
     private fun jsonMap(node: JsonNode): Map<String, Any?> = objectMapper.convertValue(node, object : TypeReference<Map<String, Any?>>() {})
 
     private fun seed(
-        fixture: JsonNode = fixtures().first { it["caseId"].asText() == "multiple_choice_single" },
+        fixture: JsonNode = fixtures().first { it["caseId"].asText() == "single" },
         lessonId: Long = 101L,
         order: Int = fixture["quizOrder"].asInt(),
     ): QuizItemEntity {
@@ -99,9 +99,10 @@ class QuizApiTest {
                     interactionType = QuizInteractionType.valueOf(fixture["interactionType"].asText()),
                     config = jsonMap(fixture["config"]),
                     answer = fixture["answer"].takeUnless { it.isNull }?.let(::jsonMap),
-                    explanation = fixture["explanation"].asText(),
+                    explanation = fixture["explanation"]?.takeUnless { it.isNull }?.asText(),
                     difficulty = fixture["difficulty"].asText(),
                     quizOrder = order,
+                    source = fixture["source"]?.asText(),
                 ),
             )
         entityManager.clear()
@@ -166,7 +167,6 @@ class QuizApiTest {
             assertEquals("jsonb", stored["config_type"])
             assertEquals(example["config"], objectMapper.readTree(stored["config"].toString()))
             assertEquals(example["answer"], objectMapper.readTree(stored["answer"].toString()))
-            assertFalse(body["config"].has("pairs"))
         }
         assertEquals(examples.size, get("/api/quizzes?lessonId=101").size())
     }
@@ -250,8 +250,8 @@ class QuizApiTest {
                 "null",
                 "[]",
                 """{"response":""",
-                """{"response":{"selectedOptionIds":["italy"]},"response":{"selectedOptionIds":["italy"]}}""",
-                """{"response":{"selectedOptionIds":["italy"],"selectedOptionIds":["italy"]}}""",
+                """{"response":{"answer":1},"response":{"answer":1}}""",
+                """{"response":{"answer":1,"answer":1}}""",
             )
         for (path in listOf("/api/quizzes/${quiz.id}/attempts", "/api/dev/quizzes/${quiz.id}/check")) {
             for (body in bodies) {
@@ -282,7 +282,7 @@ class QuizApiTest {
                         .post(path) {
                             if (path.startsWith("/api/quizzes/")) header(HttpHeaders.AUTHORIZATION, bearer)
                             contentType = MediaType.APPLICATION_JSON
-                            content = """{"response":{"selectedOptionIds":["italy"]}}"""
+                            content = """{"response":{"answer":1}}"""
                         }.andExpect {
                             status { isBadRequest() }
                             jsonPath("$.code") { value("BAD_REQUEST") }
@@ -298,7 +298,7 @@ class QuizApiTest {
     fun `a database content change is reflected by the next lookup`() {
         val quiz = seed()
         get("/api/quizzes/${quiz.id}")
-        val config = mapOf("selectionType" to "SINGLE", "options" to listOf(mapOf("id" to "italy", "text" to "수정한 선택지")))
+        val config = mapOf("options" to listOf("수정한 선택지", "다른 선택지"))
         jdbc.update(
             "UPDATE ${table("quiz_item")} SET question = ?, config = ?::jsonb WHERE quiz_id = ?",
             "DB에서 수정한 문제",
@@ -316,20 +316,12 @@ class QuizApiTest {
     @Test
     fun `attempt mappings preserve correct incorrect and ungraded results`() {
         val quiz = seed()
-        val flip = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
         for (correct in listOf(true, false, null)) {
-            val response: Map<String, Any?> =
-                if (correct ==
-                    null
-                ) {
-                    mapOf("flipped" to true)
-                } else {
-                    mapOf("selectedOptionIds" to listOf(if (correct) "italy" else "france"))
-                }
+            val response: Map<String, Any?> = mapOf("answer" to if (correct == false) 0 else 1)
             val saved =
                 attempts.saveAndFlush(
                     QuizAttemptEntity(
-                        quizId = checkNotNull(if (correct == null) flip.id else quiz.id),
+                        quizId = checkNotNull(quiz.id),
                         userId = userId,
                         response = response,
                         graded = correct != null,
@@ -437,7 +429,11 @@ class QuizApiTest {
             val quiz = seed(example)
             val response = example["correctResponse"]
             val body = submit(checkNotNull(quiz.id), """{"response":$response}""")
-            assertEquals(setOf("attemptId", "graded", "correct", "completed", "explanation"), body.fieldNames().asSequence().toSet())
+            val expectedFields =
+                setOf("attemptId", "graded", "correct", "completed", "explanation") +
+                    (if (example["interactionType"].asText() == "SLIDER") setOf("closeness") else emptySet()) +
+                    (if (example.has("source")) setOf("source") else emptySet())
+            assertEquals(expectedFields, body.fieldNames().asSequence().toSet())
             assertTrue(body["graded"].asBoolean())
             assertTrue(body["correct"].asBoolean())
             assertTrue(body["completed"].asBoolean())
@@ -447,7 +443,7 @@ class QuizApiTest {
             val attempt = attempts.findById(body["attemptId"].asLong()).orElseThrow()
             assertEquals(quiz.id, attempt.quizId)
             assertEquals(userId, attempt.userId)
-            assertEquals(response, objectMapper.valueToTree<JsonNode>(attempt.response))
+            assertEquals(response.toString(), objectMapper.valueToTree<JsonNode>(attempt.response).toString())
             assertTrue(attempt.graded)
             assertEquals(true, attempt.correct)
             assertTrue(attempt.completed)
@@ -463,7 +459,7 @@ class QuizApiTest {
         val body =
             submit(
                 checkNotNull(quiz.id),
-                """{"response":{"selectedOptionIds":["france"]},"userId":${otherUser.id},"isCorrect":true,"correct":true,"graded":false}""",
+                """{"response":{"answer":0},"userId":${otherUser.id},"isCorrect":true,"correct":true,"graded":false}""",
             )
         assertTrue(body["graded"].asBoolean())
         assertFalse(body["correct"].asBoolean())
@@ -473,7 +469,7 @@ class QuizApiTest {
         val attempt = attempts.findById(body["attemptId"].asLong()).orElseThrow()
         assertEquals(userId, attempt.userId)
         assertEquals(false, attempt.correct)
-        assertEquals(mapOf("selectedOptionIds" to listOf("france")), attempt.response)
+        assertEquals(mapOf("answer" to 0), attempt.response)
     }
 
     @ParameterizedTest
@@ -485,10 +481,10 @@ class QuizApiTest {
             "{\"response\":null}",
             "{\"response\":[]}",
             "{\"response\":3}",
-            "{\"response\":{\"selectedOptionIds\":[]}}",
-            "{\"response\":{\"selectedOptionIds\":[\"italy\",\"italy\"]}}",
-            "{\"response\":{\"selectedOptionIds\":[\"unknown\"]}}",
-            "{\"response\":{\"selectedOptionIds\":[\"italy\"],\"isCorrect\":true}}",
+            "{\"response\":{\"answer\":\"1\"}}",
+            "{\"response\":{\"answer\":3}}",
+            "{\"response\":{\"answers\":[1]}}",
+            "{\"response\":{\"answer\":1,\"isCorrect\":true}}",
             "{\"response\":",
         ],
     )
@@ -499,25 +495,16 @@ class QuizApiTest {
     }
 
     @Test
-    fun `maxSelections is enforced by the submission API`() {
-        val example = fixtures().first { it["caseId"].asText() == "tap_multiple" }
-        val quiz = seed(example)
-        quizzes.findById(checkNotNull(quiz.id)).orElseThrow().config += "maxSelections" to 3
-        quizzes.flush()
-        entityManager.clear()
-        val result =
-            submit(
-                checkNotNull(quiz.id),
-                """{"response":{"selectedItemIds":["humanism","perspective","realism","abstract"]}}""",
-                400,
-            )
+    fun `repeated multi indices are rejected by the submission API`() {
+        val quiz = seed(fixtures().first { it["caseId"].asText() == "multi" })
+        val result = submit(checkNotNull(quiz.id), """{"response":{"answers":[1,1]}}""", 400)
         assertEquals("INVALID_QUIZ_RESPONSE", result["code"].asText())
         assertEquals(0L, attempts.count())
     }
 
     @Test
     fun `missing and invalid quiz ids never create attempts`() {
-        val response = """{"response":{"selectedOptionIds":["italy"]}}"""
+        val response = """{"response":{"answer":1}}"""
         assertEquals("QUIZ_NOT_FOUND", submit(Long.MAX_VALUE, response, 404)["code"].asText())
         assertEquals("INVALID_QUIZ_REQUEST", submit(0, response, 400)["code"].asText())
         assertEquals(0L, attempts.count())
@@ -531,7 +518,7 @@ class QuizApiTest {
                 .post("/api/quizzes/${quiz.id}/attempts") {
                     if (authorization != null) header(HttpHeaders.AUTHORIZATION, authorization)
                     contentType = MediaType.APPLICATION_JSON
-                    content = """{"response":{"selectedOptionIds":["italy"]}}"""
+                    content = """{"response":{"answer":1}}"""
                 }.andExpect { status { isUnauthorized() } }
         }
         assertEquals(0L, attempts.count())
@@ -543,21 +530,20 @@ class QuizApiTest {
         users.findById(userId).orElseThrow().status = UserStatus.WITHDRAWN
         users.flush()
         entityManager.clear()
-        val result = submit(checkNotNull(quiz.id), """{"response":{"selectedOptionIds":["italy"]}}""", 401)
+        val result = submit(checkNotNull(quiz.id), """{"response":{"answer":1}}""", 401)
         assertEquals("USER_WITHDRAWN", result["code"].asText())
         assertEquals(0L, attempts.count())
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["config", "answer", "allowRetry", "showHint"])
+    @ValueSource(strings = ["config", "answer", "extra"])
     fun `bad stored quiz data blocks reads and submission without exposing the answer`(field: String) {
         val quiz = seed()
         val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
         when (field) {
-            "config" -> managed.config += "selectionType" to "UNKNOWN"
-            "answer" -> managed.answer = mapOf("correctOptionIds" to listOf("unknown"))
-            "allowRetry" -> managed.config += "allowRetry" to false
-            "showHint" -> managed.config += "showHint" to true
+            "config" -> managed.config = mapOf("options" to listOf("하나"))
+            "answer" -> managed.answer = mapOf("answer" to 9)
+            "extra" -> managed.config += "shuffle" to true
         }
         quizzes.flush()
         entityManager.clear()
@@ -565,52 +551,64 @@ class QuizApiTest {
             listOf(
                 get("/api/quizzes/${quiz.id}", 409),
                 get("/api/quizzes?lessonId=101", 409),
-                submit(checkNotNull(quiz.id), """{"response":{"selectedOptionIds":["italy"]}}""", 409),
+                submit(checkNotNull(quiz.id), """{"response":{"answer":1}}""", 409),
             )
         for (reply in replies) {
             assertEquals("QUIZ_DATA_INVALID", reply["code"].asText())
-            assertFalse(reply.toString().contains("correctOptionIds"))
-            assertFalse(reply.toString().contains(quiz.explanation))
+            assertFalse(reply.has("correctAnswer"))
+            assertFalse(reply.toString().contains(checkNotNull(quiz.explanation)))
         }
         assertEquals(0L, attempts.count())
     }
 
     @Test
-    fun `partial flip pair checks save progress without marking completion or exposing explanation`() {
-        val quiz = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
-        val body = submit(checkNotNull(quiz.id), """{"response":{"pairs":[{"firstCardId":"c1","secondCardId":"c5"}]}}""")
-        assertTrue(body["graded"].asBoolean())
+    fun `a quiz without explanation is graded and omits the explanation`() {
+        val fixture = fixtures().first { it["caseId"].asText() == "single" }.deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
+        fixture.remove("explanation")
+        val quiz = seed(fixture)
+        val body = submit(checkNotNull(quiz.id), """{"response":{"answer":1}}""")
         assertTrue(body["correct"].asBoolean())
-        assertFalse(body["completed"].asBoolean())
-        assertEquals("", body["explanation"].asText())
-        entityManager.flush()
-        entityManager.clear()
-        val saved = attempts.findById(body["attemptId"].asLong()).orElseThrow()
-        assertEquals(true, saved.correct)
-        assertTrue(saved.graded)
-        assertFalse(saved.completed)
+        assertFalse(body.has("explanation"))
+        assertNull(jdbc.queryForMap("SELECT explanation FROM ${table("quiz_item")} WHERE quiz_id = ?", quiz.id)["explanation"])
     }
 
     @Test
-    fun `legacy flip storage remains readable after the answer constraint migration`() {
-        val quiz = seed(fixtures().first { it["caseId"].asText() == "flip_card" })
-        jdbc.update(
-            "UPDATE ${table("quiz_item")} SET config = ?::jsonb, answer = NULL WHERE quiz_id = ?",
-            """{"front":{"title":"뉴턴"},"back":{"text":"만유인력"},"shuffle":true}""",
-            quiz.id,
-        )
-        entityManager.clear()
+    fun `match exposes its pairs and stores no answer`() {
+        val fixture = fixtures().first { it["caseId"].asText() == "match" }
+        val quiz = seed(fixture)
         val body = get("/api/quizzes/${quiz.id}")
-        assertEquals(2, body["config"]["cards"].size())
-        assertEquals("뉴턴", body["config"]["cards"][0]["text"].asText())
-        assertFalse(body["config"].has("pairs"))
+        assertEquals(fixture["config"]["pairs"], body["config"]["pairs"])
         assertNull(jdbc.queryForMap("SELECT answer FROM ${table("quiz_item")} WHERE quiz_id = ?", quiz.id)["answer"])
+        val error =
+            assertThrows<DataIntegrityViolationException> {
+                jdbc.update("UPDATE ${table("quiz_item")} SET answer = '{}'::jsonb WHERE quiz_id = ?", quiz.id)
+            }
+        assertEquals("23514", (error.mostSpecificCause as SQLException).sqlState)
+    }
+
+    @Test
+    fun `slider returns closeness and keeps decimal precision`() {
+        val quiz = seed(fixtures().first { it["caseId"].asText() == "slider" })
+        val near = submit(checkNotNull(quiz.id), """{"response":{"answer":0.5}}""")
+        assertFalse(near["correct"].asBoolean())
+        assertEquals(78, near["closeness"].asInt())
+        val precise = submit(checkNotNull(quiz.id), """{"response":{"answer":0.280000000000000001}}""")
+        assertTrue(precise["correct"].asBoolean())
+        assertEquals(100, precise["closeness"].asInt())
+        assertEquals(
+            "0.280000000000000001",
+            jdbc.queryForObject(
+                "SELECT response ->> 'answer' FROM ${table("quiz_attempt")} WHERE attempt_id = ?",
+                String::class.java,
+                precise["attemptId"].asLong(),
+            ),
+        )
     }
 
     @Test
     fun `repeated valid submissions create separate records`() {
         val quiz = seed()
-        val response = """{"response":{"selectedOptionIds":["italy"]}}"""
+        val response = """{"response":{"answer":1}}"""
         val first = submit(checkNotNull(quiz.id), response)
         val second = submit(checkNotNull(quiz.id), response)
         assertTrue(first["attemptId"].asLong() != second["attemptId"].asLong())
@@ -626,7 +624,7 @@ class QuizApiTest {
         assertTrue(operation["parameters"].none { it["name"].asText() == "userId" })
         assertEquals(setOf("response"), docs["components"]["schemas"]["QuizAttemptRequest"]["properties"].fieldNames().asSequence().toSet())
         assertEquals(
-            setOf("attemptId", "graded", "correct", "completed", "explanation", "correctAnswer"),
+            setOf("attemptId", "graded", "correct", "completed", "explanation", "correctAnswer", "closeness", "source"),
             docs["components"]["schemas"]["QuizAttemptResponse"]["properties"].fieldNames().asSequence().toSet(),
         )
     }
@@ -635,8 +633,8 @@ class QuizApiTest {
     fun `duplicate JSON fields are rejected before grading`() {
         val quiz = seed()
         for (body in listOf(
-            """{"response":{"selectedOptionIds":["italy"],"selectedOptionIds":["italy"]}}""",
-            """{"response":{"selectedOptionIds":["italy"]},"response":{"selectedOptionIds":["italy"]}}""",
+            """{"response":{"answer":1,"answer":1}}""",
+            """{"response":{"answer":1},"response":{"answer":1}}""",
         )) {
             submit(checkNotNull(quiz.id), body, 400)
         }
@@ -644,68 +642,13 @@ class QuizApiTest {
     }
 
     @Test
-    fun `fractional input is not rounded onto a valid slider step`() {
-        val example = fixtures().first { it["caseId"].asText() == "slider_range" }
-        val quiz = seed(example)
-        val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
-        managed.config = mapOf("min" to 0, "max" to 1, "step" to 0.1)
-        managed.answer = mapOf("value" to 0.1)
-        quizzes.flush()
-        entityManager.clear()
-        val error = submit(checkNotNull(quiz.id), """{"response":{"value":0.100000000000000000001}}""", 400)
-        assertEquals("INVALID_QUIZ_RESPONSE", error["code"].asText())
-        assertEquals(0L, attempts.count())
-    }
-
-    @Test
-    fun `stored numeric response keeps decimal precision`() {
-        val example = fixtures().first { it["caseId"].asText() == "slider_range" }
-        val quiz = seed(example)
-        val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
-        managed.config = mapOf("min" to 0, "max" to 1, "step" to java.math.BigDecimal("0.000000000000000001"))
-        managed.answer = mapOf("min" to 0.1, "max" to 0.2)
-        quizzes.flush()
-        entityManager.clear()
-        val result = submit(checkNotNull(quiz.id), """{"response":{"value":0.100000000000000001}}""")
-        assertTrue(result["correct"].asBoolean())
-        entityManager.flush()
-        entityManager.clear()
-        assertEquals(
-            java.math.BigDecimal("0.100000000000000001"),
-            attempts.findById(result["attemptId"].asLong()).orElseThrow().response["value"],
-        )
-        assertEquals(
-            "0.100000000000000001",
-            jdbc.queryForObject(
-                "SELECT response ->> 'value' FROM ${table("quiz_attempt")} WHERE attempt_id = ?",
-                String::class.java,
-                result["attemptId"].asLong(),
-            ),
-        )
-    }
-
-    @Test
-    fun `stored slider config and exact answer keep decimal precision`() {
-        val quiz = seed(fixtures().first { it["caseId"].asText() == "slider_exact" })
-        val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
-        managed.config = mapOf("min" to 0, "max" to 1, "step" to java.math.BigDecimal("0.000000000000000001"))
-        managed.answer = mapOf("value" to java.math.BigDecimal("0.100000000000000001"))
-        quizzes.flush()
-        entityManager.clear()
-        val exact = submit(checkNotNull(quiz.id), """{"response":{"value":0.100000000000000001}}""")
-        val different = submit(checkNotNull(quiz.id), """{"response":{"value":0.1}}""")
-        assertTrue(exact["correct"].asBoolean())
-        assertFalse(different["correct"].asBoolean())
-    }
-
-    @Test
     fun `stored semantic errors take precedence over response conversion and never save attempts`() {
         val quiz = seed()
         val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
-        managed.config += "maxSelections" to 0
+        managed.config = mapOf("options" to listOf("하나"))
         quizzes.flush()
         entityManager.clear()
-        val result = submit(checkNotNull(quiz.id), """{"response":{"selectedOptionIds":"italy"}}""", 409)
+        val result = submit(checkNotNull(quiz.id), """{"response":{"answer":"1"}}""", 409)
         assertEquals("QUIZ_DATA_INVALID", result["code"].asText())
         assertEquals(0L, attempts.count())
     }
@@ -715,13 +658,9 @@ class QuizApiTest {
         val examples = fixtures().toMutableList()
         val minimal =
             fixtures()
-                .first { it["caseId"].asText() == "slider_exact" }
+                .first { it["caseId"].asText() == "slider" }
                 .deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
-        val config = minimal["config"] as com.fasterxml.jackson.databind.node.ObjectNode
-        config.remove(listOf("initialValue", "unit", "showValue"))
-        config.put("shuffle", false)
-        config.put("allowRetry", true)
-        config.put("showHint", false)
+        (minimal["config"] as com.fasterxml.jackson.databind.node.ObjectNode).remove("hint")
         examples.add(minimal)
         val expected = examples.associate { example -> checkNotNull(seed(example).id) to example["config"] }
         val list = get("/api/quizzes?lessonId=101")
@@ -747,13 +686,13 @@ class QuizApiTest {
             resolve(node)["oneOf"]?.map { it["\$ref"].asText().substringAfterLast('/') }?.toSet() ?: emptySet()
         val configs =
             mapOf(
-                "SliderConfig" to setOf("min", "max", "step"),
-                "TapConfig" to setOf("selectionType", "items"),
-                "MultipleChoiceConfig" to setOf("selectionType", "options"),
-                "DragDropConfig" to setOf("items", "targets"),
-                "SortConfig" to setOf("items"),
-                "MatchingConfig" to setOf("leftItems", "rightItems"),
-                "FlipCardConfig" to setOf("cards"),
+                "OxConfig" to emptySet(),
+                "SingleConfig" to setOf("options"),
+                "MultiConfig" to setOf("options"),
+                "BlankConfig" to setOf("before", "after", "options"),
+                "SliderConfig" to setOf("ticks"),
+                "MatchConfig" to setOf("pairs"),
+                "ChosungConfig" to setOf("hint"),
             )
         val config = schemas["QuizResponse"]["properties"]["config"]
         assertEquals(configs.keys, alternatives(config), resolve(config).toString())
@@ -761,24 +700,18 @@ class QuizApiTest {
             val schema = resolve(schemas[name])
             assertEquals(required, schema["required"]?.map { it.asText() }?.toSet() ?: emptySet<String>(), name)
             assertEquals(false, schema["additionalProperties"]?.asBoolean(), name)
-            assertTrue(schema.has("properties"), "$name: $schema")
-            val properties = schema["properties"]
-            assertFalse(properties.has("answer"), name)
-            assertFalse(properties.has("type"), name)
-            for (field in listOf("shuffle", "allowRetry", "showHint")) {
-                assertTrue(properties.has(field), "$name.$field")
-                assertFalse(properties[field].path("nullable").asBoolean(), "$name.$field ${properties[field]}")
-            }
+            val properties = schema["properties"]?.fieldNames()?.asSequence()?.toSet() ?: emptySet()
+            assertFalse("answer" in properties, name)
+            assertFalse("tolerance" in properties, name)
         }
         val responses =
             mapOf(
-                "SliderUserResponse" to "value",
-                "TapUserResponse" to "selectedItemIds",
-                "MultipleChoiceUserResponse" to "selectedOptionIds",
-                "DragDropUserResponse" to "placements",
-                "SortUserResponse" to "order",
-                "MatchingUserResponse" to "matches",
-                "FlipCardUserResponse" to "pairs",
+                "OxUserResponse" to "answer",
+                "IndexUserResponse" to "answer",
+                "MultiUserResponse" to "answers",
+                "SliderUserResponse" to "answer",
+                "MatchUserResponse" to "pairs",
+                "ChosungUserResponse" to "answer",
             )
         val response = schemas["QuizAttemptRequest"]["properties"]["response"]
         assertEquals(responses.keys, alternatives(response), resolve(response).toString())
@@ -788,10 +721,8 @@ class QuizApiTest {
             assertEquals(setOf(field), schema["properties"].fieldNames().asSequence().toSet(), name)
             assertEquals(false, schema["additionalProperties"]?.asBoolean(), name)
         }
-        assertEquals("number", schemas["SliderUserResponse"]["properties"]["value"]["type"].asText())
-        assertEquals(setOf("id"), schemas["QuizItemOption"]["required"].map { it.asText() }.toSet())
-        assertEquals(setOf("firstCardId", "secondCardId"), schemas["QuizCardPair"]["required"].map { it.asText() }.toSet())
-        for (name in listOf("QuizDefinition", "QuizAnswer", "ExactSliderAnswer", "MultipleChoiceAnswer")) {
+        assertEquals("number", schemas["SliderUserResponse"]["properties"]["answer"]["type"].asText())
+        for (name in listOf("QuizDefinition", "QuizAnswer", "SliderAnswer", "MultiAnswer", "ChosungAnswer")) {
             assertFalse(schemas.has(name), name)
         }
     }

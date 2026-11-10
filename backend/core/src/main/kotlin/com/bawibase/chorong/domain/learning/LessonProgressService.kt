@@ -2,6 +2,7 @@ package com.bawibase.chorong.domain.learning
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.domain.user.service.UserWalletService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -16,6 +17,7 @@ class LessonProgressService(
     private val reviewGate: ReviewGateService,
     private val lessonCompletion: LessonCompletionService,
     private val lessonReplay: LessonReplayService,
+    private val wallets: UserWalletService,
     private val clock: Clock,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
@@ -54,6 +56,7 @@ class LessonProgressService(
         }
         val detail = learning.getLesson(lessonId)
         val replayLastContentId = if (replay) lessonReplay.start(userId, lessonId) else null
+        spendEnergy(userId, lessonId, replay)
         val lastContentId = if (replay) replayLastContentId else row.lastContentId
         val resumeId = nextContentId(lessonId, lastContentId)
         val status = if (row.status == "UNLOCKED") "IN_PROGRESS" else row.status
@@ -96,13 +99,16 @@ class LessonProgressService(
                 )
             }
             reviewGate.enforce(userId, content.lessonId)
-            return lessonReplay.completeContent(
-                userId,
-                content.lessonId,
-                contentId,
-                content.quizId,
-                nextContentId(content.lessonId, contentId),
-            )
+            val replayed =
+                lessonReplay.completeContent(
+                    userId,
+                    content.lessonId,
+                    contentId,
+                    content.quizId,
+                    nextContentId(content.lessonId, contentId),
+                )
+            if (!replayed.lessonCompleted) return replayed
+            return replayed.copy(completion = lessonCompletion.completeReplay(userId, content.lessonId))
         }
         if (row.lastContentId == contentId) return result(content.lessonId, row)
         if (row.status !in setOf("UNLOCKED", "IN_PROGRESS")) throw locked(userId, courseId)
@@ -151,6 +157,35 @@ class LessonProgressService(
                     userId,
                 ).firstOrNull()
         return LearningProgressSummary(courses, current)
+    }
+
+    /**
+     * 별가루를 받을 수 있는 학습을 시작하면 에너지 1개를 쓴다. 같은 학습을 이어서 시작할 때는 다시 쓰지 않는다.
+     * 다시 보기는 별가루를 아직 받지 않은 레슨일 때만 쓴다. 에너지가 없으면 학습은 그대로 진행한다.
+     */
+    private fun spendEnergy(
+        userId: Long,
+        lessonId: Long,
+        replay: Boolean,
+    ) {
+        val onboarding =
+            jdbc.queryForObject(
+                "SELECT c.is_onboarding FROM lesson l JOIN course c ON c.course_id=l.course_id WHERE l.lesson_id=?",
+                Boolean::class.java,
+                lessonId,
+            ) ?: false
+        if (onboarding) return
+        if (replay && lessonCompletion.stardustGranted(userId, lessonId)) return
+        val table = if (replay) "lesson_replay_progress" else "lesson_progress"
+        val spent =
+            jdbc.queryForObject(
+                "SELECT energy_spent FROM $table WHERE user_id=? AND lesson_id=? FOR UPDATE",
+                Boolean::class.java,
+                userId,
+                lessonId,
+            ) ?: false
+        if (spent || !wallets.spendEnergy(userId)) return
+        jdbc.update("UPDATE $table SET energy_spent=TRUE WHERE user_id=? AND lesson_id=?", userId, lessonId)
     }
 
     private fun result(

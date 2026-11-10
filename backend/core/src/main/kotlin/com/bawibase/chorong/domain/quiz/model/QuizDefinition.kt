@@ -8,6 +8,34 @@ sealed interface QuizDefinition {
     val answer: QuizAnswer?
 }
 
+data class OxQuizDefinition(
+    override val config: OxConfig,
+    override val answer: OxAnswer,
+) : QuizDefinition {
+    override val interactionType: QuizInteractionType get() = QuizInteractionType.OX
+}
+
+data class SingleQuizDefinition(
+    override val config: SingleConfig,
+    override val answer: SingleAnswer,
+) : QuizDefinition {
+    override val interactionType: QuizInteractionType get() = QuizInteractionType.SINGLE
+}
+
+data class MultiQuizDefinition(
+    override val config: MultiConfig,
+    override val answer: MultiAnswer,
+) : QuizDefinition {
+    override val interactionType: QuizInteractionType get() = QuizInteractionType.MULTI
+}
+
+data class BlankQuizDefinition(
+    override val config: BlankConfig,
+    override val answer: BlankAnswer,
+) : QuizDefinition {
+    override val interactionType: QuizInteractionType get() = QuizInteractionType.BLANK
+}
+
 data class SliderQuizDefinition(
     override val config: SliderConfig,
     override val answer: SliderAnswer,
@@ -15,44 +43,17 @@ data class SliderQuizDefinition(
     override val interactionType: QuizInteractionType get() = QuizInteractionType.SLIDER
 }
 
-data class TapQuizDefinition(
-    override val config: TapConfig,
-    override val answer: TapAnswer,
+/** 짝은 앱이 한 쌍씩 바로 판정하도록 config에 공개한다. 저장 정답은 없다. */
+data class MatchQuizDefinition(
+    override val config: MatchConfig,
 ) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.TAP
+    override val interactionType: QuizInteractionType get() = QuizInteractionType.MATCH
+    override val answer: QuizAnswer? get() = null
 }
 
-data class MultipleChoiceQuizDefinition(
-    override val config: MultipleChoiceConfig,
-    override val answer: MultipleChoiceAnswer,
+data class ChosungQuizDefinition(
+    override val config: ChosungConfig,
+    override val answer: ChosungAnswer,
 ) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.MULTIPLE_CHOICE
-}
-
-data class DragDropQuizDefinition(
-    override val config: DragDropConfig,
-    override val answer: DragDropAnswer,
-) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.DRAG_DROP
-}
-
-data class SortQuizDefinition(
-    override val config: SortConfig,
-    override val answer: SortAnswer,
-) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.SORT
-}
-
-data class MatchingQuizDefinition(
-    override val config: MatchingConfig,
-    override val answer: MatchingAnswer,
-) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.MATCHING
-}
-
-data class FlipCardQuizDefinition(
-    override val config: FlipCardConfig,
-    override val answer: FlipCardAnswer,
-) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.FLIP_CARD
+    override val interactionType: QuizInteractionType get() = QuizInteractionType.CHOSUNG
 }

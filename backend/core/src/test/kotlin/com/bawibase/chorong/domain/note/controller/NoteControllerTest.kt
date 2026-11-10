@@ -46,7 +46,7 @@ class NoteControllerTest {
         mockMvc.get("/docs/index.html").andExpect {
             status { isOk() }
             content { string(org.hamcrest.Matchers.containsString("createApiReference")) }
-            content { string(org.hamcrest.Matchers.containsString("0.3.0")) }
+            content { string(org.hamcrest.Matchers.containsString("0.4.0")) }
             content { string(org.hamcrest.Matchers.containsString("/docs/openapi.yaml")) }
         }
     }
@@ -67,7 +67,7 @@ class NoteControllerTest {
         assertTrue(expectedBytes.contentEquals(served), "런타임 명세가 docs/openapi2.yaml과 다릅니다")
 
         val document = Yaml().load<Map<String, Any>>(expectedBytes.inputStream())
-        assertEquals("0.3.0", (document["info"] as Map<*, *>)["version"])
+        assertEquals("0.4.0", (document["info"] as Map<*, *>)["version"])
         val paths = document["paths"] as Map<*, *>
         val operations = mutableListOf<Triple<String, String, String>>()
         for ((path, pathItem) in paths) {

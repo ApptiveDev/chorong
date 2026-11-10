@@ -144,14 +144,9 @@ class LearningApiTest {
                     lessonId = 23,
                     question = "질문",
                     instruction = "선택",
-                    interactionType = QuizInteractionType.MULTIPLE_CHOICE,
-                    config =
-                        mapOf(
-                            "selectionType" to "SINGLE",
-                            "options" to listOf(mapOf("id" to "a", "text" to "선택지")),
-                            "shuffle" to false,
-                        ),
-                    answer = mapOf("correctOptionIds" to listOf("a")),
+                    interactionType = QuizInteractionType.SINGLE,
+                    config = mapOf("options" to listOf("선택지", "다른 선택지")),
+                    answer = mapOf("answer" to 0),
                     explanation = "비공개 해설",
                     difficulty = "EASY",
                     quizOrder = 0,
@@ -188,8 +183,8 @@ class LearningApiTest {
             jsonPath("$.data.contents[0].body") { value("학습 본문") }
             jsonPath("$.data.contents[1].contentType") { value("QUIZ") }
             jsonPath("$.data.contents[1].quiz.quizId") { value(quiz.id) }
-            jsonPath("$.data.contents[1].quiz.interactionType") { value("MULTIPLE_CHOICE") }
-            jsonPath("$.data.contents[1].quiz.config.options[0].text") { value("선택지") }
+            jsonPath("$.data.contents[1].quiz.interactionType") { value("SINGLE") }
+            jsonPath("$.data.contents[1].quiz.config.options[0]") { value("선택지") }
             jsonPath("$.data.contents[1].quiz.instruction") { value("선택") }
             jsonPath("$.data.contents[1].quiz.type") { doesNotExist() }
             jsonPath("$.data.contents[1].quiz.answer") { doesNotExist() }
@@ -258,7 +253,7 @@ class LearningApiTest {
     fun `lesson start resumes in order and requires completed quiz attempt`() {
         val (_, lessonId) = createUnlockedLesson("lesson progress")
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','intro')", lessonId)
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         val quizId = seedFixture(fixture, lessonId, 1)
         jdbc.update(
             "INSERT INTO lesson_content(lesson_id,content_order,content_type,media_url) VALUES (?,2,'IMAGE','https://example.com/x.png')",
@@ -275,7 +270,7 @@ class LearningApiTest {
             status { isOk() }
             jsonPath("$.data.progress.status") { value("IN_PROGRESS") }
             jsonPath("$.data.progress.resumeContentId") { value(contentIds[0]) }
-            jsonPath("$.data.contents[1].quiz.interactionType") { value("MULTIPLE_CHOICE") }
+            jsonPath("$.data.contents[1].quiz.interactionType") { value("SINGLE") }
         }
         mvc.post("/api/v1/contents/${contentIds[0]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
         mvc
@@ -288,7 +283,7 @@ class LearningApiTest {
                 "/api/v1/contents/${contentIds[1]}/complete",
             ) { header(HttpHeaders.AUTHORIZATION, auth) }
             .andExpect { status { isConflict() } }
-        postAnswer(quizId, mapper.readTree("""{"selectedOptionIds":["italy"]}""")).andExpect { status { isOk() } }
+        postAnswer(quizId, mapper.readTree("""{"answer":1}""")).andExpect { status { isOk() } }
         mvc.post("/api/v1/contents/${contentIds[1]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.progress.lastContentId") { value(contentIds[1]) }
@@ -425,12 +420,12 @@ class LearningApiTest {
             lessonId,
         )
         jdbc.update("UPDATE lesson SET artwork_image_url='https://example.com/art.png' WHERE lesson_id=?", lessonId)
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         val quizId = seedFixture(fixture, lessonId, 0)
         val contentId =
             checkNotNull(jdbc.queryForObject("SELECT content_id FROM lesson_content WHERE lesson_id=?", Long::class.java, lessonId))
         jdbc.update(
-            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=? WHERE user_id=? AND lesson_id=?",
+            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=?,energy_spent=TRUE WHERE user_id=? AND lesson_id=?",
             contentId,
             userId,
             lessonId,
@@ -531,7 +526,7 @@ class LearningApiTest {
         val (courseId, lessonId) = createUnlockedLesson("onboarding artwork")
         jdbc.update("UPDATE course SET is_onboarding=true WHERE course_id=?", courseId)
         jdbc.update("UPDATE lesson SET artwork_image_url='https://example.com/onboarding.png' WHERE lesson_id=?", lessonId)
-        val quizId = seedFixture(quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }, lessonId, 0)
+        val quizId = seedFixture(quizFixtures().first { it["caseId"].asText() == "single" }, lessonId, 0)
         jdbc.update(
             "INSERT INTO quiz_attempt(quiz_id,user_id,response,graded,correct,completed) VALUES (?,?,'{}'::jsonb,true,true,true)",
             quizId,
@@ -600,10 +595,10 @@ class LearningApiTest {
                     jsonPath("$.data.reviewItems[0].quiz.quizId") { value(quizIds[0].toInt()) }
                     jsonPath("$.data.reviewItems[4].quiz.quizId") { value(quizIds[4].toInt()) }
                     jsonPath("$.data.reviewItems[0].quiz.answer") { doesNotExist() }
-                    jsonPath("$.data.reviewItems[0].quiz.interactionType") { value("MULTIPLE_CHOICE") }
+                    jsonPath("$.data.reviewItems[0].quiz.interactionType") { value("SINGLE") }
                     jsonPath("$.data.reviewItems[1].quiz.interactionType") { value("SLIDER") }
-                    jsonPath("$.data.reviewItems[2].quiz.interactionType") { value("SORT") }
-                    jsonPath("$.data.reviewItems[4].quiz.interactionType") { value("TAP") }
+                    jsonPath("$.data.reviewItems[2].quiz.interactionType") { value("MULTI") }
+                    jsonPath("$.data.reviewItems[4].quiz.interactionType") { value("BLANK") }
                     jsonPath("$.data.rewardEligible") { value(true) }
                 }.andReturn()
                 .response.contentAsString
@@ -656,11 +651,11 @@ class LearningApiTest {
         val correctItemId = items[0]["reviewItemId"].asLong()
         val correctQuizId = items[0]["quiz"]["quizId"].asLong()
         val correctReviewResponse =
-            postReviewAnswer(correctItemId, mapper.readTree("""{"selectedOptionIds":["italy"]}"""))
+            postReviewAnswer(correctItemId, mapper.readTree("""{"answer":1}"""))
                 .andExpect {
                     status { isOk() }
                     jsonPath("$.data.isCorrect") { value(true) }
-                    jsonPath("$.data.correctAnswer.selectedOptionIds[0]") { value("italy") }
+                    jsonPath("$.data.correctAnswer.answer") { value(1) }
                     jsonPath("$.data.graded") { doesNotExist() }
                     jsonPath("$.data.correct") { doesNotExist() }
                     jsonPath("$.data.completed") { value(true) }
@@ -698,7 +693,7 @@ class LearningApiTest {
         )
         mvc.get("/api/v1/reviews/next") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
         val repeated =
-            postReviewAnswer(correctItemId, mapper.readTree("""{"selectedOptionIds":["france"]}"""))
+            postReviewAnswer(correctItemId, mapper.readTree("""{"answer":0}"""))
                 .andExpect { status { isOk() } }
                 .andReturn()
                 .response.contentAsString
@@ -708,14 +703,14 @@ class LearningApiTest {
         oldResult.set<com.fasterxml.jackson.databind.JsonNode>("correctAnswer", mapper.readTree("""{"index":0}"""))
         jdbc.update("UPDATE review_session_item SET answer_result=?::jsonb WHERE review_item_id=?", oldResult.toString(), correctItemId)
         val upgraded =
-            postReviewAnswer(correctItemId, mapper.readTree("""{"selectedOptionIds":["france"]}"""))
+            postReviewAnswer(correctItemId, mapper.readTree("""{"answer":0}"""))
                 .andExpect { status { isOk() } }
                 .andReturn()
                 .response.contentAsString
         assertEquals(mapper.readTree(correctReviewResponse)["data"], mapper.readTree(upgraded)["data"])
         jdbc.update("UPDATE review_session_item SET answer_result=NULL WHERE review_item_id=?", correctItemId)
         val legacyRepeated =
-            postReviewAnswer(correctItemId, mapper.readTree("""{"selectedOptionIds":["france"]}"""))
+            postReviewAnswer(correctItemId, mapper.readTree("""{"answer":0}"""))
                 .andExpect { status { isOk() } }
                 .andReturn()
                 .response.contentAsString
@@ -727,10 +722,11 @@ class LearningApiTest {
 
         val wrongItemId = items[1]["reviewItemId"].asLong()
         val wrongQuizId = items[1]["quiz"]["quizId"].asLong()
-        postReviewAnswer(wrongItemId, mapper.readTree("""{"value":1750}""")).andExpect {
+        postReviewAnswer(wrongItemId, mapper.readTree("""{"answer":0.5}""")).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(false) }
-            jsonPath("$.data.correctAnswer.value") { value(1760) }
+            jsonPath("$.data.correctAnswer.answer") { value(0.28) }
+            jsonPath("$.data.closeness") { value(78) }
             jsonPath("$.data.excludedUntil") { value(null) }
             jsonPath("$.data.completed") { value(true) }
         }
@@ -747,10 +743,10 @@ class LearningApiTest {
 
         val fillBlankItemId = items[4]["reviewItemId"].asLong()
         val fillBlankQuizId = items[4]["quiz"]["quizId"].asLong()
-        postReviewAnswer(fillBlankItemId, mapper.readTree("""{"selectedItemIds":["renaissance"]}""")).andExpect {
+        postReviewAnswer(fillBlankItemId, mapper.readTree("""{"answer":2}""")).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(true) }
-            jsonPath("$.data.correctAnswer.selectedItemIds[0]") { value("renaissance") }
+            jsonPath("$.data.correctAnswer.answer") { value(2) }
         }
         assertEquals(
             "CORRECT",
@@ -783,7 +779,7 @@ class LearningApiTest {
                     quizId,
                 ),
             )
-        postReviewAnswer(reviewItemId, mapper.readTree("""{"selectedOptionIds":["italy"]}""")).andExpect { status { isNotFound() } }
+        postReviewAnswer(reviewItemId, mapper.readTree("""{"answer":1}""")).andExpect { status { isNotFound() } }
         assertEquals(
             0,
             jdbc.queryForObject("SELECT COUNT(*) FROM quiz_attempt WHERE user_id=? AND quiz_id=?", Int::class.java, userId, quizId),
@@ -897,7 +893,7 @@ class LearningApiTest {
                 ),
             )
         jdbc.update(
-            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=? WHERE user_id=? AND lesson_id=?",
+            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=?,energy_spent=TRUE WHERE user_id=? AND lesson_id=?",
             contentId,
             userId,
             lessonId,
@@ -963,22 +959,22 @@ class LearningApiTest {
         val fixtureItems = supportedQuizFixtures()
         val quizIds = fixtureItems.mapIndexed { index, item -> seedFixture(item, lessonId, index) }
 
-        val wrong = mapper.readTree("""{"selectedOptionIds":["france"]}""")
+        val wrong = mapper.readTree("""{"answer":0}""")
         postAnswer(quizIds.first(), wrong).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(false) }
-            jsonPath("$.data.correctAnswer.selectedOptionIds[0]") { value("italy") }
+            jsonPath("$.data.correctAnswer.answer") { value(1) }
             jsonPath("$.data.streakDays") { value(0) }
         }
         assertEquals("WRONG", reviewStatus(quizIds.first()))
 
         val correctAnswers =
             listOf(
-                mapper.readTree("""{"selectedOptionIds":["italy"]}"""),
-                mapper.readTree("""{"value":1760.0}"""),
-                mapper.readTree("""{"order":["renaissance","industrial","french_revolution"]}"""),
-                mapper.readTree("""{"selectedOptionIds":["italy"]}"""),
-                mapper.readTree("""{"selectedItemIds":["renaissance"]}"""),
+                mapper.readTree("""{"answer":1}"""),
+                mapper.readTree("""{"answer":0.28}"""),
+                mapper.readTree("""{"answers":[1,2]}"""),
+                mapper.readTree("""{"answer":1}"""),
+                mapper.readTree("""{"answer":2}"""),
             )
         fixtureItems.forEachIndexed { index, _ ->
             val submission =
@@ -993,7 +989,8 @@ class LearningApiTest {
                         jsonPath("$.data.completed") { value(true) }
                     }.andReturn()
             assertEquals(
-                setOf("attemptId", "isCorrect", "completed", "correctAnswer", "explanation", "streakDays"),
+                setOf("attemptId", "isCorrect", "completed", "correctAnswer", "explanation", "streakDays") +
+                    if (index == 1) setOf("closeness") else emptySet(),
                 mapper
                     .readTree(submission.response.contentAsString)["data"]
                     .fieldNames()
@@ -1037,26 +1034,9 @@ class LearningApiTest {
         }
         fixtures.forEachIndexed { index, fixture ->
             postAnswer(ids[index], mapper.readTree("""{"unexpected":true}""")).andExpect { status { isBadRequest() } }
-            val wrong =
-                when (fixture["interactionType"].asText()) {
-                    "SLIDER" -> """{"value":1740}"""
-                    "TAP" -> """{"selectedItemIds":["humanism"]}"""
-                    "DRAG_DROP" -> """{"placements":{"aristotle":"ancient","newton":"ancient","einstein":"ancient"}}"""
-                    "SORT" -> """{"order":["industrial","renaissance","french_revolution"]}"""
-                    "MATCHING" -> """{"matches":{"newton":"relativity","einstein":"gravity","darwin":"evolution"}}"""
-                    "FLIP_CARD" -> """{"pairs":[{"firstCardId":"c1","secondCardId":"c2"}]}"""
-                    else -> """{"selectedOptionIds":["france"]}"""
-                }
-            postAnswer(ids[index], mapper.readTree(wrong)).andExpect {
+            postAnswer(ids[index], fixture["wrongResponse"]).andExpect {
                 status { isOk() }
                 jsonPath("$.data.isCorrect") { value(false) }
-            }
-            if (fixture["interactionType"].asText() == "FLIP_CARD") {
-                postAnswer(ids[index], mapper.readTree("""{"pairs":[{"firstCardId":"c1","secondCardId":"c5"}]}""")).andExpect {
-                    status { isOk() }
-                    jsonPath("$.data.completed") { value(false) }
-                    jsonPath("$.data.correctAnswer") { doesNotExist() }
-                }
             }
             postAnswer(ids[index], fixture["correctResponse"]).andExpect {
                 status { isOk() }
@@ -1068,34 +1048,54 @@ class LearningApiTest {
     }
 
     @Test
-    fun `review flip card stays open until all pairs are matched`() {
-        val (_, lessonId) = createUnlockedLesson("flip review")
-        val fixture = quizFixtures().first { it["caseId"].asText() == "flip_card" }
-        val quizId = seedFixture(fixture, lessonId, 0)
-        val reviewItemId = createReviewSessionItems(listOf(quizId), completed = false).single()
-        postReviewAnswer(reviewItemId, mapper.readTree("""{"pairs":[{"firstCardId":"c1","secondCardId":"c5"}]}""")).andExpect {
+    fun `quizzes without explanation stay out of the review pool and quiz summary`() {
+        val (_, lessonId) = createUnlockedLesson("unscored quiz")
+        val single = quizFixtures().first { it["caseId"].asText() == "single" }
+        val unscored = single.deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>().apply { remove("explanation") }
+        val unscoredId = seedFixture(unscored, lessonId, 0)
+        val scoredId = seedFixture(single, lessonId, 1)
+        postAnswer(unscoredId, mapper.readTree("""{"answer":0}""")).andExpect {
             status { isOk() }
-            jsonPath("$.data.completed") { value(false) }
-            jsonPath("$.data.correctAnswer") { doesNotExist() }
+            jsonPath("$.data.isCorrect") { value(false) }
+            jsonPath("$.data.explanation") { doesNotExist() }
+            jsonPath("$.data.correctAnswer.answer") { value(1) }
         }
-        assertEquals(
-            false,
-            jdbc.queryForObject("SELECT completed FROM review_session_item WHERE review_item_id=?", Boolean::class.java, reviewItemId),
+        postAnswer(scoredId, mapper.readTree("""{"answer":1}""")).andExpect { status { isOk() } }
+        jdbc.update(
+            "UPDATE lesson_progress SET last_content_id=(SELECT MAX(content_id) FROM lesson_content WHERE lesson_id=?) WHERE user_id=? AND lesson_id=?",
+            lessonId,
+            userId,
+            lessonId,
         )
-        postReviewAnswer(reviewItemId, fixture["correctResponse"]).andExpect {
-            status { isOk() }
-            jsonPath("$.data.completed") { value(true) }
-            jsonPath("$.data.correctAnswer.pairs.length()") { value(3) }
-        }
+        // 풀이 기록은 DB 시각으로 남으므로 완료 시각을 그 뒤로 둔다.
+        `when`(clock.instant()).thenReturn(Instant.now().plusSeconds(60))
+        assertEquals(
+            listOf(scoredId),
+            jdbc.queryForList("SELECT quiz_id FROM quiz_review_pool WHERE user_id=?", Long::class.java, userId),
+        )
+        mvc
+            .post("/api/v1/lessons/$lessonId/complete") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                header(
+                    "Idempotency-Key",
+                    java.util.UUID
+                        .randomUUID()
+                        .toString(),
+                )
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.quizSummary.totalCount") { value(1) }
+                jsonPath("$.data.quizSummary.correctCount") { value(1) }
+            }
     }
 
     @Test
     fun `public quiz answer rejects invalid shape and out of range index`() {
         val (_, lessonId) = createUnlockedLesson("invalid public answer")
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         val quizId = seedFixture(fixture, lessonId, 0)
 
-        postAnswer(quizId, mapper.readTree("""{"response":{"selectedOptionIds":["italy"]}}""")).andExpect {
+        postAnswer(quizId, mapper.readTree("""{"response":{"answer":1}}""")).andExpect {
             status { isBadRequest() }
             jsonPath("$.error.code") { value("VALIDATION_FAILED") }
         }
@@ -1117,7 +1117,7 @@ class LearningApiTest {
         val fixture = quizFixtures().first()
         val quizId = seedFixture(fixture, lessonId, 0)
 
-        postAnswer(quizId, mapper.readTree("""{"selectedOptionIds":["italy"]}""")).andExpect {
+        postAnswer(quizId, mapper.readTree("""{"answer":1}""")).andExpect {
             status { isForbidden() }
             jsonPath("$.error.code") { value("LESSON_LOCKED") }
         }
@@ -1127,7 +1127,7 @@ class LearningApiTest {
     @Test
     fun `replay records answer but leaves completed progress review pool and streak unchanged`() {
         val (_, lessonId) = createUnlockedLesson("replay quiz")
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         val quizId = seedFixture(fixture, lessonId, 0)
         jdbc.update(
             "UPDATE lesson_progress SET status='COMPLETED', completed_at=? WHERE user_id=? AND lesson_id=?",
@@ -1144,10 +1144,10 @@ class LearningApiTest {
             java.sql.Timestamp.from(Instant.now()),
         )
 
-        postAnswer(quizId, mapper.readTree("""{"selectedOptionIds":["italy"]}"""), replay = true).andExpect {
+        postAnswer(quizId, mapper.readTree("""{"answer":1}"""), replay = true).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(true) }
-            jsonPath("$.data.correctAnswer.selectedOptionIds[0]") { value("italy") }
+            jsonPath("$.data.correctAnswer.answer") { value(1) }
             jsonPath("$.data.streakDays") { value(4) }
         }
         assertEquals(
@@ -1166,7 +1166,7 @@ class LearningApiTest {
     @Test
     fun `replay accepts successive answers without content completion calls`() {
         val (_, lessonId) = createUnlockedLesson("replay without completion")
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','intro')", lessonId)
         val quizIds = listOf(seedFixture(fixture, lessonId, 1), seedFixture(fixture, lessonId, 2))
         jdbc.update("UPDATE lesson_progress SET status='COMPLETED', completed_at=now() WHERE user_id=? AND lesson_id=?", userId, lessonId)
@@ -1177,7 +1177,7 @@ class LearningApiTest {
                 content = """{"replay":true}"""
             }.andExpect { status { isOk() } }
         quizIds.forEach { quizId ->
-            postAnswer(quizId, mapper.readTree("""{"selectedOptionIds":["italy"]}"""), replay = true).andExpect {
+            postAnswer(quizId, mapper.readTree("""{"answer":1}"""), replay = true).andExpect {
                 status { isOk() }
                 jsonPath("$.data.isCorrect") { value(true) }
             }
@@ -1194,7 +1194,7 @@ class LearningApiTest {
     @Test
     fun `lesson replay leaves normal progress and rewards unchanged`() {
         val (_, lessonId) = createUnlockedLesson("replay progress")
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         val quizId = seedFixture(fixture, lessonId, 1)
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','intro')", lessonId)
         val contentIds =
@@ -1208,7 +1208,7 @@ class LearningApiTest {
 
         mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
         mvc.post("/api/v1/contents/$textContentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
-        postAnswer(quizId, mapper.readTree("""{"selectedOptionIds":["italy"]}""")).andExpect { status { isOk() } }
+        postAnswer(quizId, mapper.readTree("""{"answer":1}""")).andExpect { status { isOk() } }
         mvc.post("/api/v1/contents/$quizContentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.lessonCompleted") { value(true) }
@@ -1248,7 +1248,7 @@ class LearningApiTest {
                 jsonPath("$.data.progress.lastContentId") { value(textContentId) }
                 jsonPath("$.data.progress.resumeContentId") { value(quizContentId) }
             }
-        postAnswer(quizId, mapper.readTree("""{"selectedOptionIds":["italy"]}"""), replay = true).andExpect { status { isOk() } }
+        postAnswer(quizId, mapper.readTree("""{"answer":1}"""), replay = true).andExpect { status { isOk() } }
         mvc.post("/api/v1/contents/$quizContentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.lessonCompleted") { value(true) }
@@ -1271,11 +1271,80 @@ class LearningApiTest {
     }
 
     @Test
+    fun `energy gates lesson stardust and refills at KST midnight`() {
+        val now = Instant.parse("2026-03-10T05:00:00Z")
+        `when`(clock.instant()).thenReturn(now)
+        val tomorrow = Instant.parse("2026-03-10T15:00:00Z")
+        mvc.get("/api/v1/users/me/wallet") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.energy") { value(5) }
+            jsonPath("$.data.energyResetsAt") { value(tomorrow.toString()) }
+        }
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,energy,energy_date) VALUES (?,0,'2026-03-10') ON CONFLICT (user_id) DO UPDATE SET energy=0, energy_date='2026-03-10'",
+            userId,
+        )
+        entityManager.clear()
+
+        val (_, lessonId) = createUnlockedLesson("energy lesson")
+        jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문')", lessonId)
+        val contentId = jdbc.queryForObject("SELECT content_id FROM lesson_content WHERE lesson_id=?", Long::class.java, lessonId)
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.lessonCompleted") { value(true) }
+            jsonPath("$.data.completion.rewards.length()") { value(0) }
+            jsonPath("$.data.completion.stardustSkipped") { value(true) }
+            jsonPath("$.data.completion.wallet.stardust") { value(0) }
+            jsonPath("$.data.completion.wallet.energy") { value(0) }
+        }
+
+        `when`(clock.instant()).thenReturn(tomorrow)
+        val replay = mapper.writeValueAsBytes(mapOf("replay" to true))
+        mvc
+            .post("/api/v1/lessons/$lessonId/start") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                contentType = MediaType.APPLICATION_JSON
+                content = replay
+            }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.completion.rewards[0].currency") { value("STARDUST") }
+            jsonPath("$.data.completion.stardustSkipped") { value(false) }
+            jsonPath("$.data.completion.wallet.stardust") { value(1) }
+            jsonPath("$.data.completion.wallet.energy") { value(4) }
+        }
+
+        // 별가루를 받은 레슨의 다시 보기는 에너지를 쓰지 않는다.
+        mvc
+            .post("/api/v1/lessons/$lessonId/start") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                contentType = MediaType.APPLICATION_JSON
+                content = replay
+            }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.completion") { doesNotExist() }
+        }
+
+        // 같은 레슨을 이어서 시작하면 에너지를 다시 쓰지 않는다.
+        val (_, nextLessonId) = createUnlockedLesson("energy resume")
+        jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문')", nextLessonId)
+        repeat(2) {
+            mvc.post("/api/v1/lessons/$nextLessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        }
+        mvc.get("/api/v1/users/me/wallet") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            jsonPath("$.data.energy") { value(3) }
+            jsonPath("$.data.energyResetsAt") { value(Instant.parse("2026-03-11T15:00:00Z").toString()) }
+        }
+    }
+
+    @Test
     fun `quiz answer submissions do not record study streak`() {
         val (_, lessonId) = createUnlockedLesson("streak dates")
-        val fixture = quizFixtures().first { it["caseId"].asText() == "multiple_choice_single" }
+        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
         val quizId = seedFixture(fixture, lessonId, 0)
-        val response = mapper.readTree("""{"selectedOptionIds":["italy"]}""")
+        val response = mapper.readTree("""{"answer":1}""")
 
         `when`(clock.instant()).thenReturn(Instant.parse("2026-10-10T14:59:59Z"))
         assertEquals(0, learningQuizzes.submit(userId, quizId, response, replay = false).streakDays)
@@ -1346,7 +1415,7 @@ class LearningApiTest {
 
     private fun supportedQuizFixtures(): List<JsonNode> {
         val byCase = quizFixtures().associateBy { it["caseId"].asText() }
-        val caseIds = listOf("multiple_choice_single", "slider_exact", "sort", "multiple_choice_single", "fill_blank")
+        val caseIds = listOf("single", "slider", "multi", "single", "blank")
         return caseIds.map { byCase.getValue(it) }
     }
 
@@ -1370,7 +1439,7 @@ class LearningApiTest {
                                 object : TypeReference<Map<String, Any?>>() {},
                             )
                         },
-                    explanation = fixture["explanation"].asText(),
+                    explanation = fixture["explanation"]?.asText(),
                     difficulty = fixture["difficulty"].asText(),
                     quizOrder = order,
                 ),

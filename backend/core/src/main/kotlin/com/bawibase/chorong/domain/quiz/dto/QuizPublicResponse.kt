@@ -1,65 +1,32 @@
 package com.bawibase.chorong.domain.quiz.dto
 
-import com.bawibase.chorong.domain.quiz.model.DragDropQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.ExactSliderAnswer
-import com.bawibase.chorong.domain.quiz.model.FlipCardQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.MatchingQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.MultipleChoiceQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.BlankQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.ChosungQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.MatchQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.MultiQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.OxQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.QuizDefinition
-import com.bawibase.chorong.domain.quiz.model.RangeSliderAnswer
+import com.bawibase.chorong.domain.quiz.model.SingleQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.SortQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import java.math.RoundingMode
 
 typealias QuizPublicResponse = QuizResponse
 
+/** 제출 후 보여 줄 정답. 답안과 같은 모양이다. */
 object QuizPublicAnswer {
     private val mapper = jacksonObjectMapper()
 
     fun correct(quiz: QuizDefinition): JsonNode =
         mapper.valueToTree(
             when (quiz) {
-                is SliderQuizDefinition -> {
-                    val value =
-                        when (val answer = quiz.answer) {
-                            is ExactSliderAnswer -> {
-                                answer.value
-                            }
-
-                            is RangeSliderAnswer -> {
-                                quiz.config.min +
-                                    (answer.min - quiz.config.min).divide(quiz.config.step, 0, RoundingMode.CEILING) * quiz.config.step
-                            }
-                        }
-                    mapOf("value" to value)
-                }
-
-                is TapQuizDefinition -> {
-                    mapOf("selectedItemIds" to quiz.answer.correctItemIds)
-                }
-
-                is MultipleChoiceQuizDefinition -> {
-                    mapOf("selectedOptionIds" to quiz.answer.correctOptionIds)
-                }
-
-                is DragDropQuizDefinition -> {
-                    mapOf("placements" to quiz.answer.placements)
-                }
-
-                is SortQuizDefinition -> {
-                    mapOf("order" to quiz.answer.correctOrder)
-                }
-
-                is MatchingQuizDefinition -> {
-                    mapOf("matches" to quiz.answer.matches)
-                }
-
-                is FlipCardQuizDefinition -> {
-                    mapOf("pairs" to quiz.answer.pairs)
-                }
+                is OxQuizDefinition -> mapOf("answer" to quiz.answer.answer)
+                is SingleQuizDefinition -> mapOf("answer" to quiz.answer.answer)
+                is BlankQuizDefinition -> mapOf("answer" to quiz.answer.answer)
+                is MultiQuizDefinition -> mapOf("answers" to quiz.answer.answers.sorted())
+                is SliderQuizDefinition -> mapOf("answer" to quiz.answer.answer)
+                is MatchQuizDefinition -> mapOf("pairs" to quiz.config.pairs)
+                is ChosungQuizDefinition -> mapOf("answer" to quiz.answer.answer.first())
             },
         )
 }

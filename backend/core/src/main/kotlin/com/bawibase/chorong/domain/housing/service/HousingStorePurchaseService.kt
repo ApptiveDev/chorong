@@ -90,7 +90,7 @@ class HousingStorePurchaseService(
         val ownedByOption = inventoryReader.inventory(userId, null).items.associateBy { it.optionId }
         val inventory = options.filterNotNull().distinctBy { it.optionId }.map { checkNotNull(ownedByOption[it.optionId]) }
         logger.info("shop.store_purchased userId={} itemCount={} stardust={}", userId, inventory.size, stardustCost)
-        return HousingStorePurchaseResponse(inventory, WalletBalancesResponse(wallet.stardust))
+        return HousingStorePurchaseResponse(inventory, wallets.balances(wallet))
     }
 
     private fun findItem(itemId: Long): StoreItem? =

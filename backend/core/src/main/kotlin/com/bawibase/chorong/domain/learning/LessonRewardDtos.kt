@@ -37,4 +37,6 @@ data class LessonCompleteResponse(
     val wallet: WalletBalancesResponse,
     val courseCompleted: Boolean,
     val quizSummary: QuizSummary = QuizSummary(0, 0),
+    /** 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true. */
+    val stardustSkipped: Boolean = false,
 )

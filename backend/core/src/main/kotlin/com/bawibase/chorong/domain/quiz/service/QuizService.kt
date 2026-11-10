@@ -2,7 +2,6 @@ package com.bawibase.chorong.domain.quiz.service
 
 import com.bawibase.chorong.common.ApiException
 import com.bawibase.chorong.common.ErrorCode
-import com.bawibase.chorong.domain.quiz.QuizInteractionType
 import com.bawibase.chorong.domain.quiz.dto.QuizAttemptResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizPreviewResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizPublicAnswer
@@ -42,13 +41,17 @@ class QuizService(
         val attempt = attempts.findById(attemptId).orElseThrow { ApiException(ErrorCode.QUIZ_NOT_FOUND) }
         if (attempt.userId != userId || attempt.quizId != quizId) throw ApiException(ErrorCode.QUIZ_NOT_FOUND)
         val quiz = findQuiz(quizId)
+        val definition = converter.readDefinition(quiz)
+        val closeness = grader.prepare(definition)(converter.readStoredResponse(definition, attempt.response)).closeness
         return QuizAttemptResponse(
             attemptId = attemptId,
             graded = attempt.graded,
             correct = attempt.correct,
             completed = attempt.completed,
             explanation = quiz.explanation,
-            correctAnswer = QuizPublicAnswer.correct(converter.readDefinition(quiz)),
+            correctAnswer = QuizPublicAnswer.correct(definition),
+            closeness = closeness,
+            source = quiz.source,
         )
     }
 
@@ -62,7 +65,8 @@ class QuizService(
             graded = result.graded,
             correct = result.correct,
             completed = result.completed,
-            explanation = if (quiz.interactionType == QuizInteractionType.FLIP_CARD && !result.completed) "" else quiz.explanation,
+            explanation = quiz.explanation,
+            closeness = result.closeness,
         )
     }
 
@@ -115,8 +119,10 @@ class QuizService(
             graded = result.graded,
             correct = result.correct,
             completed = result.completed,
-            explanation = if (quiz.interactionType == QuizInteractionType.FLIP_CARD && !result.completed) "" else quiz.explanation,
-            correctAnswer = if (publicContract) correctAnswer else null,
+            explanation = quiz.explanation,
+            correctAnswer = correctAnswer,
+            closeness = result.closeness,
+            source = quiz.source,
         )
     }
 

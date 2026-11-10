@@ -42,7 +42,7 @@ class QuizPreviewApiTest {
         checkNotNull(javaClass.getResourceAsStream("/quiz/quiz-items.json")).use { objectMapper.readTree(it).toList() }
 
     private fun seed(
-        fixture: JsonNode = fixtures().first(),
+        fixture: JsonNode = fixtures().first { it["caseId"].asText() == "slider" },
         lessonId: Long = 101,
         order: Int = fixture["quizOrder"].asInt(),
     ): QuizItemEntity =
@@ -61,6 +61,7 @@ class QuizPreviewApiTest {
                         )
                     },
                 explanation = fixture["explanation"].asText(),
+                source = fixture["source"]?.asText(),
                 difficulty = fixture["difficulty"].asText(),
                 quizOrder = order,
             ),
@@ -109,7 +110,10 @@ class QuizPreviewApiTest {
         for (fixture in examples) {
             val quiz = seed(fixture)
             val result = check(checkNotNull(quiz.id), fixture["correctResponse"])
-            assertEquals(setOf("graded", "correct", "completed", "explanation"), result.fieldNames().asSequence().toSet())
+            val expected =
+                setOf("graded", "correct", "completed", "explanation") +
+                    if (fixture["caseId"].asText() == "slider") setOf("closeness") else emptySet()
+            assertEquals(expected, result.fieldNames().asSequence().toSet())
             assertTrue(result["completed"].asBoolean())
             assertTrue(result["graded"].asBoolean())
             assertTrue(result["correct"].asBoolean())
@@ -123,7 +127,7 @@ class QuizPreviewApiTest {
     fun `a valid wrong answer returns 200 and remains unsaved after repeated checks`() {
         val quiz = seed()
         val before = attempts.count()
-        repeat(2) { assertFalse(check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":1700}"""))["correct"].asBoolean()) }
+        repeat(2) { assertFalse(check(checkNotNull(quiz.id), objectMapper.readTree("""{"answer":0.9}"""))["correct"].asBoolean()) }
         assertEquals(before, attempts.count())
     }
 
@@ -131,13 +135,13 @@ class QuizPreviewApiTest {
     fun `invalid responses return 400 and create no attempts`() {
         val quiz = seed()
         val before = attempts.count()
-        for (response in listOf("""{"value":1761}""", """{"value":"1760"}""", """{"value":1760,"extra":true}""", "null")) {
+        for (response in listOf("""{"answer":1.5}""", """{"answer":"0.28"}""", """{"answer":0.28,"extra":true}""", "null")) {
             assertEquals("INVALID_QUIZ_RESPONSE", check(checkNotNull(quiz.id), objectMapper.readTree(response), 400)["code"].asText())
         }
         mockMvc
             .post("/api/dev/quizzes/${quiz.id}/check") {
                 contentType = MediaType.APPLICATION_JSON
-                content = """{"response":{"value":1700,"value":1760}}"""
+                content = """{"response":{"answer":0.1,"answer":0.28}}"""
             }.andExpect { status { isBadRequest() } }
         assertEquals(before, attempts.count())
     }
@@ -146,7 +150,7 @@ class QuizPreviewApiTest {
     fun `nonpositive ids and missing quizzes keep existing API errors`() {
         mockMvc.get("/api/dev/quizzes?lessonId=0").andExpect { status { isBadRequest() } }
         mockMvc.get("/api/dev/quizzes/${Long.MAX_VALUE}").andExpect { status { isNotFound() } }
-        check(Long.MAX_VALUE, objectMapper.readTree("""{"value":1760}"""), 404)
+        check(Long.MAX_VALUE, objectMapper.readTree("""{"answer":0.28}"""), 404)
     }
 
     @Test
@@ -156,21 +160,21 @@ class QuizPreviewApiTest {
         mockMvc
             .post("/api/quizzes/${quiz.id}/attempts") {
                 contentType = MediaType.APPLICATION_JSON
-                content = """{"response":{"value":1760}}"""
+                content = """{"response":{"answer":0.28}}"""
             }.andExpect { status { isUnauthorized() } }
     }
 
     @Test
     fun `unusable stored data returns 409 without exposing answers`() {
         val quiz = seed()
-        quiz.config = mapOf("min" to 1, "max" to 0, "step" to 1)
+        quiz.config = mapOf("ticks" to listOf("하나"))
         quizzes.saveAndFlush(quiz)
         mockMvc.get("/api/dev/quizzes?lessonId=101").andExpect {
             status { isConflict() }
             jsonPath("$.code") { value("QUIZ_DATA_INVALID") }
             jsonPath("$.answer") { doesNotExist() }
         }
-        check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":1760}"""), 409)
+        check(checkNotNull(quiz.id), objectMapper.readTree("""{"answer":0.28}"""), 409)
     }
 
     @Test
@@ -189,38 +193,31 @@ class QuizPreviewApiTest {
         val original = quiz.config
         val beforeUsers = users.count()
         val beforeAttempts = attempts.count()
-        for (change in listOf(mapOf("step" to 0), mapOf("showValue" to null), mapOf("min" to "1700"))) {
+        for (change in listOf(mapOf("ticks" to listOf<String>()), mapOf("hint" to null), mapOf("ticks" to "1800년"))) {
             quiz.config = original + change
             quizzes.saveAndFlush(quiz)
-            val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":"1760"}"""), 409)
+            val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"answer":"0.28"}"""), 409)
             assertEquals("QUIZ_DATA_INVALID", error["code"].asText())
         }
         quiz.config = original
         quizzes.saveAndFlush(quiz)
-        val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"value":"1760"}"""), 400)
+        val error = check(checkNotNull(quiz.id), objectMapper.readTree("""{"answer":"0.28"}"""), 400)
         assertEquals("INVALID_QUIZ_RESPONSE", error["code"].asText())
         assertEquals(beforeUsers, users.count())
         assertEquals(beforeAttempts, attempts.count())
     }
 
     @Test
-    fun `memory pairs support partial wrong and complete checks without persistence`() {
-        val fixture = fixtures().first { it["caseId"].asText() == "flip_card" }
+    fun `match checks wrong and complete pairs without persistence`() {
+        val fixture = fixtures().first { it["caseId"].asText() == "match" }
         val quiz = seed(fixture)
         val before = attempts.count()
-        for ((json, correct) in listOf(
-            """{"pairs":[{"firstCardId":"c5","secondCardId":"c1"}]}""" to true,
-            """{"pairs":[{"firstCardId":"c1","secondCardId":"c2"}]}""" to false,
-        )) {
-            val result = check(checkNotNull(quiz.id), objectMapper.readTree(json))
-            assertEquals(correct, result["correct"].asBoolean())
-            assertTrue(result["graded"].asBoolean())
-            assertFalse(result["completed"].asBoolean())
-            assertEquals("", result["explanation"].asText())
-        }
-        val completed = check(checkNotNull(quiz.id), fixture["correctResponse"])
-        assertTrue(completed["completed"].asBoolean())
-        assertEquals(quiz.explanation, completed["explanation"].asText())
+        val wrong = check(checkNotNull(quiz.id), fixture["wrongResponse"])
+        assertFalse(wrong["correct"].asBoolean())
+        assertTrue(wrong["completed"].asBoolean())
+        val correct = check(checkNotNull(quiz.id), fixture["correctResponse"])
+        assertTrue(correct["correct"].asBoolean())
+        assertEquals(quiz.explanation, correct["explanation"].asText())
         assertEquals(before, attempts.count())
     }
 }

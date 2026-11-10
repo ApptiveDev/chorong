@@ -1,11 +1,11 @@
 package com.bawibase.chorong.domain.quiz
 
 enum class QuizInteractionType {
+    OX,
+    SINGLE,
+    MULTI,
+    BLANK,
     SLIDER,
-    TAP,
-    DRAG_DROP,
-    SORT,
-    MATCHING,
-    FLIP_CARD,
-    MULTIPLE_CHOICE,
+    MATCH,
+    CHOSUNG,
 }

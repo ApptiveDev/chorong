@@ -150,7 +150,7 @@ class ReviewCompletionService(
         userId: Long,
     ): ReviewCompleteResponse {
         val wallet = wallets.ensureWallet(userId)
-        return ReviewCompleteResponse(rewards, WalletBalancesResponse(wallet.stardust))
+        return ReviewCompleteResponse(rewards, wallets.balances(wallet))
     }
 
     private fun validateIds(

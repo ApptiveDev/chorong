@@ -148,7 +148,7 @@ class OnboardingService(
         userId: Long,
     ): OnboardingCompleteResponse {
         val wallet = wallets.ensureWallet(userId)
-        return OnboardingCompleteResponse(rewards, WalletBalancesResponse(wallet.stardust), true)
+        return OnboardingCompleteResponse(rewards, wallets.balances(wallet), true)
     }
 
     private fun requireUserId(userId: Long) {

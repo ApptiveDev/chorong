@@ -382,6 +382,119 @@ class OpenApiV2DataMigrationTest {
         }
     }
 
+    @Test
+    fun `v43 removes old quiz formats and allows only the simulator types`() {
+        val schema = "openapi_v2_simulator_quiz"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(database.jdbcUrl, database.username, database.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+
+        migrate("42")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
+        jdbc.update("INSERT INTO $schema.app_user(user_id,status) VALUES (100,'ACTIVE')")
+        jdbc.update("INSERT INTO $schema.course(course_id,title,category,topic) VALUES (1,'코스','SCIENCE','코스')")
+        jdbc.update("INSERT INTO $schema.lesson(lesson_id,course_id,title,lesson_order) VALUES (1,1,'레슨',1)")
+        val quizId =
+            jdbc.queryForObject(
+                """INSERT INTO $schema.quiz_item
+                   (lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)
+                   VALUES (1,'질문','선택','TAP','{"selectionType":"SINGLE","items":[]}'::jsonb,
+                           '{"correctItemIds":["a"]}'::jsonb,'해설','기초',1)
+                   RETURNING quiz_id""",
+                Long::class.java,
+            )!!
+        jdbc.update("INSERT INTO $schema.lesson_content(lesson_id,content_order,content_type,body) VALUES (1,0,'TEXT','본문')")
+        jdbc.update("INSERT INTO $schema.lesson_content(lesson_id,content_order,content_type,quiz_id) VALUES (1,1,'QUIZ',?)", quizId)
+        jdbc.update(
+            "INSERT INTO $schema.quiz_attempt(quiz_id,user_id,response,graded,correct,completed) VALUES (?,100,'{}'::jsonb,true,true,true)",
+            quizId,
+        )
+        jdbc.update(
+            "INSERT INTO $schema.quiz_review_pool(user_id,quiz_id,status,available_on,last_submitted_at) VALUES (100,?,'WRONG',CURRENT_DATE,now())",
+            quizId,
+        )
+        val sessionId =
+            jdbc.queryForObject(
+                "INSERT INTO $schema.review_session(user_id,review_date) VALUES (100,CURRENT_DATE) RETURNING review_session_id",
+                Long::class.java,
+            )!!
+        jdbc.update(
+            "INSERT INTO $schema.review_session_item(review_session_id,quiz_id,item_order,source_status) VALUES (?,?,0,'WRONG')",
+            sessionId,
+            quizId,
+        )
+
+        migrate("43")
+
+        for (table in listOf("quiz_item", "quiz_attempt", "quiz_review_pool", "review_session", "review_session_item")) {
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM $schema.$table", Int::class.java), table)
+        }
+        assertEquals(listOf("TEXT"), jdbc.queryForList("SELECT content_type FROM $schema.lesson_content", String::class.java))
+        jdbc.update(
+            """INSERT INTO $schema.quiz_item
+               (lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order,source)
+               VALUES (1,'짝','이어 보세요','MATCH','{"pairs":[["a","b"],["c","d"]]}'::jsonb,NULL,NULL,'기초',1,'출처')""",
+        )
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc.update(
+                """INSERT INTO $schema.quiz_item
+                   (lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)
+                   VALUES (1,'옛 유형','선택','TAP','{}'::jsonb,'{}'::jsonb,'해설','기초',2)""",
+            )
+        }
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc.update(
+                """INSERT INTO $schema.quiz_item
+                   (lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)
+                   VALUES (1,'OX','고르기','OX','{}'::jsonb,NULL,'해설','기초',3)""",
+            )
+        }
+    }
+
+    @Test
+    fun `v44 starts every wallet with full energy and keeps in-progress lessons rewardable`() {
+        val schema = "openapi_v2_energy"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(database.jdbcUrl, database.username, database.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+
+        migrate("43")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
+        jdbc.update("INSERT INTO $schema.app_user(user_id,status) VALUES (100,'ACTIVE')")
+        jdbc.update("INSERT INTO $schema.user_wallet(user_id,stardust) VALUES (100,7)")
+        jdbc.update("INSERT INTO $schema.course(course_id,title,category,topic) VALUES (1,'코스','SCIENCE','코스')")
+        jdbc.update("INSERT INTO $schema.lesson(lesson_id,course_id,title,lesson_order) VALUES (1,1,'레슨1',1),(2,1,'레슨2',2)")
+        jdbc.update(
+            "INSERT INTO $schema.lesson_progress(user_id,lesson_id,course_id,status) VALUES (100,1,1,'IN_PROGRESS'),(100,2,1,'UNLOCKED')",
+        )
+
+        migrate("44")
+
+        assertEquals(5, jdbc.queryForObject("SELECT energy FROM $schema.user_wallet WHERE user_id=100", Int::class.java))
+        assertEquals(7L, jdbc.queryForObject("SELECT stardust FROM $schema.user_wallet WHERE user_id=100", Long::class.java))
+        assertEquals(
+            listOf(true, false),
+            jdbc.queryForList("SELECT energy_spent FROM $schema.lesson_progress ORDER BY lesson_id", Boolean::class.java),
+        )
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc.update("UPDATE $schema.user_wallet SET energy=6 WHERE user_id=100")
+        }
+    }
+
     companion object {
         private data class DatabaseConnection(
             val jdbcUrl: String,

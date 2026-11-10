@@ -6,21 +6,17 @@ import com.bawibase.chorong.config.ApiExceptionHandler
 import com.bawibase.chorong.domain.quiz.dto.QuizAttemptRequest
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
 import com.bawibase.chorong.domain.quiz.entity.QuizJsonConverter
-import com.bawibase.chorong.domain.quiz.model.ExactSliderAnswer
-import com.bawibase.chorong.domain.quiz.model.FlipCardQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
-import com.bawibase.chorong.domain.quiz.model.MultipleChoiceQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.ChosungUserResponse
+import com.bawibase.chorong.domain.quiz.model.IndexUserResponse
+import com.bawibase.chorong.domain.quiz.model.OxConfig
 import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
-import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.junit.jupiter.api.DynamicTest.dynamicTest
@@ -30,7 +26,6 @@ import org.junit.jupiter.api.assertThrows
 import org.springframework.mock.web.MockHttpServletRequest
 import java.math.BigDecimal
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 
 class QuizModelConverterTest {
@@ -83,6 +78,11 @@ class QuizModelConverterTest {
         }
     }
 
+    @Test
+    fun `fixtures cover the seven simulator types`() {
+        assertEquals(QuizInteractionType.entries.map { it.name }.toSet(), fixtures.map { it["interactionType"].asText() }.toSet())
+    }
+
     @TestFactory
     fun `all fixtures retain their JSON fields and values through typed and database conversion`() =
         fixtures.map { fixture ->
@@ -102,309 +102,90 @@ class QuizModelConverterTest {
             }
         }
 
+    @Test
+    fun `ox config serializes as an empty object through the application mapper`() {
+        assertEquals("{}", jacksonObjectMapper().writeValueAsString(OxConfig()))
+        assertEquals(emptyMap(), converter.writeConfig(OxConfig()))
+    }
+
+    @TestFactory
+    fun `unknown missing and explicit null stored fields are rejected`() =
+        listOf(
+            Triple("ox", """{"extra":true}""", null),
+            Triple("single", """{}""", null),
+            Triple("single", """{"options":["a","b"],"shuffle":true}""", null),
+            Triple("single", """{"options":["a",null]}""", null),
+            Triple("single", null, """{"answer":"1"}"""),
+            Triple("single", null, """{"answer":1.0}"""),
+            Triple("blank", """{"before":"앞","options":["a","b"]}""", null),
+            Triple("slider", """{"ticks":["a","b"],"hint":null}""", null),
+            Triple("slider", null, """{"answer":0.28}"""),
+            Triple("chosung", null, """{"answer":"울트라마린"}"""),
+            Triple("match", null, """{"pairs":[]}"""),
+            Triple("match", """{"pairs":[["a",1],["b","c"]]}""", null),
+        ).map { (caseId, config, answer) ->
+            dynamicTest("$caseId $config $answer") {
+                val quiz = entity(fixture(caseId))
+                config?.let { quiz.config = jsonMap(mapper.readTree(it)) }
+                answer?.let { quiz.answer = jsonMap(mapper.readTree(it)) }
+                assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { converter.readDefinition(quiz) }.code)
+            }
+        }
+
+    @Test
+    fun `missing stored answer is rejected except for match`() {
+        val single = entity(fixture("single")).apply { answer = null }
+        assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { converter.readDefinition(single) }.code)
+        converter.readDefinition(entity(fixture("match")))
+    }
+
     @TestFactory
     fun `malformed responses do not coerce values or accept unknown fields`() =
         listOf(
-            "slider_exact" to "null",
-            "slider_exact" to "[]",
-            "slider_exact" to "true",
-            "slider_exact" to "{}",
-            "slider_exact" to "{\"value\":null}",
-            "slider_exact" to "{\"value\":\"1760\"}",
-            "slider_exact" to "{\"value\":\"\"}",
-            "slider_exact" to "{\"value\":true}",
-            "slider_exact" to "{\"value\":[1760]}",
-            "slider_exact" to "{\"value\":1760,\"extra\":true}",
-            "tap_multiple" to "{\"selectedItemIds\":\"humanism\"}",
-            "tap_multiple" to "{\"selectedItemIds\":[1]}",
-            "tap_multiple" to "{\"selectedItemIds\":[true]}",
-            "tap_multiple" to "{\"selectedItemIds\":[null]}",
-            "tap_multiple" to "{\"selectedItemIds\":[[]]}",
-            "tap_multiple" to "{\"selectedOptionIds\":[\"humanism\"]}",
-            "multiple_choice_single" to "{\"selectedOptionIds\":null}",
-            "multiple_choice_single" to "{\"selectedOptionIds\":[{},\"italy\"]}",
-            "sort" to "{\"order\":\"renaissance\"}",
-            "sort" to "{\"order\":[false]}",
-            "matching" to "{\"matches\":[]}",
-            "matching" to "{\"matches\":{\"newton\":null}}",
-            "matching" to "{\"matches\":{\"newton\":1}}",
-            "matching" to "{\"matches\":{\"newton\":true}}",
-            "drag_drop" to "{\"placements\":{\"newton\":[]}}",
-            "drag_drop" to "{\"placements\":{\"newton\":{}}}",
-            "flip_card" to "{}",
-            "flip_card" to "{\"flipped\":null}",
-            "flip_card" to "{\"flipped\":\"true\"}",
-            "flip_card" to "{\"flipped\":1}",
-            "flip_card" to "{\"flipped\":0.0}",
-            "flip_card" to "{\"flipped\":true,\"isCorrect\":true}",
-        ).map { (caseId, json) ->
-            dynamicTest("$caseId rejects $json") {
-                val quiz = converter.readDefinition(entity(fixture(caseId)))
-                val error = assertThrows<ApiException> { converter.readResponse(quiz, mapper.readTree(json)) }
-                assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, error.code)
-            }
-        }
-
-    private fun objectPaths(
-        node: JsonNode,
-        path: String = "",
-    ): List<String> =
-        when {
-            node.isObject -> {
-                listOf(path) +
-                    node
-                        .fields()
-                        .asSequence()
-                        .flatMap { (key, value) -> objectPaths(value, "$path/$key") }
-                        .toList()
-            }
-
-            node.isArray -> {
-                node.flatMapIndexed { index, value -> objectPaths(value, "$path/$index") }
-            }
-
-            else -> {
-                emptyList()
-            }
-        }
-
-    @TestFactory
-    fun `unknown and explicit null config fields are rejected at every nesting level`() =
-        fixtures.flatMap { fixture ->
-            objectPaths(fixture["config"]).flatMap { path ->
-                val fields =
-                    fixture["config"]
-                        .at(path)
-                        .fieldNames()
-                        .asSequence()
-                        .toList()
-                (fields + "unexpected").map { field ->
-                    dynamicTest("${fixture["caseId"].asText()} $path/$field") {
-                        val changed = fixture.deepCopy<ObjectNode>()
-                        val target = changed["config"].at(path) as ObjectNode
-                        if (field == "unexpected") target.put(field, true) else target.putNull(field)
-                        val error = assertThrows<ApiException> { converter.readDefinition(entity(changed)) }
-                        assertEquals(ErrorCode.QUIZ_DATA_INVALID, error.code)
-                    }
-                }
-            }
-        }
-
-    @TestFactory
-    fun `missing required config and answer fields are rejected`() =
-        fixtures.flatMap { fixture ->
-            listOf("config", "answer").flatMap { part ->
-                val optional =
-                    setOf(
-                        "initialValue",
-                        "unit",
-                        "showValue",
-                        "shuffle",
-                        "allowRetry",
-                        "showHint",
-                        "maxSelections",
-                        "displayMode",
-                        "promptParts",
-                    )
-                fixture[part]
-                    .fieldNames()
-                    .asSequence()
-                    .filter { it !in optional }
-                    .map { field ->
-                        dynamicTest("${fixture["caseId"].asText()} missing $part/$field") {
-                            val changed = fixture.deepCopy<ObjectNode>()
-                            (changed[part] as ObjectNode).remove(field)
-                            assertEquals(
-                                ErrorCode.QUIZ_DATA_INVALID,
-                                assertThrows<ApiException> { converter.readDefinition(entity(changed)) }.code,
-                            )
-                        }
-                    }.toList()
-            }
-        }
-
-    @TestFactory
-    fun `omitted optional settings stay omitted but explicit null is rejected`() =
-        fixtures.flatMap { fixture ->
-            val specific =
-                when (fixture["interactionType"].asText()) {
-                    "SLIDER" -> listOf("initialValue", "unit", "showValue")
-                    "TAP" -> listOf("maxSelections", "displayMode", "promptParts")
-                    "MULTIPLE_CHOICE" -> listOf("maxSelections")
-                    else -> emptyList()
-                }
-            (listOf("shuffle", "allowRetry", "showHint") + specific).map { field ->
-                dynamicTest("${fixture["caseId"].asText()} optional $field") {
-                    val changed = fixture.deepCopy<ObjectNode>()
-                    (changed["config"] as ObjectNode).remove(field)
-                    val definition = converter.readDefinition(entity(changed))
-                    assertFalse(converter.writeConfig(definition.config).containsKey(field))
-                    (changed["config"] as ObjectNode).putNull(field)
-                    assertEquals(
-                        ErrorCode.QUIZ_DATA_INVALID,
-                        assertThrows<ApiException> { converter.readDefinition(entity(changed)) }.code,
-                    )
-                }
-            }
-        }
-
-    @TestFactory
-    fun `stored fields reject scalar coercion enum normalization and integer overflow`() =
-        listOf(
-            Triple("slider_exact", "min", "\"1700\""),
-            Triple("slider_exact", "step", "true"),
-            Triple("slider_exact", "unit", "1"),
-            Triple("slider_exact", "unit", "true"),
-            Triple("slider_exact", "showValue", "\"true\""),
-            Triple("slider_exact", "showValue", "1"),
-            Triple("slider_exact", "shuffle", "0"),
-            Triple("slider_exact", "allowRetry", "\"true\""),
-            Triple("slider_exact", "showHint", "\"false\""),
-            Triple("slider_exact", "maxSelections", "1"),
-            Triple("tap_multiple", "selectionType", "0"),
-            Triple("tap_multiple", "selectionType", "\"multiple\""),
-            Triple("tap_multiple", "selectionType", "\" MULTIPLE \""),
-            Triple("tap_multiple", "selectionType", "\"UNKNOWN\""),
-            Triple("tap_multiple", "maxSelections", "1.0"),
-            Triple("tap_multiple", "maxSelections", "1e0"),
-            Triple("tap_multiple", "maxSelections", "2147483648"),
-            Triple("tap_multiple", "maxSelections", "\"1\""),
-            Triple("tap_multiple", "maxSelections", "true"),
-            Triple("sort", "items", "{\"id\":\"a\",\"text\":\"A\"}"),
-            Triple("flip_card", "front", "[]"),
-        ).map { (caseId, field, json) ->
-            dynamicTest("$caseId $field=$json") {
-                val quiz = entity(fixture(caseId))
-                quiz.config = quiz.config + (field to mapper.convertValue(mapper.readTree(json), Any::class.java))
-                assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { converter.readDefinition(quiz) }.code)
-            }
-        }
-
-    @TestFactory
-    fun `answers cannot mix slider shapes use response fields or replace SQL null with an object`() =
-        listOf(
-            "slider_exact" to "{\"value\":1760,\"min\":1750,\"max\":1780}",
-            "slider_exact" to "{\"value\":null}",
-            "slider_exact" to "{\"value\":\"1760\"}",
-            "slider_range" to "{\"min\":1750}",
-            "tap_multiple" to "{\"correctItemIds\":[1]}",
-            "tap_multiple" to "{\"correctItemIds\":[null]}",
-            "multiple_choice_single" to "{\"selectedOptionIds\":[\"italy\"]}",
-            "sort" to "{\"correctOrder\":null}",
-            "matching" to "{\"matches\":{\"newton\":true}}",
-            "drag_drop" to "{\"placements\":{\"newton\":null}}",
-            "flip_card" to "{}",
-            "slider_exact" to "null",
-        ).map { (caseId, json) ->
-            dynamicTest("$caseId rejects answer $json") {
-                val quiz = entity(fixture(caseId))
-                quiz.answer = mapper.readTree(json).takeUnless { it.isNull }?.let(::jsonMap)
-                assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { converter.readDefinition(quiz) }.code)
-            }
-        }
-
-    @Test
-    fun `high precision decimals survive request object map and database conversions`() {
-        val value = BigDecimal("0.12345678901234567890123456789")
-        val quiz = entity(fixture("slider_exact"))
-        quiz.config = mapOf("min" to BigDecimal.ZERO, "max" to BigDecimal.ONE, "step" to BigDecimal("1e-29"))
-        quiz.answer = mapOf("value" to value)
-        val definition = assertIs<SliderQuizDefinition>(converter.readDefinition(quiz))
-        assertEquals(value, assertIs<ExactSliderAnswer>(definition.answer).value)
-        val request = mapper.readValue<QuizAttemptRequest>("{\"response\":{\"value\":$value}}")
-        val response = assertIs<SliderUserResponse>(converter.readResponse(definition, request.response))
-        assertEquals(value, response.value)
-        val stored = database.convertToEntityAttribute(database.convertToDatabaseColumn(converter.writeResponse(response)))
-        assertEquals(value, stored?.get("value"))
-        assertIs<BigDecimal>(stored?.get("value"))
-        quiz.config =
-            checkNotNull(database.convertToEntityAttribute(database.convertToDatabaseColumn(converter.writeConfig(definition.config))))
-        quiz.answer = database.convertToEntityAttribute(database.convertToDatabaseColumn(converter.writeAnswer(definition.answer)))
-        val reloaded = assertIs<SliderQuizDefinition>(converter.readDefinition(quiz))
-        assertEquals(0, definition.config.step.compareTo(reloaded.config.step))
-        assertEquals(value, assertIs<ExactSliderAnswer>(reloaded.answer).value)
-    }
-
-    @Test
-    fun `conversion preserves duplicate ids order repeated targets blanks and explicit false for semantic validation`() {
-        val examples =
-            listOf(
-                "sort" to "{\"order\":[\"industrial\",\"renaissance\",\"industrial\"]}",
-                "tap_multiple" to "{\"selectedItemIds\":[\"humanism\",\"humanism\"]}",
-                "drag_drop" to "{\"placements\":{\"newton\":\"ancient\",\"einstein\":\"ancient\"}}",
-                "flip_card" to "{\"pairs\":[{\"firstCardId\":\"c1\",\"secondCardId\":\"c1\"}]}",
-            )
-        for ((caseId, json) in examples) {
-            val original = mapper.readTree(json)
-            val result = converter.readResponse(converter.readDefinition(entity(fixture(caseId))), original)
-            assertJson(original, mapper.valueToTree(converter.writeResponse(result)))
-        }
-        val quiz = entity(fixture("slider_exact"))
-        quiz.config =
-            quiz.config + mapOf("unit" to " ", "showValue" to false, "shuffle" to false, "allowRetry" to true, "showHint" to false)
-        val config = converter.writeConfig(converter.readDefinition(quiz).config)
-        assertEquals(quiz.config.keys, config.keys)
-        assertEquals(" ", config["unit"])
-        assertEquals(false, config["showValue"])
-        assertEquals(false, config["shuffle"])
-        assertEquals(true, config["allowRetry"])
-        assertEquals(false, config["showHint"])
-    }
-
-    @Test
-    fun `maxSelections retains full Int range rather than limiting to the item count`() {
-        for (caseId in listOf("tap_multiple", "multiple_choice_multiple")) {
-            val quiz = entity(fixture(caseId))
-            quiz.config = quiz.config + ("maxSelections" to Int.MAX_VALUE)
-            val definition = converter.readDefinition(quiz)
-            val limit =
-                when (definition) {
-                    is TapQuizDefinition -> definition.config.maxSelections
-                    is MultipleChoiceQuizDefinition -> definition.config.maxSelections
-                    else -> error("Unexpected fixture type")
-                }
-            assertEquals(Int.MAX_VALUE, limit)
-            assertIs<Int>(converter.writeConfig(definition.config)["maxSelections"])
-        }
-    }
-
-    @Test
-    fun `flip card stores typed pairs and never serializes them into public config`() {
-        val definition = assertIs<FlipCardQuizDefinition>(converter.readDefinition(entity(fixture("flip_card"))))
-        assertEquals(3, definition.answer.pairs.size)
-        assertFalse(converter.writeConfig(definition.config).containsKey("pairs"))
-        val response = assertIs<FlipCardUserResponse>(converter.readResponse(definition, fixture("flip_card")["correctResponse"]))
-        assertEquals(definition.answer.pairs, response.pairs)
-    }
-
-    @TestFactory
-    fun `flip pair fields reject missing null scalar and extra values`() =
-        listOf(
-            """{"pairs":null}""",
-            """{"pairs":{}}""",
-            """{"pairs":[null]}""",
-            """{"pairs":[{"firstCardId":"c1"}]}""",
-            """{"pairs":[{"firstCardId":1,"secondCardId":"c2"}]}""",
-            """{"pairs":[{"firstCardId":"c1","secondCardId":null}]}""",
-            """{"pairs":[{"firstCardId":"c1","secondCardId":"c2","correct":true}]}""",
-            """{"pairs":[],"completed":true}""",
-        ).map { json ->
-            dynamicTest(json) {
-                val definition = converter.readDefinition(entity(fixture("flip_card")))
+            "ox" to """{"answer":"true"}""",
+            "ox" to """{"answer":null}""",
+            "single" to """{"answer":"1"}""",
+            "single" to """{"answer":true}""",
+            "single" to """{"answer":1,"extra":1}""",
+            "multi" to """{"answers":1}""",
+            "multi" to """{"answers":["1"]}""",
+            "slider" to """{"answer":"0.3"}""",
+            "slider" to """{"answer":true}""",
+            "chosung" to """{"answer":1}""",
+            "chosung" to """{"answer":null}""",
+            "match" to """{"pairs":[["a",null]]}""",
+            "match" to """{"pairs":"a"}""",
+            "ox" to "[]",
+            "ox" to "true",
+        ).map { (caseId, response) ->
+            dynamicTest("$caseId $response") {
+                val definition = converter.readDefinition(entity(fixture(caseId)))
                 assertEquals(
                     ErrorCode.INVALID_QUIZ_RESPONSE,
-                    assertThrows<ApiException> { converter.readResponse(definition, mapper.readTree(json)) }.code,
+                    assertThrows<ApiException> { converter.readResponse(definition, mapper.readTree(response)) }.code,
                 )
             }
         }
 
     @Test
+    fun `high precision slider positions survive request and database conversions`() {
+        val value = BigDecimal("0.12345678901234567890123456789")
+        val definition = assertIs<SliderQuizDefinition>(converter.readDefinition(entity(fixture("slider"))))
+        val request = mapper.readValue<QuizAttemptRequest>("{\"response\":{\"answer\":$value}}")
+        val response = assertIs<SliderUserResponse>(converter.readResponse(definition, request.response))
+        assertEquals(value, response.answer)
+        val stored = database.convertToEntityAttribute(database.convertToDatabaseColumn(converter.writeResponse(response)))
+        assertEquals(value, stored?.get("answer"))
+        assertEquals(value, assertIs<SliderUserResponse>(converter.readStoredResponse(definition, checkNotNull(stored))).answer)
+    }
+
+    @Test
     fun `request type hints cannot override the database quiz type`() {
-        val request = mapper.readValue<QuizAttemptRequest>("{\"interactionType\":\"TAP\",\"userId\":123,\"response\":{\"value\":1760}}")
-        val slider = converter.readDefinition(entity(fixture("slider_exact")))
-        assertIs<SliderUserResponse>(converter.readResponse(slider, request.response))
-        val tap = converter.readDefinition(entity(fixture("tap_multiple")))
-        assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, assertThrows<ApiException> { converter.readResponse(tap, request.response) }.code)
+        val request = mapper.readValue<QuizAttemptRequest>("{\"interactionType\":\"CHOSUNG\",\"userId\":123,\"response\":{\"answer\":1}}")
+        val single = converter.readDefinition(entity(fixture("single")))
+        assertIs<IndexUserResponse>(converter.readResponse(single, request.response))
+        val chosung = converter.readDefinition(entity(fixture("chosung")))
+        assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, assertThrows<ApiException> { converter.readResponse(chosung, request.response) }.code)
     }
 
     @Test
@@ -412,26 +193,23 @@ class QuizModelConverterTest {
         val applicationMapper = jacksonObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         applicationMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL)
         val isolated = QuizModelConverter(applicationMapper)
-        assertEquals(
-            listOf("123"),
-            applicationMapper.readValue<TapUserResponse>("{\"selectedItemIds\":[123],\"extra\":true}").selectedItemIds,
-        )
-        val quiz = entity(fixture("tap_multiple"))
+        assertEquals("1", applicationMapper.readValue<ChosungUserResponse>("{\"answer\":1,\"extra\":true}").answer)
+        val quiz = entity(fixture("chosung"))
         val definition = isolated.readDefinition(quiz)
         assertEquals(
             ErrorCode.INVALID_QUIZ_RESPONSE,
-            assertThrows<ApiException> { isolated.readResponse(definition, mapper.readTree("{\"selectedItemIds\":[123]}")) }.code,
+            assertThrows<ApiException> { isolated.readResponse(definition, mapper.readTree("{\"answer\":1}")) }.code,
         )
-        quiz.config = quiz.config + ("shuffle" to null)
+        quiz.config = quiz.config + ("extra" to null)
         assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { isolated.readDefinition(quiz) }.code)
     }
 
     @Test
     fun `conversion errors use the existing 400 and 409 handler without exposing raw values`() {
-        val quiz = entity(fixture("slider_exact"))
+        val quiz = entity(fixture("single"))
         val definition = converter.readDefinition(quiz)
-        val submitted = assertThrows<ApiException> { converter.readResponse(definition, mapper.readTree("{\"value\":\"wrong\"}")) }
-        quiz.answer = mapOf("value" to "wrong")
+        val submitted = assertThrows<ApiException> { converter.readResponse(definition, mapper.readTree("{\"answer\":\"wrong\"}")) }
+        quiz.answer = mapOf("answer" to "wrong")
         val stored = assertThrows<ApiException> { converter.readDefinition(quiz) }
         val handler = ApiExceptionHandler()
         for ((error, status) in listOf(submitted to 400, stored to 409)) {
@@ -448,9 +226,8 @@ class QuizModelConverterTest {
             "{",
             "[]",
             "{}",
-            "{\"response\":{\"value\":1,\"value\":2}}",
-            "{\"response\":{\"value\":1},\"response\":{\"value\":2}}",
-            "{\"response\":{\"placements\":{\"newton\":\"a\",\"newton\":\"b\"}}}",
+            "{\"response\":{\"answer\":1,\"answer\":2}}",
+            "{\"response\":{\"answer\":1},\"response\":{\"answer\":2}}",
         ).map { json ->
             dynamicTest(json) {
                 assertThrows<JsonProcessingException> { mapper.readValue<QuizAttemptRequest>(json) }

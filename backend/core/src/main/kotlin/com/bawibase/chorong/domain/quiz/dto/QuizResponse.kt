@@ -2,17 +2,17 @@ package com.bawibase.chorong.domain.quiz.dto
 
 import com.bawibase.chorong.domain.quiz.QuizInteractionType
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
-import com.bawibase.chorong.domain.quiz.model.DragDropConfig
-import com.bawibase.chorong.domain.quiz.model.FlipCardConfig
-import com.bawibase.chorong.domain.quiz.model.MatchingConfig
-import com.bawibase.chorong.domain.quiz.model.MultipleChoiceConfig
+import com.bawibase.chorong.domain.quiz.model.BlankConfig
+import com.bawibase.chorong.domain.quiz.model.ChosungConfig
+import com.bawibase.chorong.domain.quiz.model.MatchConfig
+import com.bawibase.chorong.domain.quiz.model.MultiConfig
+import com.bawibase.chorong.domain.quiz.model.OxConfig
 import com.bawibase.chorong.domain.quiz.model.QuizConfig
+import com.bawibase.chorong.domain.quiz.model.SingleConfig
 import com.bawibase.chorong.domain.quiz.model.SliderConfig
-import com.bawibase.chorong.domain.quiz.model.SortConfig
-import com.bawibase.chorong.domain.quiz.model.TapConfig
 import io.swagger.v3.oas.annotations.media.Schema
 
-@Schema(description = "퀴즈 조회 결과. 정답과 해설은 포함하지 않는다.")
+@Schema(description = "퀴즈 조회 결과. 정답과 해설은 포함하지 않는다. MATCH는 짝을 config에 공개한다.")
 data class QuizResponse(
     val quizId: Long,
     val lessonId: Long,
@@ -21,16 +21,16 @@ data class QuizResponse(
     val interactionType: QuizInteractionType,
     // 문서는 상속 구조 대신 아래 구체 config 중 하나로 표현한다.
     @field:Schema(
-        description = "interactionType에 해당하는 화면 구성. FLIP_CARD는 카드 내용만 공개하며 정답 짝은 포함하지 않는다.",
+        description = "interactionType에 해당하는 화면 구성",
         implementation = Any::class,
         oneOf = [
+            OxConfig::class,
+            SingleConfig::class,
+            MultiConfig::class,
+            BlankConfig::class,
             SliderConfig::class,
-            TapConfig::class,
-            MultipleChoiceConfig::class,
-            DragDropConfig::class,
-            SortConfig::class,
-            MatchingConfig::class,
-            FlipCardConfig::class,
+            MatchConfig::class,
+            ChosungConfig::class,
         ],
     )
     val config: QuizConfig,

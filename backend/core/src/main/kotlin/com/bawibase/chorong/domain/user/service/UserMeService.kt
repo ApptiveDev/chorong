@@ -84,7 +84,7 @@ class UserMeService(
             nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             status = user.status.name,
             providers = providers,
-            wallet = WalletBalancesResponse(wallet.stardust),
+            wallet = wallets.balances(wallet),
             progress = progress,
             housing = UserMeHousing(isPublic, likeCount),
             onboardingCompleted = user.onboardingCompleted,

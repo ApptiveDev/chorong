@@ -14,7 +14,7 @@ import kotlin.test.assertFailsWith
 
 @Testcontainers
 class UserStateMigrationTest {
-    @Test fun `v8 upgrade classifies guest-only accounts and preserves all assets and eleven quizzes`() {
+    @Test fun `v8 upgrade classifies guest-only accounts and preserves all assets and quizzes`() {
         val schema = "user_state_upgrade"
 
         fun migrate(target: String) =
@@ -39,10 +39,16 @@ class UserStateMigrationTest {
         jdbc.update("INSERT INTO $schema.housing_profile(user_id) VALUES (10)")
         jdbc.update("INSERT INTO $schema.housing_background(background_id,code,name) VALUES (1,'legacy','legacy')")
         jdbc.update("INSERT INTO $schema.housing_owned_item(user_id,item_type,item_id) VALUES (10,'BACKGROUND',1)")
+        // V8 시점의 퀴즈 형식이다. 현재 형식은 V43 에서 바뀌었다.
         val mapper = ObjectMapper()
-        val input = checkNotNull(javaClass.getResourceAsStream("/quiz/quiz-items.json"))
-        val fixtures = input.use { mapper.readTree(it) }.toList()
-        assertEquals(11, fixtures.size)
+        val fixtures =
+            mapper
+                .readTree(
+                    """[
+                    {"quizOrder":1,"question":"슬라이더","instruction":"선택","interactionType":"SLIDER","config":{"min":0,"max":10,"step":1},"answer":{"value":5},"explanation":"해설","difficulty":"기초"},
+                    {"quizOrder":2,"question":"선택","instruction":"선택","interactionType":"TAP","config":{"selectionType":"SINGLE","items":[{"id":"a","text":"가"},{"id":"b","text":"나"}]},"answer":{"correctItemIds":["a"]},"explanation":"해설","difficulty":"기초"}
+                    ]""",
+                ).toList()
         for (fixture in fixtures) {
             jdbc.update(
                 """INSERT INTO $schema.quiz_item(quiz_id,lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)

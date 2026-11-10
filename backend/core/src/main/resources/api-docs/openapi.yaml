@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 초롱 서비스 API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     10/30 개발 명세서 L2와 레슨 와이어프레임을 반영한 다음 버전의 API 계약입니다.
     기존 L3의 세부 규칙은 L2·와이어프레임과 충돌하지 않는 범위에서 유지합니다.
@@ -523,7 +523,11 @@ paths:
         F-04-04, F-04-07, F-04-10, F-05-05.
         1) 해금 검사(미해금 ERR-20, `unlocksAt` 포함) → 2) 복습 세트가 만들어지면 `reviewRequired=true`로
         먼저 돌려주고 레슨 진입은 복습 완료 후 → 3) UNLOCKED이면 IN_PROGRESS로.
-        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 보상 없음).
+        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 이미 받은 보상은 다시 주지 않음).
+        에너지: 레슨을 시작할 때 에너지 1개를 씁니다. 같은 레슨을 이어서 시작하면 다시 쓰지 않습니다.
+        에너지가 0이어도 학습은 진행하지만 완료 시 별가루를 주지 않습니다.
+        다시 하기는 별가루를 아직 받지 않은 레슨일 때만 에너지를 쓰고, 완료하면 그때 별가루를 줍니다.
+        온보딩 레슨은 에너지를 쓰지 않습니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -590,7 +594,8 @@ paths:
       description: |
         F-04-06, F-05-02, F-06-03, F-03-04. 채점 후 정답·해설·화면 피드백을 돌려주고 답안을 기록합니다.
         레슨 학습(`replay=false`)이면 복습 풀(WRONG/CORRECT)을 갱신하고, 학습일·연속일을 갱신합니다.
-        선택형·짝 맞추기·슬라이더를 포함한 `QuizAnswer` 형식은 퀴즈의 `interactionType`과 일치해야 합니다.
+        `QuizAnswer` 형식은 퀴즈의 `interactionType`과 일치해야 합니다.
+        해설이 없는 문항은 레슨 도입 질문이며 복습 풀과 레슨 결과의 정답 수에 넣지 않습니다.
       parameters:
         - name: quizId
           in: path
@@ -624,6 +629,7 @@ paths:
       summary: 레슨 완료 (보상 지급)
       description: |
         F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03. 최초 완료 1회만 보상.
+        레슨 별가루는 시작할 때 에너지를 쓴 경우에만 줍니다. 별 뱃지·그림·코스 보상은 에너지와 무관합니다.
         코스의 모든 레슨이 완료되면 코스 보상과 별자리 뱃지도 함께 지급.
         와이어프레임의 결과 화면에 필요한 정답 수·문항 수와 획득한 별 뱃지를 함께 돌려줍니다.
       parameters:
@@ -1290,7 +1296,7 @@ paths:
       tags: [shop]
       operationId: API-904
       summary: 재화 잔액
-      description: F-12-02.
+      description: F-12-02. 별가루와 에너지.
       responses:
         '200':
           description: 잔액
@@ -1587,8 +1593,8 @@ components:
       enum: [TEXT, IMAGE, VIDEO, QUIZ]
     QuizType:
       type: string
-      description: L2 퀴즈 유형. O/X와 빈칸 선택은 TAP의 표시 방식으로 표현합니다.
-      enum: [SLIDER, TAP, DRAG_DROP, SORT, MATCHING, FLIP_CARD, MULTIPLE_CHOICE]
+      description: 학습 콘텐츠 시뮬레이터의 퀴즈 유형. O/X, 하나 고르기, 여러 개 고르기, 빈칸, 슬라이더, 짝 맞추기, 초성.
+      enum: [OX, SINGLE, MULTI, BLANK, SLIDER, MATCH, CHOSUNG]
     LessonStatus:
       type: string
       description: ENUM-06. LOCKED는 진행 행이 없는 레슨(응답 전용)
@@ -1658,6 +1664,15 @@ components:
       type: object
       properties:
         stardust: { type: integer, format: int64 }
+        energy:
+          type: integer
+          minimum: 0
+          maximum: 5
+          description: 남은 에너지. 매일 00시(KST)에 5개로 채워지며 남은 개수는 이월하지 않습니다. 신규 사용자는 5개로 시작합니다.
+        energyResetsAt:
+          type: string
+          format: date-time
+          description: 다음 충전 시각(다음 00시 KST).
     Me:
       type: object
       properties:
@@ -1729,7 +1744,7 @@ components:
               items: { $ref: '#/components/schemas/LessonSummary' }
     QuizPublic:
       type: object
-      description: 정답·해설을 제외한 퀴즈. config는 interactionType에 대응합니다.
+      description: 해설을 제외한 퀴즈. config는 interactionType에 대응합니다. 정답은 MATCH의 짝만 공개합니다.
       required: [quizId, interactionType, question, config, quizOrder]
       properties:
         quizId: { type: integer, format: int64 }
@@ -1740,136 +1755,83 @@ components:
         config: { $ref: '#/components/schemas/QuizConfig' }
         difficulty: { type: string, maxLength: 30 }
         quizOrder: { type: integer, minimum: 1 }
-    QuizOption:
-      type: object
-      required: [id]
-      properties:
-        id: { type: string, minLength: 1 }
-        text: { type: string }
-        imageUrl: { type: string, format: uri-reference }
-      anyOf:
-        - required: [text]
-        - required: [imageUrl]
-      additionalProperties: false
     QuizConfig:
       oneOf:
+        - $ref: '#/components/schemas/OxConfig'
+        - $ref: '#/components/schemas/SingleConfig'
+        - $ref: '#/components/schemas/MultiConfig'
+        - $ref: '#/components/schemas/BlankConfig'
         - $ref: '#/components/schemas/SliderConfig'
-        - $ref: '#/components/schemas/TapConfig'
-        - $ref: '#/components/schemas/DragDropConfig'
-        - $ref: '#/components/schemas/SortConfig'
-        - $ref: '#/components/schemas/MatchingConfig'
-        - $ref: '#/components/schemas/FlipCardConfig'
-        - $ref: '#/components/schemas/MultipleChoiceConfig'
-    SliderConfig:
+        - $ref: '#/components/schemas/MatchConfig'
+        - $ref: '#/components/schemas/ChosungConfig'
+    OxConfig:
       type: object
-      required: [min, max, step]
-      properties:
-        min: { type: number }
-        max: { type: number }
-        step: { type: number, exclusiveMinimum: 0 }
-        initialValue: { type: number }
-        unit: { type: string }
-        showValue: { type: boolean }
-        marks:
-          type: array
-          description: 슬라이더 눈금과 표시 문구.
-          items:
-            type: object
-            required: [value, label]
-            properties:
-              value: { type: number }
-              label: { type: string }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
+      description: OX. 문장은 question에 있고 추가 구성은 없습니다.
       additionalProperties: false
-    TapConfig:
+    SingleConfig:
       type: object
-      required: [selectionType, items]
+      required: [options]
       properties:
-        selectionType: { type: string, enum: [SINGLE, MULTIPLE] }
-        items:
-          type: array
-          minItems: 2
-          items: { $ref: '#/components/schemas/QuizOption' }
-        maxSelections: { type: integer, minimum: 1 }
-        displayMode:
-          type: string
-          enum: [DEFAULT, OX, FILL_BLANK]
-          description: OX는 O·X 선택지, FILL_BLANK는 문장 속 빈칸에 들어갈 단어 선택지입니다.
-        promptParts:
-          type: array
-          description: FILL_BLANK의 빈칸 앞뒤 문장. 한 개의 빈칸은 문자열 두 개로 표현합니다.
-          minItems: 2
-          items: { type: string }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
-      additionalProperties: false
-    DragDropConfig:
-      type: object
-      required: [items, targets]
-      properties:
-        items:
-          type: array
-          items: { $ref: '#/components/schemas/QuizOption' }
-        targets:
-          type: array
-          items: { $ref: '#/components/schemas/QuizOption' }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
-      additionalProperties: false
-    SortConfig:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: '#/components/schemas/QuizOption' }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
-      additionalProperties: false
-    MatchingConfig:
-      type: object
-      required: [leftItems, rightItems]
-      properties:
-        leftItems:
-          type: array
-          items: { $ref: '#/components/schemas/QuizOption' }
-        rightItems:
-          type: array
-          items: { $ref: '#/components/schemas/QuizOption' }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
-      additionalProperties: false
-    FlipCardConfig:
-      type: object
-      required: [cards]
-      properties:
-        cards:
-          type: array
-          minItems: 2
-          items: { $ref: '#/components/schemas/QuizOption' }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
-      additionalProperties: false
-    MultipleChoiceConfig:
-      type: object
-      required: [selectionType, options]
-      properties:
-        selectionType: { type: string, enum: [SINGLE, MULTIPLE] }
         options:
           type: array
+          description: 보기 문구. 답안은 0부터 시작하는 순번입니다.
           minItems: 2
-          items: { $ref: '#/components/schemas/QuizOption' }
-        maxSelections: { type: integer, minimum: 1 }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    MultiConfig:
+      type: object
+      required: [options]
+      properties:
+        options:
+          type: array
+          description: 보기 문구. 답안은 0부터 시작하는 순번 목록입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    BlankConfig:
+      type: object
+      required: [before, after, options]
+      properties:
+        before: { type: string, minLength: 1, description: 빈칸 앞 문장 }
+        after: { type: string, minLength: 1, description: 빈칸 뒤 문장 }
+        options:
+          type: array
+          description: 빈칸에 넣을 낱말. 답안은 0부터 시작하는 순번입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    SliderConfig:
+      type: object
+      required: [ticks]
+      properties:
+        ticks:
+          type: array
+          description: 트랙 왼쪽부터 같은 간격으로 놓는 눈금 문구. 답안은 트랙 위치 0~1입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+        hint: { type: string, minLength: 1, description: 안내 문구. 생략 시 앱 기본 문구 }
+      additionalProperties: false
+    MatchConfig:
+      type: object
+      required: [pairs]
+      properties:
+        pairs:
+          type: array
+          description: |
+            [왼쪽, 오른쪽] 짝 목록이며 정답입니다. 앱은 오른쪽 열을 섞어 보여 주고 한 쌍씩 바로 판정합니다.
+            모든 짝을 맞추면 맞춘 짝 전체를 제출합니다.
+          minItems: 2
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string, minLength: 1 }
+      additionalProperties: false
+    ChosungConfig:
+      type: object
+      required: [hint]
+      properties:
+        hint: { type: string, minLength: 1, description: '초성 힌트. 예: ㅇㅌㄹㅁㄹ' }
       additionalProperties: false
     Content:
       type: object
@@ -1957,84 +1919,84 @@ components:
           items: { $ref: '#/components/schemas/LessonSegment' }
     QuizAnswer:
       description: |
-        interactionType별 답안. TAP의 O/X·빈칸 선택도 selectedItemIds를 사용합니다.
-        서버는 퀴즈 config의 선택지 ID, 개수, 배치 범위를 검증합니다.
+        interactionType별 답안. 정답 표시(correctAnswer)도 같은 모양입니다.
+        - OX: `{ "answer": true }`
+        - SINGLE·BLANK: `{ "answer": 1 }` (보기 순번, 0부터)
+        - MULTI: `{ "answers": [1, 2] }` (순서 무관)
+        - SLIDER: `{ "answer": 0.28 }` (트랙 위치 0~1)
+        - MATCH: `{ "pairs": [["왼쪽", "오른쪽"], ...] }` (짝 전체, 순서 무관)
+        - CHOSUNG: `{ "answer": "울트라마린" }` (공백을 빼고 비교)
       oneOf:
         - type: object
-          required: [value]
+          description: OX
+          required: [answer]
           properties:
-            value: { type: number }
+            answer: { type: boolean }
           additionalProperties: false
         - type: object
-          required: [selectedItemIds]
+          description: SINGLE·BLANK
+          required: [answer]
           properties:
-            selectedItemIds:
+            answer: { type: integer, minimum: 0 }
+          additionalProperties: false
+        - type: object
+          description: MULTI
+          required: [answers]
+          properties:
+            answers:
               type: array
               minItems: 1
-              items: { type: string }
+              uniqueItems: true
+              items: { type: integer, minimum: 0 }
           additionalProperties: false
         - type: object
-          required: [selectedOptionIds]
+          description: SLIDER
+          required: [answer]
           properties:
-            selectedOptionIds:
-              type: array
-              minItems: 1
-              items: { type: string }
+            answer: { type: number, minimum: 0, maximum: 1 }
           additionalProperties: false
         - type: object
-          required: [placements]
-          properties:
-            placements:
-              type: object
-              description: 아이템 ID를 대상 ID에 대응시킵니다.
-              additionalProperties: { type: string }
-          additionalProperties: false
-        - type: object
-          required: [order]
-          properties:
-            order:
-              type: array
-              items: { type: string }
-          additionalProperties: false
-        - type: object
-          required: [matches]
-          properties:
-            matches:
-              type: object
-              description: 왼쪽 ID를 오른쪽 ID에 대응시킵니다.
-              additionalProperties: { type: string }
-          additionalProperties: false
-        - type: object
+          description: MATCH
           required: [pairs]
           properties:
             pairs:
               type: array
-              minItems: 1
               items:
-                type: object
-                required: [firstCardId, secondCardId]
-                properties:
-                  firstCardId: { type: string }
-                  secondCardId: { type: string }
-                additionalProperties: false
+                type: array
+                minItems: 2
+                maxItems: 2
+                items: { type: string }
+          additionalProperties: false
+        - type: object
+          description: CHOSUNG
+          required: [answer]
+          properties:
+            answer: { type: string, minLength: 1 }
           additionalProperties: false
     AnswerResult:
       type: object
-      required: [isCorrect, completed, explanation]
+      required: [isCorrect, completed]
       properties:
         attemptId: { type: integer, format: int64 }
         isCorrect: { type: boolean }
         completed:
           type: boolean
-          description: FLIP_CARD는 모든 짝을 맞췄을 때 true. 다른 유형은 유효한 제출이면 true.
+          description: 유효한 제출이면 true.
         correctAnswer:
           allOf:
             - $ref: '#/components/schemas/QuizAnswer'
           description: 완료된 문항에서 정답 표시용으로 반환합니다.
-        explanation: { type: string }
-        feedback:
+        explanation:
           type: string
-          description: 슬라이더의 근접도 문구 등 문항별 결과 화면에 표시할 문구.
+          description: 해설. 해설이 없는 문항(레슨 도입 질문)은 생략합니다. 앱은 결과 시트 없이 다음 화면으로 넘어갑니다.
+        closeness:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: SLIDER만. 정답 위치에 얼마나 가까운지. 화면 문구 예시 "정답에 78% 근접했어요".
+        source:
+          type: string
+          description: 해설의 출처. 없으면 생략합니다.
         streakDays: { type: integer }
     Reward:
       type: object
@@ -2084,7 +2046,10 @@ components:
               properties:
                 correctCount: { type: integer, minimum: 0 }
                 totalCount: { type: integer, minimum: 0 }
-              description: 레슨 결과 화면의 정답 수와 채점 대상 문항 수.
+              description: 레슨 결과 화면의 정답 수와 채점 대상 문항 수. 해설이 없는 문항은 세지 않습니다.
+            stardustSkipped:
+              type: boolean
+              description: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
     RewardRecord:
       allOf:
         - $ref: '#/components/schemas/Reward'
