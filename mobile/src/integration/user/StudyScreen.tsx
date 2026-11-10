@@ -36,6 +36,7 @@ import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
 import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
 import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
+import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
@@ -173,11 +174,13 @@ function Study() {
   const fillBlankStage = quizStage && !!current.quiz && hasFillBlankChoices(current.quiz);
   const matchingStage = quizStage && !!current.quiz && hasMatchingPairs(current.quiz);
   const singleChoiceStage = quizStage && !!current.quiz && hasSingleChoiceOptions(current.quiz);
+  const multiChoiceStage = quizStage && !!current.quiz && hasMultiChoiceOptions(current.quiz);
   const instantQuiz =
     quizStage &&
     (current.quiz?.type === 'OX' ||
       fillBlankStage ||
       matchingStage ||
+      multiChoiceStage ||
       (current.quiz?.type === 'MULTIPLE_CHOICE' &&
         (!useMockApi || current.quiz.options?.mockHtmlType === 'single')) ||
       current.quiz?.options?.mockHtmlType === 'blank' ||
@@ -514,12 +517,14 @@ function Study() {
                           ? s.matchingScrollContent
                           : singleChoiceStage
                             ? s.singleChoiceScrollContent
-                            : [
-                                s.quizScrollContent,
-                                { paddingHorizontal: 36 * quizScale },
-                                oxStage && s.oxScrollContent,
-                                oxStage && { paddingTop: 200 * quizScale },
-                              ]
+                            : multiChoiceStage
+                              ? s.multiChoiceScrollContent
+                              : [
+                                  s.quizScrollContent,
+                                  { paddingHorizontal: 36 * quizScale },
+                                  oxStage && s.oxScrollContent,
+                                  oxStage && { paddingTop: 200 * quizScale },
+                                ]
                       : s.scrollContent
                   }
                 >
@@ -580,6 +585,26 @@ function Study() {
                       />
                     ) : singleChoiceStage ? (
                       <SingleChoiceQuiz
+                        key={`${current.contentId}:${current.quiz.quizId}`}
+                        quiz={current.quiz}
+                        scale={quizScale}
+                        disabled={answered.has(current.contentId)}
+                        submit={(answer) =>
+                          api.learning.answer(current.quiz!.quizId, answer, replay)
+                        }
+                        onGraded={() =>
+                          setAnswered((previous) => new Set(previous).add(current.contentId))
+                        }
+                        onAdvance={() => {
+                          if (replay && last) {
+                            leaveStudy();
+                            return;
+                          }
+                          return advance(true);
+                        }}
+                      />
+                    ) : multiChoiceStage ? (
+                      <MultiChoiceQuiz
                         key={`${current.contentId}:${current.quiz.quizId}`}
                         quiz={current.quiz}
                         scale={quizScale}
@@ -746,6 +771,7 @@ function Study() {
           !fillBlankStage &&
           !matchingStage &&
           !singleChoiceStage &&
+          !multiChoiceStage &&
           answered.has(current.contentId) ? (
             <Pressable
               accessibilityRole="button"
@@ -1031,6 +1057,7 @@ const s = StyleSheet.create({
   fillBlankScrollContent: { flexGrow: 1 },
   matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
   singleChoiceScrollContent: { flexGrow: 1 },
+  multiChoiceScrollContent: { flexGrow: 1 },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
