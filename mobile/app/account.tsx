@@ -1,1 +1,1 @@
-export { default } from '../src/integration/user/AccountScreen';
+export { default } from '../src/integration/user/SocialLoginScreen';

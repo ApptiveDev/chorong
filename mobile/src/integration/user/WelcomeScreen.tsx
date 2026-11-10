@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   type TextStyle,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,6 +43,9 @@ export function WelcomeCat({ size = 120 }: { size?: number }) {
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const { height } = useWindowDimensions();
+  const native = Platform.OS !== 'web';
+  const compact = native && height < 700;
   const session = useIntegration();
   const task = useTask();
   const [loadedImages, setLoadedImages] = useState(0);
@@ -132,26 +136,54 @@ export default function WelcomeScreen() {
           style={s.starFooter}
           onLoadEnd={() => markImageLoaded(7)}
         />
-        <ScrollView contentContainerStyle={s.content}>
-          <View style={s.center}>
-            <View style={s.titleGroup}>
-              <Text allowFontScaling={false} style={s.titleSmall}>
+        <ScrollView
+          style={s.scroll}
+          scrollEnabled={!native}
+          contentContainerStyle={[
+            s.content,
+            native && s.nativeContent,
+            compact && s.compactContent,
+          ]}
+        >
+          <View style={[s.center, native && s.nativeCenter, compact && s.compactCenter]}>
+            <View style={[s.titleGroup, native && s.nativeTextGroup]}>
+              <Text
+                allowFontScaling={false}
+                numberOfLines={native ? 1 : undefined}
+                adjustsFontSizeToFit={native}
+                style={[s.titleSmall, compact && s.compactTitleSmall]}
+              >
                 작은 배움이 모이는
               </Text>
-              <Text allowFontScaling={false} style={s.titleLarge}>
+              <Text
+                allowFontScaling={false}
+                numberOfLines={native ? 1 : undefined}
+                adjustsFontSizeToFit={native}
+                style={[s.titleLarge, compact && s.compactTitleLarge]}
+              >
                 나만의 우주
               </Text>
             </View>
             <Image
               source={require('../../../assets/onboarding/orbit.png')}
-              style={s.orbit}
+              style={[s.orbit, compact && s.compactOrbit]}
               onLoadEnd={() => markImageLoaded(8)}
             />
-            <View style={s.descriptionGroup}>
-              <Text allowFontScaling={false} style={s.description}>
+            <View style={[s.descriptionGroup, native && s.nativeTextGroup]}>
+              <Text
+                allowFontScaling={false}
+                numberOfLines={native ? 1 : undefined}
+                adjustsFontSizeToFit={native}
+                style={[s.description, compact && s.compactDescription]}
+              >
                 하나의 이야기를 배우고
               </Text>
-              <Text allowFontScaling={false} style={[s.description, s.glowingDescription]}>
+              <Text
+                allowFontScaling={false}
+                numberOfLines={native ? 1 : undefined}
+                adjustsFontSizeToFit={native}
+                style={[s.description, s.glowingDescription, compact && s.compactDescription]}
+              >
                 첫 별을 밝혀보세요.
               </Text>
             </View>
@@ -179,19 +211,20 @@ export default function WelcomeScreen() {
               onPress={start}
               style={[
                 s.primary,
+                compact && s.compactButton,
                 (task.busy || (!session.authenticated && !platform && !useMockApi)) && s.disabled,
               ]}
             >
-              <Text allowFontScaling={false} style={s.primaryText}>
+              <Text allowFontScaling={false} numberOfLines={1} style={s.primaryText}>
                 첫 학습 시작하기
               </Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push('/account')}
-              style={s.secondary}
+              style={[s.secondary, compact && s.compactButton]}
             >
-              <Text allowFontScaling={false} style={s.secondaryText}>
+              <Text allowFontScaling={false} numberOfLines={1} style={s.secondaryText}>
                 로그인 / 회원가입
               </Text>
             </Pressable>
@@ -205,6 +238,7 @@ export default function WelcomeScreen() {
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: '#161616' },
   scene: { flex: 1 },
+  scroll: { flex: 1 },
   sceneHidden: { opacity: 0 },
   background: { position: 'absolute', top: 0, width: '100%', height: '100%' },
   starTop: {
@@ -265,12 +299,29 @@ const s = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 12,
   },
+  nativeContent: {
+    justifyContent: 'space-between',
+    gap: 0,
+    paddingHorizontal: 24,
+    paddingTop: 72,
+    paddingBottom: 20,
+  },
+  compactContent: { paddingTop: 44, paddingBottom: 12 },
   center: {
     width: 174,
     alignItems: 'center',
     gap: 56,
   },
+  nativeCenter: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'space-between',
+    gap: 0,
+    marginBottom: 32,
+  },
+  compactCenter: { marginBottom: 16 },
   titleGroup: { alignItems: 'center', gap: 8, width: 174 },
+  nativeTextGroup: { width: '100%' },
   titleSmall: {
     color: '#f1f1f1',
     fontFamily: 'KkakdugiRegular',
@@ -278,9 +329,13 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
   titleLarge: { color: '#f1f1f1', fontFamily: 'KkakdugiBold', fontSize: 36, textAlign: 'center' },
+  compactTitleSmall: { fontSize: 20 },
+  compactTitleLarge: { fontSize: 30 },
   orbit: { width: 145, height: 145 },
+  compactOrbit: { width: 116, height: 116 },
   descriptionGroup: { alignItems: 'center', gap: 12, width: 174 },
   description: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 16, textAlign: 'center' },
+  compactDescription: { fontSize: 14 },
   glowingDescription:
     Platform.OS === 'web'
       ? ({ textShadow: '0px 0px 4px #f1f1f1' } as TextStyle)
@@ -290,6 +345,7 @@ const s = StyleSheet.create({
           textShadowRadius: 4,
         },
   footer: { width: '100%', maxWidth: 328, gap: 16 },
+  compactButton: { height: 44 },
   primary: {
     height: 48,
     borderRadius: 4,
@@ -298,7 +354,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     boxShadow: '0px 0px 8px 0px rgba(241, 241, 241, 0.8)',
   },
-  primaryText: { color: '#161616', fontFamily: 'KkakdugiRegular', fontSize: 16 },
+  primaryText: { color: '#161616', fontFamily: 'KkakdugiRegular', fontSize: 16, lineHeight: 24 },
   secondary: {
     height: 48,
     borderWidth: 1,
@@ -309,7 +365,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     boxShadow: '0px 0px 8px 0px rgba(241, 241, 241, 0.8)',
   },
-  secondaryText: { color: '#f1f1f1', fontFamily: 'KkakdugiRegular', fontSize: 16 },
+  secondaryText: { color: '#f1f1f1', fontFamily: 'KkakdugiRegular', fontSize: 16, lineHeight: 24 },
   disabled: { opacity: 0.38 },
   error: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 14, textAlign: 'center' },
   webNotice: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 12, textAlign: 'center' },

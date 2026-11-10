@@ -64,6 +64,27 @@ function setup(persist = false, entries = new Map()) {
   );
   return { c, api: createIntegrationApi(c), entries };
 }
+test('mock social providers accept temporary credentials and open a member session', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  for (const provider of ['apple', 'google', 'kakao']) {
+    const c = new IntegrationClient(
+      'https://mock.invalid/api/v1',
+      storage,
+      () => uuid,
+      false,
+      mockApi,
+    );
+    c.http.defaults.adapter = async () => {
+      throw new Error('network request');
+    };
+    await createIntegrationApi(c).account.oauth(provider, { accessToken: 'arbitrary-input' });
+    assert.equal(c.getSnapshot().authenticated, true);
+    assert.equal(c.getSnapshot().user.status, 'ACTIVE');
+    assert.deepEqual((await createIntegrationApi(c).account.me()).providers, [
+      provider.toUpperCase(),
+    ]);
+  }
+});
 test('mock API renders linked data without using the HTTP adapter', async () => {
   const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
   const c = new IntegrationClient(

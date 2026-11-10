@@ -212,8 +212,14 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({ ...auth(), isNew: true });
     case 'API-103':
     case 'API-104':
-    case 'API-105':
       state.user = { ...state.user, status: 'ACTIVE', providers: ['EMAIL'] };
+      return response(auth());
+    case 'API-105':
+      state.user = {
+        ...state.user,
+        status: 'ACTIVE',
+        providers: [String(options.path?.provider ?? '').toUpperCase()],
+      };
       return response(auth());
     case 'API-102':
       return response({ verificationId: 'mock-verification', expiresAt: '2026-11-03T00:00:00Z' });

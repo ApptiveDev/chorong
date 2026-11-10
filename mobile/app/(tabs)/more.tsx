@@ -19,7 +19,8 @@ export default function More() {
 
 function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; returnTo?: '/social' }) {
   const router = useRouter();
-  const [socialNotice, setSocialNotice] = useState(false);
+  const openSocial = () =>
+    returnTo ? router.push({ pathname: '/account', params: { returnTo } }) : go('/account');
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={s.memberContent}>
@@ -30,22 +31,21 @@ function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; return
           <Text style={s.guestDescription}>지금까지의 학습과 우주선을 이어가세요.</Text>
         </View>
         <View style={s.authOptions}>
-          <AuthOption title="Apple로 계속하기" onPress={() => setSocialNotice(true)} apple />
-          <AuthOption title="Google로 계속하기" onPress={() => setSocialNotice(true)} />
-          <AuthOption title="카카오로 계속하기" onPress={() => setSocialNotice(true)} kakao />
+          <AuthOption title="Apple로 계속하기" onPress={openSocial} apple />
+          <AuthOption title="Google로 계속하기" onPress={openSocial} />
+          <AuthOption title="카카오로 계속하기" onPress={openSocial} kakao />
           <AuthOption
             title="이메일로 로그인하기"
             onPress={() =>
               returnTo
-                ? router.push({ pathname: '/account', params: { returnTo } })
-                : go('/account')
+                ? router.push('/account-email?returnTo=%2Fsocial' as Href)
+                : go('/account-email')
             }
           />
         </View>
-        {socialNotice ? <Text style={s.authNotice}>소셜 로그인은 준비 중입니다.</Text> : null}
         <Text style={s.guestNote}>비회원 기록은 이 기기에만 남아요.</Text>
         <Text style={s.authNotice}>
-          소셜 로그인은 준비 중입니다. 계정 화면에서 이메일로 로그인할 수 있습니다.
+          소셜 계정 연동은 준비 중입니다. 계정 화면에서 이메일로 로그인할 수 있습니다.
         </Text>
         <View style={s.legalLinks}>
           <Pressable accessibilityRole="button" onPress={() => go('/settings/terms')}>
