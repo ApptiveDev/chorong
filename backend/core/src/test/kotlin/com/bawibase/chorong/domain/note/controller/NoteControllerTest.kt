@@ -12,7 +12,6 @@ import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.yaml.snakeyaml.Yaml
-import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -46,28 +45,24 @@ class NoteControllerTest {
         mockMvc.get("/docs/index.html").andExpect {
             status { isOk() }
             content { string(org.hamcrest.Matchers.containsString("createApiReference")) }
-            content { string(org.hamcrest.Matchers.containsString("0.4.0")) }
+            content { string(org.hamcrest.Matchers.containsString("0.3.1")) }
             content { string(org.hamcrest.Matchers.containsString("/docs/openapi.yaml")) }
         }
     }
 
     @Test
     fun `v1 target contract preserves operation ids methods and paths and is served unchanged`() {
-        val root =
-            generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
-                .firstOrNull { File(it, "docs/openapi2.yaml").isFile }
-        assertNotNull(root, "docs/openapi2.yaml을 찾을 수 없습니다")
-        val expectedBytes = File(root, "docs/openapi2.yaml").readBytes()
+        val expectedBytes = checkNotNull(javaClass.getResourceAsStream("/api-docs/openapi.yaml")).use { it.readBytes() }
         val served =
             mockMvc
                 .get("/docs/openapi.yaml")
                 .andExpect { status { isOk() } }
                 .andReturn()
                 .response.contentAsByteArray
-        assertTrue(expectedBytes.contentEquals(served), "런타임 명세가 docs/openapi2.yaml과 다릅니다")
+        assertTrue(expectedBytes.contentEquals(served), "런타임 명세가 api-docs/openapi.yaml과 다릅니다")
 
         val document = Yaml().load<Map<String, Any>>(expectedBytes.inputStream())
-        assertEquals("0.4.0", (document["info"] as Map<*, *>)["version"])
+        assertEquals("0.3.1", (document["info"] as Map<*, *>)["version"])
         val paths = document["paths"] as Map<*, *>
         val operations = mutableListOf<Triple<String, String, String>>()
         for ((path, pathItem) in paths) {

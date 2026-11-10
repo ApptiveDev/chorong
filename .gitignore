@@ -47,3 +47,6 @@ web-build/
 /openapi0_2.yaml
 /해야할일.md
 /diff.md
+
+# OpenAPI 명세 사본 (로컬 전용)
+docs/openapi*.yaml
