@@ -45,7 +45,12 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const { height } = useWindowDimensions();
   const native = Platform.OS !== 'web';
-  const compact = native && height < 700;
+  const orbitSize = native && height < 700 ? Math.max(112, Math.round((144 * height) / 874)) : 144;
+  const gapScale = native
+    ? Math.max(0, Math.min(1, height / 874, (height - 52 - 80 - orbitSize - 44 - 112) / 221))
+    : 1;
+  const innerGap = Math.round(56 * gapScale);
+  const outerGap = Math.round(109 * gapScale);
   const session = useIntegration();
   const task = useTask();
   const [loadedImages, setLoadedImages] = useState(0);
@@ -89,7 +94,7 @@ export default function WelcomeScreen() {
   };
 
   return (
-    <SafeAreaView style={s.page}>
+    <SafeAreaView style={s.page} edges={native ? [] : undefined}>
       <StatusBar style="light" />
       <View
         style={[s.scene, !sceneReady && s.sceneHidden]}
@@ -139,19 +144,15 @@ export default function WelcomeScreen() {
         <ScrollView
           style={s.scroll}
           scrollEnabled={!native}
-          contentContainerStyle={[
-            s.content,
-            native && s.nativeContent,
-            compact && s.compactContent,
-          ]}
+          contentContainerStyle={[s.content, native && { gap: outerGap }]}
         >
-          <View style={[s.center, native && s.nativeCenter, compact && s.compactCenter]}>
-            <View style={[s.titleGroup, native && s.nativeTextGroup]}>
+          <View style={[s.center, native && { gap: innerGap }]}>
+            <View style={[s.titleGroup, native && s.nativeTitleGroup]}>
               <Text
                 allowFontScaling={false}
                 numberOfLines={native ? 1 : undefined}
                 adjustsFontSizeToFit={native}
-                style={[s.titleSmall, compact && s.compactTitleSmall]}
+                style={[s.titleSmall, native && s.nativeTitleSmall]}
               >
                 작은 배움이 모이는
               </Text>
@@ -159,22 +160,22 @@ export default function WelcomeScreen() {
                 allowFontScaling={false}
                 numberOfLines={native ? 1 : undefined}
                 adjustsFontSizeToFit={native}
-                style={[s.titleLarge, compact && s.compactTitleLarge]}
+                style={[s.titleLarge, native && s.nativeTitleLarge]}
               >
                 나만의 우주
               </Text>
             </View>
             <Image
               source={require('../../../assets/onboarding/orbit.png')}
-              style={[s.orbit, compact && s.compactOrbit]}
+              style={[s.orbit, native && { width: orbitSize, height: orbitSize }]}
               onLoadEnd={() => markImageLoaded(8)}
             />
-            <View style={[s.descriptionGroup, native && s.nativeTextGroup]}>
+            <View style={[s.descriptionGroup, native && s.nativeDescriptionGroup]}>
               <Text
                 allowFontScaling={false}
                 numberOfLines={native ? 1 : undefined}
                 adjustsFontSizeToFit={native}
-                style={[s.description, compact && s.compactDescription]}
+                style={[s.description, native && s.nativeDescription]}
               >
                 하나의 이야기를 배우고
               </Text>
@@ -182,7 +183,7 @@ export default function WelcomeScreen() {
                 allowFontScaling={false}
                 numberOfLines={native ? 1 : undefined}
                 adjustsFontSizeToFit={native}
-                style={[s.description, s.glowingDescription, compact && s.compactDescription]}
+                style={[s.description, s.glowingDescription, native && s.nativeDescription]}
               >
                 첫 별을 밝혀보세요.
               </Text>
@@ -211,7 +212,6 @@ export default function WelcomeScreen() {
               onPress={start}
               style={[
                 s.primary,
-                compact && s.compactButton,
                 (task.busy || (!session.authenticated && !platform && !useMockApi)) && s.disabled,
               ]}
             >
@@ -222,7 +222,7 @@ export default function WelcomeScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push('/account')}
-              style={[s.secondary, compact && s.compactButton]}
+              style={s.secondary}
             >
               <Text allowFontScaling={false} numberOfLines={1} style={s.secondaryText}>
                 로그인 / 회원가입
@@ -299,29 +299,13 @@ const s = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 12,
   },
-  nativeContent: {
-    justifyContent: 'space-between',
-    gap: 0,
-    paddingHorizontal: 24,
-    paddingTop: 72,
-    paddingBottom: 20,
-  },
-  compactContent: { paddingTop: 44, paddingBottom: 12 },
   center: {
     width: 174,
     alignItems: 'center',
     gap: 56,
   },
-  nativeCenter: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'space-between',
-    gap: 0,
-    marginBottom: 32,
-  },
-  compactCenter: { marginBottom: 16 },
   titleGroup: { alignItems: 'center', gap: 8, width: 174 },
-  nativeTextGroup: { width: '100%' },
+  nativeTitleGroup: { height: 80 },
   titleSmall: {
     color: '#f1f1f1',
     fontFamily: 'KkakdugiRegular',
@@ -329,13 +313,13 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
   titleLarge: { color: '#f1f1f1', fontFamily: 'KkakdugiBold', fontSize: 36, textAlign: 'center' },
-  compactTitleSmall: { fontSize: 20 },
-  compactTitleLarge: { fontSize: 30 },
+  nativeTitleSmall: { height: 28, lineHeight: 28, includeFontPadding: false },
+  nativeTitleLarge: { height: 44, lineHeight: 44, includeFontPadding: false },
   orbit: { width: 145, height: 145 },
-  compactOrbit: { width: 116, height: 116 },
   descriptionGroup: { alignItems: 'center', gap: 12, width: 174 },
+  nativeDescriptionGroup: { height: 44 },
   description: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 16, textAlign: 'center' },
-  compactDescription: { fontSize: 14 },
+  nativeDescription: { height: 16, lineHeight: 16, includeFontPadding: false },
   glowingDescription:
     Platform.OS === 'web'
       ? ({ textShadow: '0px 0px 4px #f1f1f1' } as TextStyle)
@@ -345,7 +329,6 @@ const s = StyleSheet.create({
           textShadowRadius: 4,
         },
   footer: { width: '100%', maxWidth: 328, gap: 16 },
-  compactButton: { height: 44 },
   primary: {
     height: 48,
     borderRadius: 4,
