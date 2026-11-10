@@ -34,6 +34,8 @@ import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
+import { NarrationDialogue } from './NarrationDialogue';
+import { toNarrationContent } from './narrationContent';
 import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { HomeStars } from './CoursesScreen';
 import type { RegisterQuizFooter } from './quizFooter';
@@ -161,6 +163,8 @@ function Study() {
   const contents = start?.contents ?? [],
     current = contents[position];
   const quizStage = !lessonDone && current?.contentType === 'QUIZ';
+  const narrationStage = !lessonDone && current?.contentType === 'TEXT';
+  const designedStage = quizStage || narrationStage;
   const oxStage = quizStage && current.quiz?.type === 'OX';
   const instantQuiz =
     quizStage &&
@@ -183,11 +187,9 @@ function Study() {
           ? '핵융합'
           : '줄어든 질량'
         : (params.title ?? '학습');
-  const dialogue = current?.contentType === 'TEXT' ? getDialogueContent(current) : null;
+  const dialogue = current?.contentType === 'TEXT' ? toNarrationContent(current) : null;
   const visibleDialogueCount =
     dialogueReveal.contentId === current?.contentId ? dialogueReveal.count : 1;
-  const dialogueStack =
-    dialogue && current ? getDialogueStack(contents, position, visibleDialogueCount) : null;
   const refreshAfterDone = async (completion?: LessonCompleteResponse | null) => {
     try {
       await api.learning.progress();
@@ -281,9 +283,9 @@ function Study() {
       scroll={false}
       showTitle={false}
       dark={completionView}
-      quiz={quizStage}
+      quiz={designedStage}
     >
-      {quizStage ? <QuizBackdrop /> : null}
+      {designedStage ? <QuizBackdrop /> : null}
       {completionView ? <StatusBar style="light" /> : null}
       {start ? (
         <View pointerEvents="none" style={s.imagePreload}>
@@ -296,8 +298,8 @@ function Study() {
         <View
           style={[
             s.header,
-            quizStage && s.quizHeader,
-            quizStage && {
+            designedStage && s.quizHeader,
+            designedStage && {
               paddingTop: Math.max(0, 60 * quizScale - insets.top),
               paddingHorizontal: 30 * quizScale,
               gap: 20 * quizScale,
@@ -307,21 +309,21 @@ function Study() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="학습 나가기"
-            style={[s.back, quizStage && s.quizBack]}
+            style={[s.back, designedStage && s.quizBack]}
             onPress={() => (lessonDone ? leaveStudy() : setExitOpen(true))}
           >
-            {quizStage ? <QuizBackIcon /> : <Ionicons name="close" size={24} color="#282636" />}
+            {designedStage ? <QuizBackIcon /> : <Ionicons name="close" size={24} color="#282636" />}
           </Pressable>
-          <View style={[s.progressWrap, quizStage && s.quizProgressWrap]}>
-            {quizStage ? (
+          <View style={[s.progressWrap, designedStage && s.quizProgressWrap]}>
+            {designedStage ? (
               <Text style={[s.progress, s.quizProgress]}>
                 {start?.reviewRequired
                   ? '선행 복습 필요'
                   : `${progressLabel} · ${contents.length ? position + 1 : 0}/${contents.length}`}
               </Text>
             ) : null}
-            <View style={[s.segments, quizStage && s.quizSegments]}>
-              {quizStage
+            <View style={[s.segments, designedStage && s.quizSegments]}>
+              {designedStage
                 ? contents.map((content, index) => (
                     <View key={content.contentId} style={[s.segment, s.quizSegment]}>
                       {index <= position ? <View style={[s.segmentOn, s.quizSegmentFill]} /> : null}
@@ -334,7 +336,7 @@ function Study() {
                     />
                   ))}
             </View>
-            {!quizStage ? (
+            {!designedStage ? (
               <Text style={s.progress}>
                 {start?.reviewRequired
                   ? '선행 복습 필요'
@@ -355,7 +357,7 @@ function Study() {
         <Text
           style={[
             s.hint,
-            quizStage && s.quizReplayHint,
+            designedStage && s.quizReplayHint,
             quizStage && !instantQuiz && s.quizReplayHintWithFooter,
           ]}
         >
@@ -443,11 +445,19 @@ function Study() {
                 ) : null}
               </View>
             ) : current?.contentType === 'TEXT' ? (
-              <DialogueText
-                messages={dialogueStack?.messages ?? []}
-                source={dialogueStack?.source}
+              <NarrationDialogue
+                key={current.contentId}
+                messages={dialogue?.messages ?? []}
+                visibleCount={visibleDialogueCount}
+                source={dialogue?.source}
                 disabled={task.busy || lessonDone}
-                onPress={() => void advance()}
+                onAdvance={async () => {
+                  if (replay && last && visibleDialogueCount >= (dialogue?.messages.length ?? 0)) {
+                    leaveStudy();
+                    return;
+                  }
+                  await advance();
+                }}
               />
             ) : current ? (
               <AnimatedReveal key={current.contentId} style={s.content}>
@@ -549,7 +559,7 @@ function Study() {
               </View>
             )}
           </View>
-          {!(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
+          {!narrationStage && !(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
             <View
               style={[
                 s.footer,
@@ -750,94 +760,6 @@ function StudyAction({
   );
 }
 
-type DialogueMessage = {
-  key: string;
-  speaker: '초롱이' | '별지기';
-  text: string;
-};
-
-function getDialogueContent(content: Content): { messages: DialogueMessage[]; source?: string } {
-  const raw = content.body?.trim() ?? '';
-  const sourceMatch = raw.match(/(?:^|\r?\n)\s*((?:출처\s*[·:]|Source\s*:)[^\r\n]*)\s*$/i);
-  const body = sourceMatch ? raw.slice(0, sourceMatch.index).trim() : raw;
-  const turns = [...body.matchAll(/(?:^|\r?\n)\s*(초롱이|별지기)\s*[:：]\s*/g)];
-  const messages: DialogueMessage[] =
-    turns.length && turns[0].index === 0
-      ? turns.map((turn, index) => ({
-          key: `${content.contentId}-${index}`,
-          speaker: turn[1] as DialogueMessage['speaker'],
-          text: body.slice(turn.index + turn[0].length, turns[index + 1]?.index).trim(),
-        }))
-      : body
-        ? [{ key: `${content.contentId}-0`, speaker: '별지기', text: body }]
-        : [];
-  return { messages, source: sourceMatch?.[1] };
-}
-
-function getDialogueStack(
-  contents: Content[],
-  position: number,
-  visibleCount: number,
-): { messages: DialogueMessage[]; source?: string } {
-  let first = position;
-  while (first > 0 && contents[first - 1].contentType === 'TEXT') first -= 1;
-
-  const messages: DialogueMessage[] = [];
-  let source: string | undefined;
-  for (let index = first; index <= position; index += 1) {
-    const entry = getDialogueContent(contents[index]);
-    messages.push(...(index === position ? entry.messages.slice(0, visibleCount) : entry.messages));
-    if (entry.source) source = entry.source;
-  }
-  return { messages, source };
-}
-
-function DialogueText({
-  messages,
-  source,
-  disabled,
-  onPress,
-}: {
-  messages: DialogueMessage[];
-  source?: string;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  const scroll = useRef<ScrollView>(null);
-  return (
-    <ScrollView
-      ref={scroll}
-      style={s.content}
-      contentContainerStyle={s.explanationScroll}
-      onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityHint="다음 학습 콘텐츠로 이동"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        onPress={onPress}
-        style={s.explanation}
-      >
-        <View style={s.dialogue}>
-          {messages.map((message) => (
-            <AnimatedReveal
-              key={message.key}
-              duration={280}
-              offsetY={8}
-              style={[s.bubble, message.speaker === '초롱이' && s.catBubble]}
-            >
-              <Text style={s.bubbleLabel}>{message.speaker}</Text>
-              <Text style={s.explanationText}>{message.text}</Text>
-            </AnimatedReveal>
-          ))}
-        </View>
-        {source ? <Text style={s.source}>{source}</Text> : null}
-      </Pressable>
-    </ScrollView>
-  );
-}
-
 function CompletionStar({ size }: { size: number }) {
   const progress = useRef(new Animated.Value(0)).current;
   const started = useRef(false);
@@ -989,14 +911,7 @@ const s = StyleSheet.create({
   constellationHomeLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   constellationHomeText: { color: '#817790', fontSize: 13 },
   content: { flex: 1, minHeight: 0 },
-  explanationScroll: { flexGrow: 1 },
   explanation: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 22 },
-  dialogue: { gap: 24 },
-  bubble: { borderRadius: 20, backgroundColor: '#f4f1f8', padding: 20 },
-  catBubble: { backgroundColor: '#fbf7ed', marginLeft: 38 },
-  bubbleLabel: { color: '#9c8ca9', fontSize: 12, marginBottom: 7 },
-  explanationText: { color: '#282636', fontSize: 17, lineHeight: 32 },
-  source: { color: '#b0a7b9', fontSize: 11, lineHeight: 19, marginTop: 15 },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
