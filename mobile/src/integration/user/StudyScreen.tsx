@@ -31,6 +31,7 @@ import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
 import { QuizCard } from './QuizCard';
+import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
@@ -80,6 +81,7 @@ function Study() {
     enabled: boolean;
     onPress: () => void;
   } | null>(null);
+  const quizTapLocked = useRef(false);
   const registerQuizFooter = useCallback<RegisterQuizFooter>((quizId, enabled, onPress) => {
     setQuizFooter({ quizId, enabled, onPress });
   }, []);
@@ -158,6 +160,16 @@ function Study() {
     : [];
   const contents = start?.contents ?? [],
     current = contents[position];
+  const quizStage = !lessonDone && current?.contentType === 'QUIZ';
+  const oxStage = quizStage && current.quiz?.type === 'OX';
+  const instantQuiz =
+    quizStage &&
+    (current.quiz?.type === 'OX' ||
+      (current.quiz?.type === 'MULTIPLE_CHOICE' &&
+        (!useMockApi || current.quiz.options?.mockHtmlType === 'single')) ||
+      current.quiz?.options?.mockHtmlType === 'blank' ||
+      current.quiz?.options?.mockHtmlType === 'single');
+  const quizScale = Math.min(windowWidth / 402, windowHeight / 874, 1);
   const progressLabel = current?.quiz?.options?.mockHtmlType
     ? String(current.quiz.options.label ?? params.title ?? '학습')
     : current?.mediaUrl?.startsWith('mock-study-')
@@ -269,7 +281,9 @@ function Study() {
       scroll={false}
       showTitle={false}
       dark={completionView}
+      quiz={quizStage}
     >
+      {quizStage ? <QuizBackdrop /> : null}
       {completionView ? <StatusBar style="light" /> : null}
       {start ? (
         <View pointerEvents="none" style={s.imagePreload}>
@@ -279,29 +293,54 @@ function Study() {
         </View>
       ) : null}
       {!showConstellation && !completionView ? (
-        <View style={s.header}>
+        <View
+          style={[
+            s.header,
+            quizStage && s.quizHeader,
+            quizStage && {
+              paddingTop: Math.max(0, 60 * quizScale - insets.top),
+              paddingHorizontal: 30 * quizScale,
+              gap: 20 * quizScale,
+            },
+          ]}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="학습 나가기"
-            style={s.back}
+            style={[s.back, quizStage && s.quizBack]}
             onPress={() => (lessonDone ? leaveStudy() : setExitOpen(true))}
           >
-            <Ionicons name="close" size={24} color="#282636" />
+            {quizStage ? <QuizBackIcon /> : <Ionicons name="close" size={24} color="#282636" />}
           </Pressable>
-          <View style={s.progressWrap}>
-            <View style={s.segments}>
-              {contents.map((content, index) => (
-                <View
-                  key={content.contentId}
-                  style={[s.segment, index <= position && s.segmentOn]}
-                />
-              ))}
+          <View style={[s.progressWrap, quizStage && s.quizProgressWrap]}>
+            {quizStage ? (
+              <Text style={[s.progress, s.quizProgress]}>
+                {start?.reviewRequired
+                  ? '선행 복습 필요'
+                  : `${progressLabel} · ${contents.length ? position + 1 : 0}/${contents.length}`}
+              </Text>
+            ) : null}
+            <View style={[s.segments, quizStage && s.quizSegments]}>
+              {quizStage
+                ? contents.map((content, index) => (
+                    <View key={content.contentId} style={[s.segment, s.quizSegment]}>
+                      {index <= position ? <View style={[s.segmentOn, s.quizSegmentFill]} /> : null}
+                    </View>
+                  ))
+                : contents.map((content, index) => (
+                    <View
+                      key={content.contentId}
+                      style={[s.segment, index <= position && s.segmentOn]}
+                    />
+                  ))}
             </View>
-            <Text style={s.progress}>
-              {start?.reviewRequired
-                ? '선행 복습 필요'
-                : `${progressLabel} · ${contents.length ? position + 1 : 0}/${contents.length}`}
-            </Text>
+            {!quizStage ? (
+              <Text style={s.progress}>
+                {start?.reviewRequired
+                  ? '선행 복습 필요'
+                  : `${progressLabel} · ${contents.length ? position + 1 : 0}/${contents.length}`}
+              </Text>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -313,7 +352,15 @@ function Study() {
         <UserStatus task={task} />
       )}
       {replay && !lessonDone ? (
-        <Text style={s.hint}>다시 학습 중입니다. 보상은 변경되지 않습니다.</Text>
+        <Text
+          style={[
+            s.hint,
+            quizStage && s.quizReplayHint,
+            quizStage && !instantQuiz && s.quizReplayHintWithFooter,
+          ]}
+        >
+          다시 학습 중입니다. 보상은 변경되지 않습니다.
+        </Text>
       ) : null}
       {start?.reviewRequired ? (
         <>
@@ -409,7 +456,14 @@ function Study() {
                   style={s.content}
                   keyboardShouldPersistTaps="handled"
                   contentContainerStyle={
-                    current.contentType === 'QUIZ' ? s.quizScrollContent : s.scrollContent
+                    current.contentType === 'QUIZ'
+                      ? [
+                          s.quizScrollContent,
+                          { paddingHorizontal: 36 * quizScale },
+                          oxStage && s.oxScrollContent,
+                          oxStage && { paddingTop: 200 * quizScale },
+                        ]
+                      : s.scrollContent
                   }
                 >
                   {current.body && (current.contentType !== 'IMAGE' || !current.mediaUrl) ? (
@@ -440,7 +494,7 @@ function Study() {
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && current.quiz ? (
-                    useMockApi && isHtmlLessonQuiz(current.quiz) ? (
+                    useMockApi && isHtmlLessonQuiz(current.quiz) && current.quiz.type !== 'OX' ? (
                       <HtmlLessonQuiz
                         key={current.contentId}
                         quiz={current.quiz}
@@ -453,7 +507,7 @@ function Study() {
                         }
                         registerFooter={registerQuizFooter}
                       />
-                    ) : useMockApi ? (
+                    ) : useMockApi && current.quiz.type !== 'OX' ? (
                       <LessonQuizWireframe
                         key={current.contentId}
                         lessonId={lessonId}
@@ -495,86 +549,106 @@ function Study() {
               </View>
             )}
           </View>
-          <View
-            style={[
-              s.footer,
-              completionView && s.completionFooter,
-              completionView && { bottom: Math.max(12, 89 * completionScale - insets.bottom) },
-            ]}
-          >
-            {showConstellation ? (
-              <>
-                <StudyAction
-                  label="별자리 기록 보기"
-                  onPress={() => router.replace({ pathname: '/quiz', params: { view: 'record' } })}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  style={s.constellationHomeLink}
-                  onPress={leaveStudy}
-                >
-                  <Text style={s.constellationHomeText}>학습 홈으로</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <StudyAction
-                  completion={completionView}
-                  label={
-                    !lessonDone &&
-                    current?.contentType === 'QUIZ' &&
-                    !answered.has(current.contentId)
-                      ? '정답 확인'
-                      : lessonDone
-                        ? '완료'
-                        : replay && last
-                          ? '레슨 목록'
-                          : last
-                            ? '레슨 완료'
-                            : '다음'
-                  }
-                  secondary={current?.contentType === 'TEXT' && !lessonDone}
-                  disabled={
-                    !current ||
-                    task.busy ||
-                    (current.contentType === 'QUIZ' &&
-                      !answered.has(current.contentId) &&
-                      (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
-                  }
-                  onPress={
-                    !lessonDone &&
-                    current?.contentType === 'QUIZ' &&
-                    !answered.has(current.contentId)
-                      ? () => quizFooter?.onPress()
-                      : lessonDone
-                        ? () =>
-                            firstGuestStudy
-                              ? finishStudyFlow()
-                              : constellationCompleted
-                                ? setShowConstellation(true)
-                                : leaveStudy()
-                        : replay && last
-                          ? leaveStudy
-                          : () => void advance()
-                  }
-                />
-                {!completionView ? (
-                  <View style={s.previousSlot}>
-                    {!lessonDone && position > 0 ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        disabled={task.busy}
-                        onPress={() => setPosition(position - 1)}
-                        style={s.previous}
-                      >
-                        <Text style={s.previousText}>이전</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-              </>
-            )}
-          </View>
+          {!(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
+            <View
+              style={[
+                s.footer,
+                quizStage && s.quizFooter,
+                completionView && s.completionFooter,
+                completionView && { bottom: Math.max(12, 89 * completionScale - insets.bottom) },
+              ]}
+            >
+              {showConstellation ? (
+                <>
+                  <StudyAction
+                    label="별자리 기록 보기"
+                    onPress={() =>
+                      router.replace({ pathname: '/quiz', params: { view: 'record' } })
+                    }
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    style={s.constellationHomeLink}
+                    onPress={leaveStudy}
+                  >
+                    <Text style={s.constellationHomeText}>학습 홈으로</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <StudyAction
+                    completion={completionView}
+                    label={
+                      !lessonDone &&
+                      current?.contentType === 'QUIZ' &&
+                      !answered.has(current.contentId)
+                        ? '정답 확인'
+                        : lessonDone
+                          ? '완료'
+                          : replay && last
+                            ? '레슨 목록'
+                            : last
+                              ? '레슨 완료'
+                              : '다음'
+                    }
+                    secondary={current?.contentType === 'TEXT' && !lessonDone}
+                    disabled={
+                      !current ||
+                      task.busy ||
+                      (current.contentType === 'QUIZ' &&
+                        !answered.has(current.contentId) &&
+                        (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
+                    }
+                    onPress={
+                      !lessonDone &&
+                      current?.contentType === 'QUIZ' &&
+                      !answered.has(current.contentId)
+                        ? () => quizFooter?.onPress()
+                        : lessonDone
+                          ? () =>
+                              firstGuestStudy
+                                ? finishStudyFlow()
+                                : constellationCompleted
+                                  ? setShowConstellation(true)
+                                  : leaveStudy()
+                          : replay && last
+                            ? leaveStudy
+                            : () => void advance()
+                    }
+                  />
+                  {!completionView ? (
+                    <View style={s.previousSlot}>
+                      {!lessonDone && position > 0 ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={task.busy}
+                          onPress={() => setPosition(position - 1)}
+                          style={s.previous}
+                        >
+                          <Text style={s.previousText}>이전</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </View>
+          ) : null}
+          {quizStage && answered.has(current.contentId) ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="다음 학습 콘텐츠로 이동"
+              style={s.quizAdvanceOverlay}
+              disabled={task.busy}
+              onPress={() => {
+                if (quizTapLocked.current) return;
+                quizTapLocked.current = true;
+                void advance().finally(() => {
+                  quizTapLocked.current = false;
+                });
+              }}
+            />
+          ) : null}
         </>
       ) : null}
       <Modal
@@ -802,12 +876,27 @@ function CompletionStar({ size }: { size: number }) {
 }
 
 const s = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingTop: 8 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 20,
+    paddingHorizontal: 10,
+  },
+  quizHeader: { alignItems: 'flex-end', paddingTop: 0, paddingHorizontal: 0 },
   progressWrap: { flex: 1, gap: 9, paddingTop: 10 },
+  quizProgressWrap: { gap: 4, paddingTop: 0 },
   segments: { flexDirection: 'row', gap: 4, height: 4 },
   segment: { flex: 1, borderRadius: 4, backgroundColor: '#eeecf1' },
-  segmentOn: { backgroundColor: '#494050' },
+  segmentOn: { backgroundColor: '#ebc60f', height: '100%', borderRadius: 4 },
+  quizSegments: { gap: 5, marginVertical: 9 },
+  quizSegment: { backgroundColor: '#aaa', overflow: 'hidden' },
+  quizSegmentFill: { width: '100%' },
+  quizProgress: { color: '#747474', textAlign: 'right', fontFamily: 'PretendardRegular' },
+  quizAdvanceOverlay: { ...StyleSheet.absoluteFill, zIndex: 5 },
+  quizFooter: { paddingHorizontal: 36, backgroundColor: 'transparent' },
   back: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38 },
+  quizBack: { width: 26, height: 22 },
   progress: { color: '#888591', fontSize: 12 },
   resultTitle: {
     position: 'absolute',
@@ -922,6 +1011,7 @@ const s = StyleSheet.create({
     paddingBottom: 16,
     paddingHorizontal: 7,
   },
+  oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   conceptTitle: {
     color: '#756387',
@@ -955,6 +1045,14 @@ const s = StyleSheet.create({
   previous: { alignSelf: 'center', minHeight: 28, paddingHorizontal: 12, justifyContent: 'center' },
   previousText: { color: '#8e8498', fontSize: 12 },
   hint: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
+  quizReplayHint: {
+    position: 'absolute',
+    bottom: 60,
+    left: 30,
+    right: 30,
+    textAlign: 'center',
+  },
+  quizReplayHintWithFooter: { bottom: 110 },
   action: {
     width: '100%',
     minHeight: 52,

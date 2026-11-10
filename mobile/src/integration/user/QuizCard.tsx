@@ -14,6 +14,7 @@ import { useTask } from '../hooks';
 import { styles } from '../ui';
 import { UserStatus } from './Screen';
 import { AnimatedReveal } from './AnimatedReveal';
+import { QuizQuestionRule } from './QuizBackdrop';
 import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -46,6 +47,7 @@ export function QuizCard({
   registerFooter?: RegisterQuizFooter;
 }) {
   const task = useTask();
+  const submitted = useRef(false);
   const [selected, setSelected] = useState<number | null>(null),
     [text, setText] = useState('');
   const [ox, setOx] = useState<'O' | 'X' | ''>(''),
@@ -89,15 +91,44 @@ export function QuizCard({
     (quiz.type !== 'MULTIPLE_CHOICE' || selected !== null) &&
     (quiz.type !== 'FILL_BLANK' || !!text.trim()) &&
     (quiz.type !== 'OX' || !!ox);
+  const chooseOx = async (value: 'O' | 'X') => {
+    if (disabled || task.busy || task.result || submitted.current) return;
+    submitted.current = true;
+    setOx(value);
+    const result = await task.run(() => submit({ value: value === 'O' }), onGraded);
+    if (!result) submitted.current = false;
+  };
+  const chooseOption = async (index: number) => {
+    if (disabled || task.busy || task.result || submitted.current) return;
+    submitted.current = true;
+    setSelected(index);
+    const result = await task.run(() => submit({ index }), onGraded);
+    if (!result) submitted.current = false;
+  };
   useQuizFooter(
     quiz.quizId,
-    canCheck,
+    quiz.type !== 'OX' && quiz.type !== 'MULTIPLE_CHOICE' && canCheck,
     () => void task.run(() => submit(answer()), onGraded),
     registerFooter,
   );
   return (
-    <View style={[quizStyles.layout, stage && isWireframeQuiz && quizStyles.stage]}>
-      <Text style={isWireframeQuiz ? quizStyles.question : styles.subtitle}>{quiz.question}</Text>
+    <View
+      style={[
+        quizStyles.layout,
+        stage && isWireframeQuiz && quizStyles.stage,
+        quiz.type === 'OX' && quizStyles.oxLayout,
+      ]}
+    >
+      {quiz.type === 'OX' ? (
+        <View style={quizStyles.oxPrompt}>
+          <Text style={quizStyles.oxQuestion}>{quiz.question}</Text>
+          <View style={quizStyles.questionRule}>
+            <QuizQuestionRule />
+          </View>
+        </View>
+      ) : (
+        <Text style={isWireframeQuiz ? quizStyles.question : styles.subtitle}>{quiz.question}</Text>
+      )}
       {quiz.hint ? <Text style={styles.text}>힌트: {quiz.hint}</Text> : null}
       {quiz.type === 'MULTIPLE_CHOICE' &&
         choices?.map((c) => (
@@ -119,7 +150,7 @@ export function QuizCard({
             wireframe
             secondary
             disabled={disabled || !!task.result || task.busy}
-            onPress={() => setSelected(c.index)}
+            onPress={() => void chooseOption(c.index)}
           />
         ))}
       {quiz.type === 'FILL_BLANK' ? (
@@ -145,8 +176,8 @@ export function QuizCard({
               secondary
               selected={ox === value}
               graded={
-                task.result && ox === value
-                  ? (task.result as AnswerResult).isCorrect
+                task.result
+                  ? (task.result as AnswerResult).isCorrect === (ox === value)
                     ? 'correct'
                     : 'wrong'
                   : undefined
@@ -154,7 +185,7 @@ export function QuizCard({
               ox
               wireframe
               disabled={disabled || !!task.result || task.busy}
-              onPress={() => setOx(value)}
+              onPress={() => void chooseOx(value)}
             />
           ))}
         </View>
@@ -183,7 +214,10 @@ export function QuizCard({
           선택지 형식 확인 대기. 개발자 진단 화면에서 서버 응답을 확인하세요.
         </Text>
       ) : null}
-      {!registerFooter && !(stage && isWireframeQuiz && task.result) ? (
+      {!registerFooter &&
+      quiz.type !== 'OX' &&
+      quiz.type !== 'MULTIPLE_CHOICE' &&
+      !(stage && isWireframeQuiz && task.result) ? (
         <View style={stage && isWireframeQuiz && quizStyles.checkArea}>
           <QuizAction
             label="정답 확인"
@@ -193,9 +227,7 @@ export function QuizCard({
               task.busy ||
               !!task.result ||
               contractMissing ||
-              (quiz.type === 'MULTIPLE_CHOICE' && selected === null) ||
-              (quiz.type === 'FILL_BLANK' && !text.trim()) ||
-              (quiz.type === 'OX' && !ox)
+              (quiz.type === 'FILL_BLANK' && !text.trim())
             }
             onPress={() => void task.run(() => submit(answer()), onGraded)}
           />
@@ -205,28 +237,34 @@ export function QuizCard({
       {task.result ? (
         <AnimatedReveal
           style={
-            isWireframeQuiz
-              ? [
-                  (task.result as AnswerResult).isCorrect
-                    ? quizStyles.goodFeedback
-                    : quizStyles.feedback,
-                  stage && quizStyles.stageFeedback,
-                ]
-              : styles.card
+            quiz.type === 'OX'
+              ? quizStyles.oxFeedback
+              : isWireframeQuiz
+                ? [
+                    (task.result as AnswerResult).isCorrect
+                      ? quizStyles.goodFeedback
+                      : quizStyles.feedback,
+                    stage && quizStyles.stageFeedback,
+                  ]
+                : styles.card
           }
           duration={280}
           offsetY={8}
         >
-          <Text style={isWireframeQuiz ? quizStyles.feedbackTitle : styles.subtitle}>
-            {isWireframeQuiz
-              ? (task.result as AnswerResult).isCorrect
-                ? '맞았어요!'
-                : '함께 확인해 볼까요?'
-              : (task.result as AnswerResult).isCorrect
-                ? '정답'
-                : '오답'}
+          {quiz.type !== 'OX' ? (
+            <Text style={isWireframeQuiz ? quizStyles.feedbackTitle : styles.subtitle}>
+              {isWireframeQuiz
+                ? (task.result as AnswerResult).isCorrect
+                  ? '맞았어요!'
+                  : '함께 확인해 볼까요?'
+                : (task.result as AnswerResult).isCorrect
+                  ? '정답'
+                  : '오답'}
+            </Text>
+          ) : null}
+          <Text style={quiz.type === 'OX' ? quizStyles.oxExplanation : styles.text}>
+            {(task.result as AnswerResult).explanation}
           </Text>
-          <Text style={styles.text}>{(task.result as AnswerResult).explanation}</Text>
           {!isWireframeQuiz ? (
             <Text style={styles.text}>
               채점 결과를 확인했습니다. 다음 콘텐츠로 이동할 수 있습니다.
@@ -298,17 +336,20 @@ function QuizAction({
           borderColor: selection.interpolate({
             inputRange: [0, 1],
             outputRange: [
-              ox ? 'transparent' : wireframe ? '#e6e0ec' : '#dce2e8',
-              ox ? '#8c779f' : wireframe ? '#746287' : '#273a52',
+              ox ? '#c6c6c6' : wireframe ? '#e6e0ec' : '#dce2e8',
+              ox ? '#d9d9d9' : wireframe ? '#746287' : '#273a52',
             ],
           }),
           backgroundColor: selection.interpolate({
             inputRange: [0, 1],
-            outputRange: ['#fff', ox ? '#f3eef8' : wireframe ? '#f4f0f8' : '#eef2f5'],
+            outputRange: ox
+              ? ['rgba(228,228,228,0)', 'rgba(228,228,228,0.6)']
+              : ['#fff', wireframe ? '#f4f0f8' : '#eef2f5'],
           }),
         },
-        graded === 'correct' && quizStyles.correct,
-        graded === 'wrong' && quizStyles.wrong,
+        ox && selected && quizStyles.oxPressed,
+        graded === 'correct' && (ox ? quizStyles.oxCorrect : quizStyles.correct),
+        graded === 'wrong' && (ox ? quizStyles.oxWrong : quizStyles.wrong),
         disabled && !wireframe && quizStyles.disabled,
       ]}
     >
@@ -318,9 +359,9 @@ function QuizAction({
           secondary && quizStyles.secondaryText,
           wireframe && quizStyles.optionText,
           ox && !selected && quizStyles.oxIdleText,
-          wireframe && selected && quizStyles.selectedText,
-          graded === 'correct' && quizStyles.correctText,
-          graded === 'wrong' && quizStyles.wrongText,
+          wireframe && selected && (ox ? quizStyles.oxSelectedText : quizStyles.selectedText),
+          graded === 'correct' && (ox ? quizStyles.oxCorrectText : quizStyles.correctText),
+          graded === 'wrong' && (ox ? quizStyles.oxWrongText : quizStyles.wrongText),
           ox && quizStyles.oxText,
         ]}
       >
@@ -333,8 +374,11 @@ function QuizAction({
 const quizStyles = StyleSheet.create({
   layout: { gap: 12 },
   stage: { flexGrow: 1, paddingTop: 6 },
+  oxLayout: { flexGrow: 0, paddingTop: 0, paddingBottom: 0, gap: 0 },
+  oxPrompt: { alignSelf: 'center', alignItems: 'center', maxWidth: '100%' },
+  questionRule: { marginTop: 10 },
   checkArea: { marginTop: 'auto', paddingTop: 18 },
-  row: { flexDirection: 'row', gap: 20, justifyContent: 'center', marginVertical: 10 },
+  row: { flexDirection: 'row', gap: 18, justifyContent: 'center', marginTop: 40 },
   question: {
     color: '#282636',
     fontSize: 21,
@@ -342,6 +386,13 @@ const quizStyles = StyleSheet.create({
     lineHeight: 34,
     textAlign: 'center',
     marginBottom: 15,
+  },
+  oxQuestion: {
+    color: '#161616',
+    fontFamily: 'PretendardBold',
+    fontSize: 20,
+    lineHeight: 28,
+    textAlign: 'center',
   },
   feedbackTitle: { color: '#477656', fontSize: 15, fontWeight: '700' },
   blankInput: {
@@ -374,9 +425,40 @@ const quizStyles = StyleSheet.create({
   wrongText: { color: '#ad6262' },
   secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
   secondaryText: { color: '#273a52' },
-  oxAction: { flex: 1, maxWidth: 120, height: 120 },
-  oxText: { fontSize: 70, fontWeight: '200' },
-  oxIdleText: { color: '#a29ca8' },
+  oxAction: {
+    flex: 1,
+    maxWidth: 140,
+    height: 140,
+    padding: 0,
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  oxText: { fontSize: 96, fontFamily: 'PretendardRegular', fontWeight: '400', lineHeight: 116 },
+  oxIdleText: { color: '#aaa' },
+  oxSelectedText: { color: '#c6c6c6' },
+  oxPressed: { shadowColor: '#f1f1f1', shadowOpacity: 1, shadowRadius: 6.4 },
+  oxCorrect: { borderColor: '#c6c6c6', backgroundColor: 'transparent' },
+  oxWrong: { borderColor: '#d9d9d9', backgroundColor: 'transparent' },
+  oxCorrectText: { color: '#747474' },
+  oxWrongText: { color: '#c6c6c6' },
+  oxFeedback: {
+    marginTop: 32,
+    marginHorizontal: 1,
+    borderWidth: 1,
+    borderColor: '#d9d9d9',
+    borderRadius: 12,
+    padding: 32,
+    backgroundColor: 'rgba(228,228,228,0.7)',
+    shadowColor: '#f1f1f1',
+    shadowOpacity: 1,
+    shadowRadius: 6.4,
+  },
+  oxExplanation: {
+    color: '#161616',
+    fontFamily: 'PretendardRegular',
+    fontSize: 14,
+    lineHeight: 20,
+  },
   correct: { borderColor: '#83ac92', backgroundColor: '#eff7f1' },
   wrong: { borderColor: '#d3a4a4', backgroundColor: '#fdf1f1' },
   feedback: { backgroundColor: '#f5f3f8', borderRadius: 14, padding: 17, gap: 5 },

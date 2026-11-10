@@ -1,17 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { integrationApi as api, client } from '../runtime';
 import { useTask } from '../hooks';
 import type { AnswerResult, Lesson, ReviewSet } from '../models';
 import { Button, Card, positiveId, styles } from '../ui';
 import { QuizCard } from './QuizCard';
+import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { UserScreen, UserStatus } from './Screen';
 import type { RegisterQuizFooter } from './quizFooter';
 
 export function ReviewScreen() {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const quizScale = Math.min(windowWidth / 402, windowHeight / 874, 1);
   const { lessonId } = useLocalSearchParams<{ lessonId?: string }>(),
     router = useRouter(),
     task = useTask();
@@ -30,6 +43,7 @@ export function ReviewScreen() {
     setQuizFooter({ quizId, enabled, onPress });
   }, []);
   const loadedFor = useRef<string | null>(null);
+  const quizTapLocked = useRef(false);
   const load = () =>
     task.run(async () => {
       const result = await api.review.next(lessonId ? positiveId(lessonId) : undefined);
@@ -55,30 +69,70 @@ export function ReviewScreen() {
   }, [lessonId]);
   const items = set?.reviewItems ?? [];
   const current = items[position];
+  const oxStage = !notice && current?.quiz.type === 'OX';
+  const instantQuiz =
+    current?.quiz.type === 'OX' ||
+    (current?.quiz.type === 'MULTIPLE_CHOICE' &&
+      (!isHtmlLessonQuiz(current.quiz) || current.quiz.options?.mockHtmlType === 'single')) ||
+    current?.quiz.options?.mockHtmlType === 'blank' ||
+    current?.quiz.options?.mockHtmlType === 'single';
+  const goNext = async () => {
+    if (quizTapLocked.current || task.busy) return;
+    quizTapLocked.current = true;
+    try {
+      if (position === items.length - 1) await complete();
+      else setPosition(position + 1);
+    } finally {
+      quizTapLocked.current = false;
+    }
+  };
   return (
-    <UserScreen title="복습하기" showTitle={false} scroll={false}>
+    <UserScreen title="복습하기" showTitle={false} scroll={false} quiz={oxStage}>
+      {oxStage ? <QuizBackdrop /> : null}
       {!notice ? (
-        <View style={reviewStyles.header}>
+        <View
+          style={[
+            reviewStyles.header,
+            oxStage && reviewStyles.quizHeader,
+            oxStage && {
+              paddingTop: Math.max(0, 60 * quizScale - insets.top),
+              paddingHorizontal: 30 * quizScale,
+              gap: 20 * quizScale,
+            },
+          ]}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="복습 나가기"
+            style={oxStage && reviewStyles.quizBack}
             onPress={() => setExitOpen(true)}
           >
-            <Text style={reviewStyles.close}>×</Text>
+            {oxStage ? <QuizBackIcon /> : <Text style={reviewStyles.close}>×</Text>}
           </Pressable>
           {items.length ? (
-            <View style={reviewStyles.progressWrap}>
-              <View style={reviewStyles.segments}>
+            <View style={[reviewStyles.progressWrap, oxStage && reviewStyles.quizProgressWrap]}>
+              {oxStage ? (
+                <Text style={[reviewStyles.caption, reviewStyles.quizCaption]}>
+                  복습 · {position + 1}/{items.length}
+                </Text>
+              ) : null}
+              <View style={[reviewStyles.segments, oxStage && reviewStyles.quizSegments]}>
                 {items.map((item, index) => (
                   <View
                     key={item.reviewItemId}
-                    style={[reviewStyles.segment, index <= position && reviewStyles.segmentOn]}
+                    style={[
+                      reviewStyles.segment,
+                      oxStage && reviewStyles.quizSegment,
+                      index <= position && reviewStyles.segmentOn,
+                    ]}
                   />
                 ))}
               </View>
-              <Text style={reviewStyles.caption}>
-                복습 · {position + 1}/{items.length}
-              </Text>
+              {!oxStage ? (
+                <Text style={reviewStyles.caption}>
+                  복습 · {position + 1}/{items.length}
+                </Text>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -102,10 +156,14 @@ export function ReviewScreen() {
           >
             <ScrollView
               style={reviewStyles.stage}
-              contentContainerStyle={reviewStyles.scrollContent}
+              contentContainerStyle={[
+                reviewStyles.scrollContent,
+                oxStage && reviewStyles.oxScrollContent,
+                oxStage && { paddingTop: 200 * quizScale, paddingHorizontal: 36 * quizScale },
+              ]}
               keyboardShouldPersistTaps="handled"
             >
-              {isHtmlLessonQuiz(current.quiz) ? (
+              {isHtmlLessonQuiz(current.quiz) && current.quiz.type !== 'OX' ? (
                 <HtmlLessonQuiz
                   quiz={current.quiz}
                   disabled={done.includes(current.reviewItemId)}
@@ -129,7 +187,7 @@ export function ReviewScreen() {
           </AnimatedReveal>
         </View>
       ) : null}
-      {current && !notice ? (
+      {current && !notice && !instantQuiz && !done.includes(current.reviewItemId) ? (
         <View style={reviewStyles.footer}>
           <Pressable
             accessibilityRole="button"
@@ -161,6 +219,15 @@ export function ReviewScreen() {
             </Text>
           </Pressable>
         </View>
+      ) : null}
+      {current && !notice && done.includes(current.reviewItemId) ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={position === items.length - 1 ? '복습 완료' : '다음 문제로 이동'}
+          disabled={task.busy}
+          style={reviewStyles.advanceOverlay}
+          onPress={() => void goNext()}
+        />
       ) : null}
       {!set && !task.busy && !notice ? (
         <Button title="복습 문제 불러오기" onPress={() => void load()} />
@@ -219,14 +286,22 @@ export function ReviewScreen() {
 
 const reviewStyles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  quizHeader: { alignItems: 'flex-end' },
+  quizBack: { width: 26, height: 22 },
   close: { color: '#282636', fontSize: 30, lineHeight: 34 },
   progressWrap: { flex: 1, gap: 8, paddingTop: 9 },
+  quizProgressWrap: { gap: 4, paddingTop: 0 },
   segments: { flexDirection: 'row', gap: 4, height: 4 },
   segment: { flex: 1, backgroundColor: '#eeecf1', borderRadius: 4 },
-  segmentOn: { backgroundColor: '#494050' },
+  quizSegments: { gap: 5, marginVertical: 9 },
+  quizSegment: { backgroundColor: '#aaa' },
+  segmentOn: { backgroundColor: '#ebc60f' },
   caption: { color: '#888591', fontSize: 12 },
+  quizCaption: { color: '#747474', textAlign: 'right', fontFamily: 'PretendardRegular' },
+  advanceOverlay: { ...StyleSheet.absoluteFill, zIndex: 5 },
   stage: { flex: 1, minHeight: 0 },
   scrollContent: { flexGrow: 1, paddingHorizontal: 7, paddingTop: 30, paddingBottom: 16 },
+  oxScrollContent: { paddingBottom: 0 },
   footer: { paddingBottom: 16 },
   primary: {
     minHeight: 52,

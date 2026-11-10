@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
@@ -44,8 +44,10 @@ export function HtmlLessonQuiz({
   const [sliderWidth, setSliderWidth] = useState(1);
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState('');
   const checked = !!result || disabled;
+  const immediateChoice = kind === 'ox' || kind === 'single' || kind === 'blank';
   const ready =
     kind === 'range'
       ? touched
@@ -53,7 +55,7 @@ export function HtmlLessonQuiz({
         ? Object.keys(pairs).length === left.length
         : chosen.length > 0;
   const choose = (index: number) => {
-    if (checked) return;
+    if (checked || submitting.current) return;
     setChosen((previous) =>
       kind === 'multi'
         ? previous.includes(index)
@@ -61,14 +63,16 @@ export function HtmlLessonQuiz({
           : [...previous, index]
         : [index],
     );
+    if (immediateChoice) void check(index);
   };
   const moveSlider = (x: number) => {
     if (checked) return;
     setExponent(Math.round(Math.max(0, Math.min(9, (x / sliderWidth) * 9)) * 10) / 10);
     setTouched(true);
   };
-  const check = async () => {
-    if (!ready || checked || busy) return;
+  const check = async (choiceIndex?: number) => {
+    if ((!ready && choiceIndex === undefined) || checked || busy || submitting.current) return;
+    submitting.current = true;
     const answer: QuizAnswer =
       kind === 'range'
         ? { texts: [String(exponent)] }
@@ -77,8 +81,8 @@ export function HtmlLessonQuiz({
           : kind === 'multi'
             ? { texts: chosen.map(String) }
             : kind === 'ox'
-              ? { value: chosen[0] === 0 }
-              : { index: chosen[0] };
+              ? { value: (choiceIndex ?? chosen[0]) === 0 }
+              : { index: choiceIndex ?? chosen[0] };
     setBusy(true);
     setError('');
     try {
@@ -88,10 +92,16 @@ export function HtmlLessonQuiz({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '답안을 확인하지 못했어요.');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
-  useQuizFooter(quiz.quizId, ready && !checked && !busy, () => void check(), registerFooter);
+  useQuizFooter(
+    quiz.quizId,
+    !immediateChoice && ready && !checked && !busy,
+    () => void check(),
+    registerFooter,
+  );
   const setPair = (index: number) => {
     if (checked || activeLeft === null) return;
     setPairs((previous) => {
@@ -198,7 +208,7 @@ export function HtmlLessonQuiz({
         </View>
       ) : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
-      {!registerFooter && !result ? (
+      {!registerFooter && !immediateChoice && !result ? (
         <Pressable
           accessibilityRole="button"
           disabled={!ready || busy || disabled}
