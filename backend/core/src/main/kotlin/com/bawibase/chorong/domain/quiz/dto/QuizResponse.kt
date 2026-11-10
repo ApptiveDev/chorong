@@ -9,7 +9,6 @@ import com.bawibase.chorong.domain.quiz.model.MultipleChoiceConfig
 import com.bawibase.chorong.domain.quiz.model.QuizConfig
 import com.bawibase.chorong.domain.quiz.model.SliderConfig
 import com.bawibase.chorong.domain.quiz.model.SortConfig
-import com.bawibase.chorong.domain.quiz.model.SwipeConfig
 import com.bawibase.chorong.domain.quiz.model.TapConfig
 import io.swagger.v3.oas.annotations.media.Schema
 
@@ -26,7 +25,6 @@ data class QuizResponse(
         implementation = Any::class,
         oneOf = [
             SliderConfig::class,
-            SwipeConfig::class,
             TapConfig::class,
             MultipleChoiceConfig::class,
             DragDropConfig::class,

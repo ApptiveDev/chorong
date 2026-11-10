@@ -9,7 +9,6 @@ import com.bawibase.chorong.domain.quiz.model.QuizDefinition
 import com.bawibase.chorong.domain.quiz.model.RangeSliderAnswer
 import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SortQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.SwipeQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
@@ -36,10 +35,6 @@ object QuizPublicAnswer {
                             }
                         }
                     mapOf("value" to value)
-                }
-
-                is SwipeQuizDefinition -> {
-                    mapOf("value" to quiz.answer.correctValue)
                 }
 
                 is TapQuizDefinition -> {

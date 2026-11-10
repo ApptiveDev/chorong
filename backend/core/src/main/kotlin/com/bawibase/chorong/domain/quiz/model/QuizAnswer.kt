@@ -15,10 +15,6 @@ data class RangeSliderAnswer(
     val max: BigDecimal,
 ) : SliderAnswer
 
-data class SwipeAnswer(
-    val correctValue: String,
-) : QuizAnswer
-
 data class TapAnswer(
     val correctItemIds: List<String>,
 ) : QuizAnswer

@@ -748,7 +748,6 @@ class QuizApiTest {
         val configs =
             mapOf(
                 "SliderConfig" to setOf("min", "max", "step"),
-                "SwipeConfig" to setOf("left", "right"),
                 "TapConfig" to setOf("selectionType", "items"),
                 "MultipleChoiceConfig" to setOf("selectionType", "options"),
                 "DragDropConfig" to setOf("items", "targets"),
@@ -774,7 +773,6 @@ class QuizApiTest {
         val responses =
             mapOf(
                 "SliderUserResponse" to "value",
-                "SwipeUserResponse" to "value",
                 "TapUserResponse" to "selectedItemIds",
                 "MultipleChoiceUserResponse" to "selectedOptionIds",
                 "DragDropUserResponse" to "placements",
@@ -791,7 +789,6 @@ class QuizApiTest {
             assertEquals(false, schema["additionalProperties"]?.asBoolean(), name)
         }
         assertEquals("number", schemas["SliderUserResponse"]["properties"]["value"]["type"].asText())
-        assertEquals("string", schemas["SwipeUserResponse"]["properties"]["value"]["type"].asText())
         assertEquals(setOf("id"), schemas["QuizItemOption"]["required"].map { it.asText() }.toSet())
         assertEquals(setOf("firstCardId", "secondCardId"), schemas["QuizCardPair"]["required"].map { it.asText() }.toSet())
         for (name in listOf("QuizDefinition", "QuizAnswer", "ExactSliderAnswer", "MultipleChoiceAnswer")) {

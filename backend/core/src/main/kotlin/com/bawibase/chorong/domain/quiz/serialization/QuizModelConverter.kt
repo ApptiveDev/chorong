@@ -37,10 +37,6 @@ import com.bawibase.chorong.domain.quiz.model.SortAnswer
 import com.bawibase.chorong.domain.quiz.model.SortConfig
 import com.bawibase.chorong.domain.quiz.model.SortQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SortUserResponse
-import com.bawibase.chorong.domain.quiz.model.SwipeAnswer
-import com.bawibase.chorong.domain.quiz.model.SwipeConfig
-import com.bawibase.chorong.domain.quiz.model.SwipeQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
 import com.bawibase.chorong.domain.quiz.model.TapAnswer
 import com.bawibase.chorong.domain.quiz.model.TapConfig
 import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
@@ -125,10 +121,6 @@ class QuizModelConverter(
                 )
             }
 
-            QuizInteractionType.SWIPE -> {
-                SwipeQuizDefinition(stored(config, SwipeConfig::class.java), stored(answer, SwipeAnswer::class.java))
-            }
-
             QuizInteractionType.TAP -> {
                 TapQuizDefinition(stored(config, TapConfig::class.java), stored(answer, TapAnswer::class.java))
             }
@@ -191,7 +183,6 @@ class QuizModelConverter(
         val type =
             when (quiz) {
                 is SliderQuizDefinition -> SliderUserResponse::class.java
-                is SwipeQuizDefinition -> SwipeUserResponse::class.java
                 is TapQuizDefinition -> TapUserResponse::class.java
                 is MultipleChoiceQuizDefinition -> MultipleChoiceUserResponse::class.java
                 is DragDropQuizDefinition -> DragDropUserResponse::class.java

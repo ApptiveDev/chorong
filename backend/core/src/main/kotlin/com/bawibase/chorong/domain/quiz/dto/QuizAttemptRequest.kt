@@ -6,7 +6,6 @@ import com.bawibase.chorong.domain.quiz.model.MatchingUserResponse
 import com.bawibase.chorong.domain.quiz.model.MultipleChoiceUserResponse
 import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
 import com.bawibase.chorong.domain.quiz.model.SortUserResponse
-import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
 import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
@@ -21,7 +20,6 @@ data class QuizAttemptRequest(
         implementation = Any::class,
         oneOf = [
             SliderUserResponse::class,
-            SwipeUserResponse::class,
             TapUserResponse::class,
             MultipleChoiceUserResponse::class,
             DragDropUserResponse::class,

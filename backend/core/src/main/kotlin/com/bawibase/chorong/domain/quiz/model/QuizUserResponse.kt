@@ -10,11 +10,6 @@ data class SliderUserResponse(
     val value: BigDecimal,
 ) : QuizUserResponse
 
-@Schema(requiredProperties = ["value"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-data class SwipeUserResponse(
-    val value: String,
-) : QuizUserResponse
-
 @Schema(requiredProperties = ["selectedItemIds"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 data class TapUserResponse(
     val selectedItemIds: List<String>,

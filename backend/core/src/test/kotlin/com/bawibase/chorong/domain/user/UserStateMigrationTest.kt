@@ -42,7 +42,7 @@ class UserStateMigrationTest {
         val mapper = ObjectMapper()
         val input = checkNotNull(javaClass.getResourceAsStream("/quiz/quiz-items.json"))
         val fixtures = input.use { mapper.readTree(it) }.toList()
-        assertEquals(12, fixtures.size)
+        assertEquals(11, fixtures.size)
         for (fixture in fixtures) {
             jdbc.update(
                 """INSERT INTO $schema.quiz_item(quiz_id,lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)

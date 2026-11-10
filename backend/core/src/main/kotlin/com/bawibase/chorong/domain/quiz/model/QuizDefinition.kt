@@ -15,13 +15,6 @@ data class SliderQuizDefinition(
     override val interactionType: QuizInteractionType get() = QuizInteractionType.SLIDER
 }
 
-data class SwipeQuizDefinition(
-    override val config: SwipeConfig,
-    override val answer: SwipeAnswer,
-) : QuizDefinition {
-    override val interactionType: QuizInteractionType get() = QuizInteractionType.SWIPE
-}
-
 data class TapQuizDefinition(
     override val config: TapConfig,
     override val answer: TapAnswer,

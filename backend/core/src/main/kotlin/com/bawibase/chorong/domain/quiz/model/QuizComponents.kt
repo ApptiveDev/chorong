@@ -22,12 +22,6 @@ data class QuizItemOption(
     val imageUrl: String? = null,
 )
 
-@Schema(requiredProperties = ["value", "label"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-data class SwipeChoice(
-    val value: String,
-    val label: String,
-)
-
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(
     description = "title·text·imageUrl 중 하나 이상이 필요하다. 지정한 문자열은 공백일 수 없다.",

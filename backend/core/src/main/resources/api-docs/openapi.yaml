@@ -1588,7 +1588,7 @@ components:
     QuizType:
       type: string
       description: L2 퀴즈 유형. O/X와 빈칸 선택은 TAP의 표시 방식으로 표현합니다.
-      enum: [SLIDER, SWIPE, TAP, DRAG_DROP, SORT, MATCHING, FLIP_CARD, MULTIPLE_CHOICE]
+      enum: [SLIDER, TAP, DRAG_DROP, SORT, MATCHING, FLIP_CARD, MULTIPLE_CHOICE]
     LessonStatus:
       type: string
       description: ENUM-06. LOCKED는 진행 행이 없는 레슨(응답 전용)
@@ -1754,7 +1754,6 @@ components:
     QuizConfig:
       oneOf:
         - $ref: '#/components/schemas/SliderConfig'
-        - $ref: '#/components/schemas/SwipeConfig'
         - $ref: '#/components/schemas/TapConfig'
         - $ref: '#/components/schemas/DragDropConfig'
         - $ref: '#/components/schemas/SortConfig'
@@ -1783,23 +1782,6 @@ components:
         shuffle: { type: boolean }
         allowRetry: { type: boolean }
         showHint: { type: boolean }
-      additionalProperties: false
-    SwipeConfig:
-      type: object
-      required: [left, right]
-      properties:
-        left: { $ref: '#/components/schemas/SwipeOption' }
-        right: { $ref: '#/components/schemas/SwipeOption' }
-        shuffle: { type: boolean }
-        allowRetry: { type: boolean }
-        showHint: { type: boolean }
-      additionalProperties: false
-    SwipeOption:
-      type: object
-      required: [value, label]
-      properties:
-        value: { type: string }
-        label: { type: string }
       additionalProperties: false
     TapConfig:
       type: object
@@ -1982,11 +1964,6 @@ components:
           required: [value]
           properties:
             value: { type: number }
-          additionalProperties: false
-        - type: object
-          required: [value]
-          properties:
-            value: { type: string }
           additionalProperties: false
         - type: object
           required: [selectedItemIds]

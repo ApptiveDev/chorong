@@ -601,7 +601,7 @@ class LearningApiTest {
                     jsonPath("$.data.reviewItems[4].quiz.quizId") { value(quizIds[4].toInt()) }
                     jsonPath("$.data.reviewItems[0].quiz.answer") { doesNotExist() }
                     jsonPath("$.data.reviewItems[0].quiz.interactionType") { value("MULTIPLE_CHOICE") }
-                    jsonPath("$.data.reviewItems[1].quiz.interactionType") { value("SWIPE") }
+                    jsonPath("$.data.reviewItems[1].quiz.interactionType") { value("SLIDER") }
                     jsonPath("$.data.reviewItems[2].quiz.interactionType") { value("SORT") }
                     jsonPath("$.data.reviewItems[4].quiz.interactionType") { value("TAP") }
                     jsonPath("$.data.rewardEligible") { value(true) }
@@ -727,10 +727,10 @@ class LearningApiTest {
 
         val wrongItemId = items[1]["reviewItemId"].asLong()
         val wrongQuizId = items[1]["quiz"]["quizId"].asLong()
-        postReviewAnswer(wrongItemId, mapper.readTree("""{"value":"FALSE"}""")).andExpect {
+        postReviewAnswer(wrongItemId, mapper.readTree("""{"value":1750}""")).andExpect {
             status { isOk() }
             jsonPath("$.data.isCorrect") { value(false) }
-            jsonPath("$.data.correctAnswer.value") { value("TRUE") }
+            jsonPath("$.data.correctAnswer.value") { value(1760) }
             jsonPath("$.data.excludedUntil") { value(null) }
             jsonPath("$.data.completed") { value(true) }
         }
@@ -975,7 +975,7 @@ class LearningApiTest {
         val correctAnswers =
             listOf(
                 mapper.readTree("""{"selectedOptionIds":["italy"]}"""),
-                mapper.readTree("""{"value":"TRUE"}"""),
+                mapper.readTree("""{"value":1760.0}"""),
                 mapper.readTree("""{"order":["renaissance","industrial","french_revolution"]}"""),
                 mapper.readTree("""{"selectedOptionIds":["italy"]}"""),
                 mapper.readTree("""{"selectedItemIds":["renaissance"]}"""),
@@ -1017,10 +1017,10 @@ class LearningApiTest {
     }
 
     @Test
-    fun `all eight quiz types are visible and accept contract answers`() {
-        val (_, lessonId) = createUnlockedLesson("eight quiz types")
+    fun `all seven quiz types are visible and accept contract answers`() {
+        val (_, lessonId) = createUnlockedLesson("seven quiz types")
         val fixtures = quizFixtures().distinctBy { it["interactionType"].asText() }
-        assertEquals(8, fixtures.size)
+        assertEquals(7, fixtures.size)
         val ids = fixtures.mapIndexed { index, fixture -> seedFixture(fixture, lessonId, index) }
         val lesson =
             mvc
@@ -1040,7 +1040,6 @@ class LearningApiTest {
             val wrong =
                 when (fixture["interactionType"].asText()) {
                     "SLIDER" -> """{"value":1740}"""
-                    "SWIPE" -> """{"value":"FALSE"}"""
                     "TAP" -> """{"selectedItemIds":["humanism"]}"""
                     "DRAG_DROP" -> """{"placements":{"aristotle":"ancient","newton":"ancient","einstein":"ancient"}}"""
                     "SORT" -> """{"order":["industrial","renaissance","french_revolution"]}"""
@@ -1347,7 +1346,7 @@ class LearningApiTest {
 
     private fun supportedQuizFixtures(): List<JsonNode> {
         val byCase = quizFixtures().associateBy { it["caseId"].asText() }
-        val caseIds = listOf("multiple_choice_single", "swipe", "sort", "multiple_choice_single", "fill_blank")
+        val caseIds = listOf("multiple_choice_single", "slider_exact", "sort", "multiple_choice_single", "fill_blank")
         return caseIds.map { byCase.getValue(it) }
     }
 

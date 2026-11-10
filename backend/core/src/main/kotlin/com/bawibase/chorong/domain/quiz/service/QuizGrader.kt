@@ -20,8 +20,6 @@ import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
 import com.bawibase.chorong.domain.quiz.model.SortQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SortUserResponse
-import com.bawibase.chorong.domain.quiz.model.SwipeQuizDefinition
-import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
 import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import org.springframework.stereotype.Component
@@ -50,10 +48,6 @@ class QuizGrader {
         return when (quiz) {
             is SliderQuizDefinition -> {
                 slider(quiz)
-            }
-
-            is SwipeQuizDefinition -> {
-                swipe(quiz)
             }
 
             is TapQuizDefinition -> {
@@ -116,22 +110,6 @@ class QuizGrader {
         return response<SliderUserResponse> {
             submitted.ensure(selectable(it.value))
             graded(it.value >= lower && it.value <= upper)
-        }
-    }
-
-    private fun swipe(quiz: SwipeQuizDefinition): (QuizUserResponse) -> QuizGrade {
-        val choices =
-            listOf(quiz.config.left, quiz.config.right).map {
-                stored.text(it.label)
-                stored.text(it.value)
-            }
-        stored.ensure(choices.toSet().size == 2)
-        val correct = stored.text(quiz.answer.correctValue)
-        stored.ensure(correct in choices)
-        return response<SwipeUserResponse> {
-            val value = submitted.text(it.value)
-            submitted.ensure(value in choices)
-            graded(value == correct)
         }
     }
 

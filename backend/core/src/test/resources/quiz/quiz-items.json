@@ -24,31 +24,6 @@
     }
   },
   {
-    "caseId": "swipe",
-    "question": "르네상스는 이탈리아에서 시작되었다.",
-    "instruction": "왼쪽 또는 오른쪽으로 답을 선택하세요.",
-    "interactionType": "SWIPE",
-    "config": {
-      "left": {
-        "value": "FALSE",
-        "label": "아니다"
-      },
-      "right": {
-        "value": "TRUE",
-        "label": "맞다"
-      }
-    },
-    "answer": {
-      "correctValue": "TRUE"
-    },
-    "quizOrder": 2,
-    "difficulty": "기초",
-    "explanation": "제출 후 공개할 테스트 해설: swipe",
-    "correctResponse": {
-      "value": "TRUE"
-    }
-  },
-  {
     "caseId": "tap_multiple",
     "question": "르네상스 미술의 특징을 모두 선택하세요.",
     "instruction": "조건에 맞는 카드를 선택하세요.",

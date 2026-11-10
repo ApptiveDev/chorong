@@ -12,8 +12,8 @@ import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
 import com.bawibase.chorong.domain.quiz.model.MultipleChoiceQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
-import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
 import com.bawibase.chorong.domain.quiz.model.TapQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.core.JsonProcessingException
@@ -115,11 +115,6 @@ class QuizModelConverterTest {
             "slider_exact" to "{\"value\":true}",
             "slider_exact" to "{\"value\":[1760]}",
             "slider_exact" to "{\"value\":1760,\"extra\":true}",
-            "swipe" to "{}",
-            "swipe" to "{\"value\":null}",
-            "swipe" to "{\"value\":1}",
-            "swipe" to "{\"value\":1.5}",
-            "swipe" to "{\"value\":true}",
             "tap_multiple" to "{\"selectedItemIds\":\"humanism\"}",
             "tap_multiple" to "{\"selectedItemIds\":[1]}",
             "tap_multiple" to "{\"selectedItemIds\":[true]}",
@@ -275,7 +270,6 @@ class QuizModelConverterTest {
             Triple("tap_multiple", "maxSelections", "2147483648"),
             Triple("tap_multiple", "maxSelections", "\"1\""),
             Triple("tap_multiple", "maxSelections", "true"),
-            Triple("swipe", "left", "\"FALSE\""),
             Triple("sort", "items", "{\"id\":\"a\",\"text\":\"A\"}"),
             Triple("flip_card", "front", "[]"),
         ).map { (caseId, field, json) ->
@@ -293,7 +287,6 @@ class QuizModelConverterTest {
             "slider_exact" to "{\"value\":null}",
             "slider_exact" to "{\"value\":\"1760\"}",
             "slider_range" to "{\"min\":1750}",
-            "swipe" to "{\"correctValue\":true}",
             "tap_multiple" to "{\"correctItemIds\":[1]}",
             "tap_multiple" to "{\"correctItemIds\":[null]}",
             "multiple_choice_single" to "{\"selectedOptionIds\":[\"italy\"]}",
@@ -339,7 +332,6 @@ class QuizModelConverterTest {
                 "sort" to "{\"order\":[\"industrial\",\"renaissance\",\"industrial\"]}",
                 "tap_multiple" to "{\"selectedItemIds\":[\"humanism\",\"humanism\"]}",
                 "drag_drop" to "{\"placements\":{\"newton\":\"ancient\",\"einstein\":\"ancient\"}}",
-                "swipe" to "{\"value\":\"  TRUE  \"}",
                 "flip_card" to "{\"pairs\":[{\"firstCardId\":\"c1\",\"secondCardId\":\"c1\"}]}",
             )
         for ((caseId, json) in examples) {
@@ -408,11 +400,11 @@ class QuizModelConverterTest {
 
     @Test
     fun `request type hints cannot override the database quiz type`() {
-        val request = mapper.readValue<QuizAttemptRequest>("{\"interactionType\":\"SWIPE\",\"userId\":123,\"response\":{\"value\":1760}}")
+        val request = mapper.readValue<QuizAttemptRequest>("{\"interactionType\":\"TAP\",\"userId\":123,\"response\":{\"value\":1760}}")
         val slider = converter.readDefinition(entity(fixture("slider_exact")))
         assertIs<SliderUserResponse>(converter.readResponse(slider, request.response))
-        val swipe = converter.readDefinition(entity(fixture("swipe")))
-        assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, assertThrows<ApiException> { converter.readResponse(swipe, request.response) }.code)
+        val tap = converter.readDefinition(entity(fixture("tap_multiple")))
+        assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, assertThrows<ApiException> { converter.readResponse(tap, request.response) }.code)
     }
 
     @Test
@@ -420,12 +412,15 @@ class QuizModelConverterTest {
         val applicationMapper = jacksonObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         applicationMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL)
         val isolated = QuizModelConverter(applicationMapper)
-        assertEquals("123", applicationMapper.readValue<SwipeUserResponse>("{\"value\":123,\"extra\":true}").value)
-        val quiz = entity(fixture("swipe"))
+        assertEquals(
+            listOf("123"),
+            applicationMapper.readValue<TapUserResponse>("{\"selectedItemIds\":[123],\"extra\":true}").selectedItemIds,
+        )
+        val quiz = entity(fixture("tap_multiple"))
         val definition = isolated.readDefinition(quiz)
         assertEquals(
             ErrorCode.INVALID_QUIZ_RESPONSE,
-            assertThrows<ApiException> { isolated.readResponse(definition, mapper.readTree("{\"value\":123}")) }.code,
+            assertThrows<ApiException> { isolated.readResponse(definition, mapper.readTree("{\"selectedItemIds\":[123]}")) }.code,
         )
         quiz.config = quiz.config + ("shuffle" to null)
         assertEquals(ErrorCode.QUIZ_DATA_INVALID, assertThrows<ApiException> { isolated.readDefinition(quiz) }.code)

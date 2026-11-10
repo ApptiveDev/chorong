@@ -62,8 +62,6 @@ class QuizGraderTest {
             Triple("slider_range", """{"value":1900}""", false),
             Triple("slider_exact", """{"value":1760}""", true),
             Triple("slider_exact", """{"value":1750}""", false),
-            Triple("swipe", """{"value":"TRUE"}""", true),
-            Triple("swipe", """{"value":"FALSE"}""", false),
             Triple("tap_multiple", """{"selectedItemIds":["realism","humanism","perspective"]}""", true),
             Triple("tap_multiple", """{"selectedItemIds":["humanism","perspective"]}""", false),
             Triple("tap_multiple", """{"selectedItemIds":["humanism","perspective","realism","abstract"]}""", false),
@@ -112,8 +110,6 @@ class QuizGraderTest {
             "slider_range" to """{"value":1761}""",
             "slider_range" to """{"value":1690}""",
             "slider_range" to """{"value":1910}""",
-            "swipe" to """{"value":true}""",
-            "swipe" to """{"value":"unknown"}""",
             "tap_multiple" to """{"selectedItemIds":["humanism","humanism"]}""",
             "tap_multiple" to """{"selectedItemIds":["unknown"]}""",
             "tap_multiple" to """{"selectedItemIds":["humanism",1]}""",
@@ -168,12 +164,6 @@ class QuizGraderTest {
                 },
                 Triple("slider_exact", "off-grid answer") {
                     it.answer = mapOf("value" to 1761)
-                },
-                Triple("swipe", "unknown answer") {
-                    it.answer = mapOf("correctValue" to "unknown")
-                },
-                Triple("swipe", "identical choices") {
-                    it.config += "left" to it.config["right"]
                 },
                 Triple("tap_multiple", "unknown selection type") {
                     it.config += "selectionType" to "ANY"
@@ -370,8 +360,6 @@ class QuizGraderTest {
     fun `typed value validation rejects unusable strings references and limits`(): List<org.junit.jupiter.api.DynamicTest> {
         val changes: List<Triple<String, String, (QuizItemEntity) -> Unit>> =
             listOf(
-                Triple("swipe", "blank choice label") { it.config += "left" to mapOf("value" to "FALSE", "label" to " ") },
-                Triple("swipe", "blank choice value") { it.config += "left" to mapOf("value" to " ", "label" to "아니다") },
                 Triple("tap_multiple", "blank item id") { it.config += "items" to listOf(mapOf("id" to " ", "text" to "A")) },
                 Triple("tap_multiple", "blank text with valid image") {
                     it.config += "items" to listOf(mapOf("id" to "humanism", "text" to " ", "imageUrl" to "/a.png"))
@@ -411,7 +399,6 @@ class QuizGraderTest {
     fun `retry restrictions and hints remain unsupported for every quiz type`() =
         listOf(
             "slider_exact",
-            "swipe",
             "tap_multiple",
             "multiple_choice_single",
             "drag_drop",
@@ -488,18 +475,6 @@ class QuizGraderTest {
                 answer = mapOf("matches" to mapOf("same" to "same"))
             }
         assertEquals(true, grade(item, mapper.readTree("""{"matches":{"same":"same"}}""")).correct)
-    }
-
-    @Test
-    fun `swipe values are compared without trimming`() {
-        val item =
-            quiz("swipe").apply {
-                config = mapOf("left" to mapOf("value" to "yes ", "label" to "예"), "right" to mapOf("value" to "no", "label" to "아니오"))
-                answer = mapOf("correctValue" to "yes ")
-            }
-        assertEquals(true, grade(item, mapper.readTree("""{"value":"yes "}""")).correct)
-        val error = assertThrows<ApiException> { grade(item, mapper.readTree("""{"value":"yes"}""")) }
-        assertEquals(ErrorCode.INVALID_QUIZ_RESPONSE, error.code)
     }
 
     @Test

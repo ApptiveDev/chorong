@@ -31,18 +31,6 @@ data class SliderConfig(
     override val showHint: Boolean? = null,
 ) : QuizConfig
 
-@Schema(requiredProperties = ["left", "right"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-data class SwipeConfig(
-    val left: SwipeChoice,
-    val right: SwipeChoice,
-    @field:Schema(description = "생략 시 표시 순서를 섞지 않는다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-    override val shuffle: Boolean? = null,
-    @field:Schema(description = "생략 또는 true만 지원한다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-    override val allowRetry: Boolean? = null,
-    @field:Schema(description = "생략 또는 false만 지원한다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-    override val showHint: Boolean? = null,
-) : QuizConfig
-
 @Schema(requiredProperties = ["selectionType", "items"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 data class TapConfig(
     val selectionType: SelectionType,
