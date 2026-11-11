@@ -12,6 +12,12 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../../src/integration/hooks';
 import { integrationApi as api } from '../../src/integration/runtime';
+import {
+  MemberLicenceBarcode,
+  MemberLicenceSignatureOne,
+  MemberLicenceSignatureTwo,
+  MemberLicenceStar,
+} from '../../src/components/MemberLicenceArt';
 const providerNames: Record<string, string> = {
   EMAIL: 'Email',
   GOOGLE: 'Google',
@@ -138,70 +144,48 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
           <Text style={s.guestHeaderTitle}>제어실</Text>
         </View>
         <View style={s.guestColumn}>
-          <View style={{ width: 332 * cardScale, height: 164 * cardScale }}>
+          <View style={{ width: 332 * cardScale, height: 168 * cardScale }}>
             <View
               style={[
-                s.memberCard,
+                s.memberCardFrame,
                 { transform: [{ scale: cardScale }], transformOrigin: [0, 0, 0] },
               ]}
             >
-              <View style={[s.guestCardHeader, s.memberCardHeader]}>
-                <Text style={s.licenceTitle}>Astronaut Licence</Text>
-                <Text style={s.licenceNumber} accessibilityLabel="회원증 번호 정보 없음">
-                  No. —
-                </Text>
+              <View style={s.memberCardShadow} />
+              <View style={s.memberCard}>
+                <View style={[s.guestCardHeader, s.memberCardHeader]}>
+                  <Text style={s.licenceTitle}>Astronaut Licence</Text>
+                  <Text style={s.licenceNumber} accessibilityLabel="회원증 번호 정보 없음">
+                    No. —
+                  </Text>
+                </View>
+                <Image
+                  source={require('../../assets/control-room-member-profile.png')}
+                  resizeMode="cover"
+                  style={s.memberPhoto}
+                  accessibilityLabel="흰 고양이 프로필"
+                />
+                <View style={s.memberNameField}>
+                  <Text style={s.memberFieldLabel}>NAME</Text>
+                  <Text style={s.memberFieldValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {nickname}
+                  </Text>
+                </View>
+                <View style={s.memberLoginField}>
+                  <Text style={s.memberFieldLabel}>LogIn</Text>
+                  <Text style={s.memberFieldValue} numberOfLines={1} adjustsFontSizeToFit>
+                    {loginMethod}
+                  </Text>
+                </View>
+                <View style={s.memberDateField}>
+                  <Text style={s.memberFieldLabel}>Date of Issue</Text>
+                  <Text style={s.memberFieldValue}>—</Text>
+                </View>
+                <MemberLicenceStar style={s.memberStar} accessible={false} />
+                <MemberLicenceSignatureOne style={s.memberSignatureOne} accessible={false} />
+                <MemberLicenceSignatureTwo style={s.memberSignatureTwo} accessible={false} />
+                <MemberLicenceBarcode style={s.memberBarcode} accessible={false} />
               </View>
-              <Image
-                source={require('../../assets/control-room-member-profile.png')}
-                resizeMode="cover"
-                style={s.memberPhoto}
-                accessibilityLabel="흰 고양이 프로필"
-              />
-              <View style={s.memberNameField}>
-                <Text style={s.memberFieldLabel}>NAME</Text>
-                <Text style={s.memberFieldValue} numberOfLines={1} adjustsFontSizeToFit>
-                  {nickname}
-                </Text>
-              </View>
-              <View style={s.memberLoginField}>
-                <Text style={s.memberFieldLabel}>LogIn</Text>
-                <Text style={s.memberFieldValue} numberOfLines={1} adjustsFontSizeToFit>
-                  {loginMethod}
-                </Text>
-              </View>
-              <View style={s.memberDateField}>
-                <Text style={s.memberFieldLabel}>Date of Issue</Text>
-                <Text style={s.memberFieldValue}>—</Text>
-              </View>
-              <Image
-                source={require('../../assets/control-room-member-star.png')}
-                resizeMode="contain"
-                style={s.memberStar}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
-              <Text style={s.memberStarCopy}>Good{'\n'}Luck!!</Text>
-              <Image
-                source={require('../../assets/control-room-member-signature-one.png')}
-                resizeMode="contain"
-                style={s.memberSignatureOne}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
-              <Image
-                source={require('../../assets/control-room-member-signature-two.png')}
-                resizeMode="contain"
-                style={s.memberSignatureTwo}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
-              <Image
-                source={require('../../assets/control-room-member-barcode.png')}
-                resizeMode="stretch"
-                style={s.memberBarcode}
-                accessibilityElementsHidden
-                importantForAccessibility="no"
-              />
             </View>
           </View>
           {task.error ? <Text style={s.memberError}>회원 정보를 불러오지 못했습니다.</Text> : null}
@@ -300,12 +284,20 @@ const s = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
+  memberCardFrame: { width: 332, height: 168 },
+  memberCardShadow: {
+    position: 'absolute',
+    top: 4,
+    width: 332,
+    height: 164,
+    backgroundColor: '#161616',
+    borderRadius: 8,
+  },
   memberCard: {
     width: 332,
     height: 164,
     backgroundColor: '#ffdc2e',
     borderWidth: 1,
-    borderBottomWidth: 4,
     borderColor: '#161616',
     borderRadius: 8,
     overflow: 'hidden',
@@ -337,20 +329,9 @@ const s = StyleSheet.create({
     lineHeight: 18,
     includeFontPadding: false,
   },
-  memberStar: { position: 'absolute', right: 14, top: 70, width: 82, height: 58 },
-  memberStarCopy: {
-    position: 'absolute',
-    right: 42,
-    top: 88,
-    color: '#161616',
-    fontFamily: 'TekoRegular',
-    fontSize: 9,
-    lineHeight: 8,
-    textAlign: 'center',
-    transform: [{ rotate: '11deg' }],
-  },
-  memberSignatureOne: { position: 'absolute', left: 139, top: 112, width: 106, height: 31 },
-  memberSignatureTwo: { position: 'absolute', left: 170, top: 129, width: 128, height: 27 },
-  memberBarcode: { position: 'absolute', right: 0, top: 43, width: 15, height: 108 },
+  memberStar: { position: 'absolute', left: 235, top: 70, width: 83, height: 59 },
+  memberSignatureOne: { position: 'absolute', left: 139, top: 112, width: 89, height: 23 },
+  memberSignatureTwo: { position: 'absolute', left: 170, top: 129, width: 129, height: 23 },
+  memberBarcode: { position: 'absolute', right: 0, top: 44, width: 13, height: 106 },
   memberError: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
 });
