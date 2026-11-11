@@ -179,11 +179,15 @@ function Study() {
   const multiChoiceStage = quizStage && !!current.quiz && hasMultiChoiceOptions(current.quiz);
   const chosungStage = quizStage && isChosungQuiz(current.quiz);
   const sliderStage = quizStage && isSliderQuiz(current.quiz);
+  // 목업 range 퀴즈는 HtmlLessonQuiz 가 그리지만 SLIDER 와 같은 SliderQuizView 를 쓰고
+  // 손을 떼면 바로 제출한다(정답 확인 버튼 없음).
+  const mockRangeStage = quizStage && useMockApi && current.quiz?.options?.mockHtmlType === 'range';
   const instantQuiz =
     quizStage &&
     (current.quiz?.type === 'OX' ||
       chosungStage ||
       sliderStage ||
+      mockRangeStage ||
       fillBlankStage ||
       matchingStage ||
       multiChoiceStage ||
@@ -525,12 +529,14 @@ function Study() {
                             ? s.singleChoiceScrollContent
                             : multiChoiceStage
                               ? s.multiChoiceScrollContent
-                              : [
-                                  s.quizScrollContent,
-                                  { paddingHorizontal: 36 * quizScale },
-                                  oxStage && s.oxScrollContent,
-                                  oxStage && { paddingTop: 200 * quizScale },
-                                ]
+                              : sliderStage || mockRangeStage
+                                ? s.sliderScrollContent
+                                : [
+                                    s.quizScrollContent,
+                                    { paddingHorizontal: 36 * quizScale },
+                                    oxStage && s.oxScrollContent,
+                                    oxStage && { paddingTop: 200 * quizScale },
+                                  ]
                       : s.scrollContent
                   }
                 >
@@ -1102,6 +1108,7 @@ const s = StyleSheet.create({
   matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
   singleChoiceScrollContent: { flexGrow: 1 },
   multiChoiceScrollContent: { flexGrow: 1 },
+  sliderScrollContent: { flexGrow: 1 },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },

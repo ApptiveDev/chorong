@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
+import { tickPositions } from './sliderQuizState';
+import { DEFAULT_SLIDER_HINT, SliderFeedback, SliderQuizView } from './SliderQuizView';
 
 type HtmlKind = 'ox' | 'blank' | 'single' | 'range' | 'multi' | 'match';
 type Choice = { index: number; label: string };
@@ -18,6 +20,9 @@ function formatMass(value: number) {
   if (value >= 10000) return `${Math.round(value / 10000).toLocaleString()}만 톤`;
   return `${Math.round(value).toLocaleString()}톤`;
 }
+
+// range 눈금은 지수 0·3·6·9(1톤~10억 톤) 자리이며 슬라이더 위치 i/3 과 같다.
+const rangeTicks = tickPositions(['1톤', '1천 톤', '100만 톤', '10억 톤']);
 
 export function HtmlLessonQuiz({
   quiz,
@@ -41,13 +46,14 @@ export function HtmlLessonQuiz({
   const [pairs, setPairs] = useState<Record<number, number>>({});
   const [exponent, setExponent] = useState(3);
   const [touched, setTouched] = useState(false);
-  const [sliderWidth, setSliderWidth] = useState(1);
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState('');
   const checked = !!result || disabled;
-  const immediateChoice = kind === 'ox' || kind === 'single' || kind === 'blank';
+  // range 는 손을 떼면 바로 제출하므로 정답 확인 버튼(footer)을 쓰지 않는다.
+  const immediateChoice =
+    kind === 'ox' || kind === 'single' || kind === 'blank' || kind === 'range';
   const ready =
     kind === 'range'
       ? touched
@@ -65,17 +71,34 @@ export function HtmlLessonQuiz({
     );
     if (immediateChoice) void check(index);
   };
-  const moveSlider = (x: number) => {
-    if (checked) return;
-    setExponent(Math.round(Math.max(0, Math.min(9, (x / sliderWidth) * 9)) * 10) / 10);
+  // position 은 0~1 슬라이더 위치. 지수(0~9, 0.1 단위) 계산은 이전과 같다.
+  const exponentAt = (position: number) =>
+    Math.round(Math.max(0, Math.min(9, position * 9)) * 10) / 10;
+  const moveSlider = (position: number) => {
+    if (checked || busy) return;
+    setExponent(exponentAt(position));
     setTouched(true);
   };
-  const check = async (choiceIndex?: number) => {
-    if ((!ready && choiceIndex === undefined) || checked || busy || submitting.current) return;
+  // 손을 뗀 위치로 한 번 제출한다. state 반영 전이라 놓은 값을 직접 넘긴다.
+  const releaseSlider = (position: number) => {
+    if (checked || busy || submitting.current) return;
+    const value = exponentAt(position);
+    setExponent(value);
+    setTouched(true);
+    void check(undefined, value);
+  };
+  const check = async (choiceIndex?: number, rangeExponent?: number) => {
+    if (
+      (!ready && choiceIndex === undefined && rangeExponent === undefined) ||
+      checked ||
+      busy ||
+      submitting.current
+    )
+      return;
     submitting.current = true;
     const answer: QuizAnswer =
       kind === 'range'
-        ? { texts: [String(exponent)] }
+        ? { texts: [String(rangeExponent ?? exponent)] }
         : kind === 'match'
           ? { order: left.map((_, index) => pairs[index]) }
           : kind === 'multi'
@@ -113,6 +136,30 @@ export function HtmlLessonQuiz({
     });
     setActiveLeft(null);
   };
+  // range 는 SLIDER 와 같은 SliderQuizView(Figma 300:712)를 쓴다. 손을 떼면 바로 제출하고,
+  // 해설 뒤 여백 터치 이동은 부모 화면(StudyScreen·PracticeScreen)의 전체 터치 영역이 맡는다.
+  if (kind === 'range')
+    return (
+      <SliderQuizView
+        question={quiz.question}
+        hint={DEFAULT_SLIDER_HINT}
+        ticks={rangeTicks}
+        position={exponent / 9}
+        valueLabel={formatMass(10 ** exponent)}
+        locked={checked || busy}
+        onMove={moveSlider}
+        onRelease={releaseSlider}
+        error={error}
+      >
+        {result ? (
+          <SliderFeedback
+            correct={result.isCorrect}
+            title="태양이 바꾸는 질량은 약 400만 톤이에요."
+            lines={[result.explanation]}
+          />
+        ) : null}
+      </SliderQuizView>
+    );
   return (
     <View style={s.page}>
       <Text style={s.question}>
@@ -126,31 +173,7 @@ export function HtmlLessonQuiz({
           quiz.question
         )}
       </Text>
-      {kind === 'range' ? (
-        <View style={s.rangeArea}>
-          <Text style={s.rangeValue}>{formatMass(10 ** exponent)}</Text>
-          <View
-            style={s.sliderTouch}
-            onLayout={(event: LayoutChangeEvent) => setSliderWidth(event.nativeEvent.layout.width)}
-            onStartShouldSetResponder={() => !checked}
-            onMoveShouldSetResponder={() => !checked}
-            onResponderGrant={(event) => moveSlider(event.nativeEvent.locationX)}
-            onResponderMove={(event) => moveSlider(event.nativeEvent.locationX)}
-          >
-            <View style={s.sliderTrack}>
-              <View style={[s.sliderFill, { width: `${(exponent / 9) * 100}%` }]} />
-            </View>
-            <View style={[s.sliderThumb, { left: `${(exponent / 9) * 100}%` }]} />
-          </View>
-          <View style={s.ticks}>
-            {['1톤', '1천 톤', '100만 톤', '10억 톤'].map((tick) => (
-              <Text key={tick} style={s.tick}>
-                {tick}
-              </Text>
-            ))}
-          </View>
-        </View>
-      ) : kind === 'match' ? (
+      {kind === 'match' ? (
         <View style={s.matchGrid}>
           {left.map((label, index) => {
             const paired = pairs[index];
@@ -198,11 +221,7 @@ export function HtmlLessonQuiz({
       {result ? (
         <View style={[s.feedback, result.isCorrect && s.feedbackGood]}>
           <Text style={s.feedbackTitle}>
-            {kind === 'range'
-              ? '태양이 바꾸는 질량은 약 400만 톤이에요.'
-              : result.isCorrect
-                ? '맞았어요!'
-                : '함께 확인해 볼까요?'}
+            {result.isCorrect ? '맞았어요!' : '함께 확인해 볼까요?'}
           </Text>
           <Text style={s.feedbackText}>{result.explanation}</Text>
         </View>
@@ -294,21 +313,6 @@ const s = StyleSheet.create({
   matchGrid: { gap: 10 },
   matchRow: { flexDirection: 'row', gap: 10 },
   matched: { opacity: 0.5, backgroundColor: '#eef6f0' },
-  rangeArea: { gap: 15 },
-  rangeValue: { color: '#746284', fontSize: 31, fontWeight: '600', textAlign: 'center' },
-  sliderTouch: { height: 38, justifyContent: 'center' },
-  sliderTrack: { height: 5, backgroundColor: '#e9e5ef', borderRadius: 5 },
-  sliderFill: { height: 5, backgroundColor: '#827094', borderRadius: 5 },
-  sliderThumb: {
-    position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#827094',
-    marginLeft: -10,
-  },
-  ticks: { flexDirection: 'row', justifyContent: 'space-between' },
-  tick: { color: '#aaa1b3', fontSize: 11 },
   feedback: {
     marginTop: 'auto',
     backgroundColor: '#f5f3f8',

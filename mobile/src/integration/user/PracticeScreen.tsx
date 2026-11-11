@@ -76,6 +76,7 @@ export function ReviewScreen() {
     current?.quiz.type === 'OX' ||
     isChosungQuiz(current?.quiz) ||
     isSliderQuiz(current?.quiz) ||
+    current?.quiz.options?.mockHtmlType === 'range' ||
     (current?.quiz.type === 'MULTIPLE_CHOICE' &&
       (!isHtmlLessonQuiz(current.quiz) || current.quiz.options?.mockHtmlType === 'single')) ||
     current?.quiz.options?.mockHtmlType === 'blank' ||
