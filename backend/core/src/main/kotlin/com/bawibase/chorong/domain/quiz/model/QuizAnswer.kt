@@ -2,7 +2,7 @@ package com.bawibase.chorong.domain.quiz.model
 
 import java.math.BigDecimal
 
-/** DB에만 저장하는 정답. 조회 응답에는 포함하지 않는다. */
+/** DB에 저장하는 정답. 조회 응답에는 MULTI 정답만 config로 공개한다. */
 sealed interface QuizAnswer
 
 data class OxAnswer(

@@ -3,8 +3,10 @@ package com.bawibase.chorong.domain.quiz.dto
 import com.bawibase.chorong.domain.quiz.model.BlankQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.ChosungQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.MatchQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.MultiPublicConfig
 import com.bawibase.chorong.domain.quiz.model.MultiQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.OxQuizDefinition
+import com.bawibase.chorong.domain.quiz.model.QuizConfig
 import com.bawibase.chorong.domain.quiz.model.QuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SingleQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
@@ -12,6 +14,15 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 
 typealias QuizPublicResponse = QuizResponse
+
+/** 조회 응답에 내보낼 구성. MULTI는 정답 순번을 붙인다. */
+object QuizPublicConfig {
+    fun of(quiz: QuizDefinition): QuizConfig =
+        when (quiz) {
+            is MultiQuizDefinition -> MultiPublicConfig(quiz.config.options, quiz.answer.answers.sorted())
+            else -> quiz.config
+        }
+}
 
 /** 제출 후 보여 줄 정답. 답안과 같은 모양이다. */
 object QuizPublicAnswer {

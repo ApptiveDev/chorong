@@ -25,10 +25,22 @@ data class SingleConfig(
     val options: List<String>,
 ) : QuizConfig
 
-@Schema(requiredProperties = ["options"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+/** 저장 구성. 정답은 answer 열에 따로 둔다. 조회 응답은 [MultiPublicConfig]로 내보낸다. */
 data class MultiConfig(
+    val options: List<String>,
+) : QuizConfig
+
+/** MULTI 조회 응답 구성. 앱이 보기를 고를 때마다 바로 판정하도록 정답 순번을 공개한다. */
+@Schema(
+    name = "MultiConfig",
+    requiredProperties = ["options", "answers"],
+    additionalProperties = Schema.AdditionalPropertiesValue.FALSE,
+)
+data class MultiPublicConfig(
     @field:Schema(description = "보기 문구. 답안은 0부터 시작하는 순번으로 고른다.")
     val options: List<String>,
+    @field:Schema(description = "정답 보기 순번 목록(오름차순).")
+    val answers: List<Int>,
 ) : QuizConfig
 
 @Schema(requiredProperties = ["before", "after", "options"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)

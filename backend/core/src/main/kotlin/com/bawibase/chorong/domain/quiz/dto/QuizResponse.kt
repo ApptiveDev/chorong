@@ -5,14 +5,14 @@ import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
 import com.bawibase.chorong.domain.quiz.model.BlankConfig
 import com.bawibase.chorong.domain.quiz.model.ChosungConfig
 import com.bawibase.chorong.domain.quiz.model.MatchConfig
-import com.bawibase.chorong.domain.quiz.model.MultiConfig
+import com.bawibase.chorong.domain.quiz.model.MultiPublicConfig
 import com.bawibase.chorong.domain.quiz.model.OxConfig
 import com.bawibase.chorong.domain.quiz.model.QuizConfig
 import com.bawibase.chorong.domain.quiz.model.SingleConfig
 import com.bawibase.chorong.domain.quiz.model.SliderConfig
 import io.swagger.v3.oas.annotations.media.Schema
 
-@Schema(description = "퀴즈 조회 결과. 정답과 해설은 포함하지 않는다. MATCH는 짝을 config에 공개한다.")
+@Schema(description = "퀴즈 조회 결과. 해설은 포함하지 않는다. 정답은 MULTI의 정답 순번과 MATCH의 짝만 config에 공개한다.")
 data class QuizResponse(
     val quizId: Long,
     val lessonId: Long,
@@ -26,7 +26,7 @@ data class QuizResponse(
         oneOf = [
             OxConfig::class,
             SingleConfig::class,
-            MultiConfig::class,
+            MultiPublicConfig::class,
             BlankConfig::class,
             SliderConfig::class,
             MatchConfig::class,

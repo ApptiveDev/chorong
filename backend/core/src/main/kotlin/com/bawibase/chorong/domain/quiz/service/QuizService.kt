@@ -5,6 +5,7 @@ import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.domain.quiz.dto.QuizAttemptResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizPreviewResponse
 import com.bawibase.chorong.domain.quiz.dto.QuizPublicAnswer
+import com.bawibase.chorong.domain.quiz.dto.QuizPublicConfig
 import com.bawibase.chorong.domain.quiz.dto.QuizResponse
 import com.bawibase.chorong.domain.quiz.entity.QuizAttemptEntity
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
@@ -149,7 +150,7 @@ class QuizService(
     private fun publicQuiz(quiz: QuizItemEntity): QuizResponse {
         val definition = converter.readDefinition(quiz)
         grader.validate(definition)
-        return QuizResponse.from(quiz, definition.config)
+        return QuizResponse.from(quiz, QuizPublicConfig.of(definition))
     }
 
     private fun validateId(

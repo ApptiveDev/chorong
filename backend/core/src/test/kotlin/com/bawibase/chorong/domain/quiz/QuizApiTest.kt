@@ -85,6 +85,14 @@ class QuizApiTest {
 
     private fun jsonMap(node: JsonNode): Map<String, Any?> = objectMapper.convertValue(node, object : TypeReference<Map<String, Any?>>() {})
 
+    /** 조회 응답의 config. MULTI는 저장 정답 순번을 오름차순으로 붙인다. */
+    private fun publicConfig(fixture: JsonNode): JsonNode {
+        if (fixture["interactionType"].asText() != "MULTI") return fixture["config"]
+        val config = fixture["config"].deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
+        config.set<JsonNode>("answers", objectMapper.valueToTree(fixture["answer"]["answers"].map { it.asInt() }.sorted()))
+        return config
+    }
+
     private fun seed(
         fixture: JsonNode = fixtures().first { it["caseId"].asText() == "single" },
         lessonId: Long = 101L,
@@ -155,7 +163,7 @@ class QuizApiTest {
             assertEquals(example["question"], body["question"])
             assertEquals(example["instruction"], body["instruction"])
             assertEquals(example["interactionType"], body["interactionType"])
-            assertEquals(example["config"], body["config"])
+            assertEquals(publicConfig(example), body["config"])
             assertEquals(example["difficulty"], body["difficulty"])
             assertEquals(example["quizOrder"], body["quizOrder"])
 
@@ -587,6 +595,24 @@ class QuizApiTest {
     }
 
     @Test
+    fun `multi exposes sorted answer indices in config and still grades on the server`() {
+        val fixture = fixtures().first { it["caseId"].asText() == "multi" }.deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
+        fixture.set<JsonNode>("answer", objectMapper.readTree("""{"answers":[2,1]}"""))
+        val quiz = seed(fixture)
+        val body = get("/api/quizzes/${quiz.id}")
+        assertEquals(objectMapper.readTree("[1,2]"), body["config"]["answers"])
+        assertEquals(fixture["config"]["options"], body["config"]["options"])
+        assertEquals(
+            objectMapper.readTree("""{"answers":[2,1]}"""),
+            objectMapper.readTree(
+                jdbc.queryForObject("SELECT answer::text FROM ${table("quiz_item")} WHERE quiz_id = ?", String::class.java, quiz.id),
+            ),
+        )
+        assertFalse(submit(checkNotNull(quiz.id), """{"response":{"answers":[0]}}""")["correct"].asBoolean())
+        assertTrue(submit(checkNotNull(quiz.id), """{"response":{"answers":[2,1]}}""")["correct"].asBoolean())
+    }
+
+    @Test
     fun `slider returns closeness and keeps decimal precision`() {
         val quiz = seed(fixtures().first { it["caseId"].asText() == "slider" })
         val near = submit(checkNotNull(quiz.id), """{"response":{"answer":0.5}}""")
@@ -662,7 +688,7 @@ class QuizApiTest {
                 .deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
         (minimal["config"] as com.fasterxml.jackson.databind.node.ObjectNode).remove("hint")
         examples.add(minimal)
-        val expected = examples.associate { example -> checkNotNull(seed(example).id) to example["config"] }
+        val expected = examples.associate { example -> checkNotNull(seed(example).id) to publicConfig(example) }
         val list = get("/api/quizzes?lessonId=101")
         assertEquals(expected.size, list.size())
         for (item in list) {
@@ -688,7 +714,7 @@ class QuizApiTest {
             mapOf(
                 "OxConfig" to emptySet(),
                 "SingleConfig" to setOf("options"),
-                "MultiConfig" to setOf("options"),
+                "MultiConfig" to setOf("options", "answers"),
                 "BlankConfig" to setOf("before", "after", "options"),
                 "SliderConfig" to setOf("ticks"),
                 "MatchConfig" to setOf("pairs"),
