@@ -35,6 +35,10 @@ export default function RootLayout() {
       uri: require('../assets/fonts/Pretendard-SemiBold.otf'),
       display: FontDisplay.BLOCK,
     },
+    TekoRegular: {
+      uri: require('../assets/fonts/Teko-Regular.ttf'),
+      display: FontDisplay.BLOCK,
+    },
   });
 
   if (fontError) throw fontError;

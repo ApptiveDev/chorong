@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../../src/integration/hooks';
 import { integrationApi as api } from '../../src/integration/runtime';
 import { UserStatus } from '../../src/integration/user/Screen';
@@ -19,69 +28,77 @@ export default function More() {
 
 function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; returnTo?: '/social' }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const openSocial = () =>
     returnTo ? router.push({ pathname: '/account', params: { returnTo } }) : go('/account');
   return (
-    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={s.memberContent}>
-        <Text style={s.memberTitle}>제어실</Text>
-        <View style={s.guestProfile}>
-          <WelcomeCat size={105} />
-          <Text style={s.guestTitle}>탐험의 기록을 저장해요.</Text>
-          <Text style={s.guestDescription}>지금까지의 학습과 우주선을 이어가세요.</Text>
+    <SafeAreaView style={s.guestSafe} edges={['top', 'left', 'right']}>
+      <ScrollView
+        style={s.guestScroll}
+        contentContainerStyle={[s.guestContent, { paddingTop: Math.max(8, 52 - insets.top) }]}
+      >
+        <View style={s.guestHeader}>
+          <Text style={s.guestHeaderTitle}>제어실</Text>
         </View>
-        <View style={s.authOptions}>
-          <AuthOption title="Apple로 계속하기" onPress={openSocial} apple />
-          <AuthOption title="Google로 계속하기" onPress={openSocial} />
-          <AuthOption title="카카오로 계속하기" onPress={openSocial} kakao />
-          <AuthOption
-            title="이메일로 로그인하기"
-            onPress={() =>
-              returnTo
-                ? router.push('/account-email?returnTo=%2Fsocial' as Href)
-                : go('/account-email')
-            }
-          />
-        </View>
-        <Text style={s.guestNote}>비회원 기록은 이 기기에만 남아요.</Text>
-        <Text style={s.authNotice}>
-          소셜 계정 연동은 준비 중입니다. 계정 화면에서 이메일로 로그인할 수 있습니다.
-        </Text>
-        <View style={s.legalLinks}>
-          <Pressable accessibilityRole="button" onPress={() => go('/settings/terms')}>
-            <Text style={s.legalText}>이용약관</Text>
-          </Pressable>
-          <Text style={s.legalSeparator}>·</Text>
-          <Pressable accessibilityRole="button" onPress={() => go('/settings/privacy')}>
-            <Text style={s.legalText}>개인정보처리방침</Text>
-          </Pressable>
+        <View style={s.guestColumn}>
+          <View style={s.guestCard}>
+            <View style={s.guestCardHeader}>
+              <Text style={s.licenceTitle}>Astronaut Licence</Text>
+              <Text style={s.licenceNumber} accessibilityLabel="우주선 번호 없음">
+                No. —
+              </Text>
+            </View>
+            <View style={s.guestCardBody}>
+              <Image
+                source={require('../../assets/control-room-guest-profile.png')}
+                resizeMode="cover"
+                style={s.guestCardImage}
+                accessibilityLabel="비회원 프로필"
+              />
+              <Text
+                style={s.guestCardCopy}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
+                비회원으로 탐험 중입니다.
+              </Text>
+            </View>
+          </View>
+          <View style={s.guestMenu}>
+            <GuestMenuButton title="로그인" onPress={openSocial} />
+            <GuestMenuButton
+              title="우주선 관리하기"
+              onPress={() => go('/settings/universe')}
+              highlight
+            />
+            <GuestMenuButton title="알림" onPress={() => go('/settings/notifications')} />
+            <GuestMenuButton title="이용약관" onPress={() => go('/settings/terms')} />
+            <GuestMenuButton title="개인정보 처리방침" onPress={() => go('/settings/privacy')} />
+            <GuestMenuButton title="문의하기" onPress={() => go('/settings/contact')} />
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function AuthOption({
+function GuestMenuButton({
   title,
   onPress,
-  apple = false,
-  kakao = false,
+  highlight = false,
 }: {
   title: string;
   onPress: () => void;
-  apple?: boolean;
-  kakao?: boolean;
+  highlight?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityHint="계정 화면으로 이동"
       onPress={onPress}
-      style={[s.authOption, apple && s.appleOption, kakao && s.kakaoOption]}
+      style={[s.guestMenuButton, highlight && s.guestMenuHighlight]}
     >
-      <Text style={[s.authOptionText, apple && s.appleOptionText, kakao && s.kakaoOptionText]}>
-        {title}
-      </Text>
+      <Text style={s.guestMenuText}>{title}</Text>
     </Pressable>
   );
 }
@@ -235,6 +252,83 @@ function MemberRow({
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
+  guestSafe: { flex: 1, backgroundColor: '#e4e4e4' },
+  guestScroll: { flex: 1 },
+  guestContent: { flexGrow: 1, alignItems: 'center', paddingBottom: 32 },
+  guestHeader: { width: '100%', paddingHorizontal: 32, marginBottom: 60 },
+  guestHeaderTitle: {
+    color: '#161616',
+    fontFamily: 'PretendardBold',
+    fontSize: 24,
+    lineHeight: 29,
+    includeFontPadding: false,
+  },
+  guestColumn: { width: '100%', maxWidth: 396, paddingHorizontal: 32, alignItems: 'center' },
+  guestCard: {
+    width: '100%',
+    maxWidth: 332,
+    height: 164,
+    backgroundColor: '#a0a0a0',
+    borderWidth: 1,
+    borderBottomWidth: 4,
+    borderColor: '#161616',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  guestCardHeader: {
+    height: 31,
+    backgroundColor: '#f2f2f2',
+    borderBottomWidth: 1,
+    borderBottomColor: '#161616',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 17,
+    paddingRight: 12,
+  },
+  licenceTitle: { color: '#161616', fontFamily: 'TekoRegular', fontSize: 20, lineHeight: 24 },
+  licenceNumber: { color: '#161616', fontFamily: 'TekoRegular', fontSize: 16, lineHeight: 20 },
+  guestCardBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 26,
+    paddingHorizontal: 19,
+  },
+  guestCardImage: {
+    width: 96,
+    height: 100,
+    borderWidth: 1,
+    borderColor: '#161616',
+    backgroundColor: '#d9d9d9',
+  },
+  guestCardCopy: {
+    flex: 1,
+    color: '#161616',
+    fontFamily: 'KkakdugiRegular',
+    fontSize: 16,
+    includeFontPadding: false,
+  },
+  guestMenu: { width: '100%', maxWidth: 332, gap: 12, marginTop: 40 },
+  guestMenuButton: {
+    width: '100%',
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f1f1',
+    borderWidth: 1,
+    borderColor: '#161616',
+    borderRadius: 4,
+  },
+  guestMenuHighlight: { backgroundColor: '#70e2f1' },
+  guestMenuText: {
+    color: '#161616',
+    fontFamily: 'PretendardRegular',
+    fontSize: 16,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlign: 'center',
+  },
   memberContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 },
   memberTitle: { color: '#282636', fontSize: 25, fontWeight: '700', marginBottom: 23 },
   profileRow: {
@@ -277,48 +371,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   logoutText: { color: '#8c8296', fontSize: 13 },
-  guestProfile: { alignItems: 'center', marginTop: 12 },
-  guestTitle: {
-    color: '#282636',
-    fontSize: 21,
-    fontWeight: '600',
-    marginTop: 20,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  guestDescription: { color: '#888591', fontSize: 13, lineHeight: 22, textAlign: 'center' },
-  authOptions: { gap: 10, marginTop: 30, marginBottom: 22 },
-  authOption: {
-    width: '100%',
-    minHeight: 52,
-    borderRadius: 13,
-    backgroundColor: '#f3f0f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 17,
-  },
-  authOptionText: { color: '#282636', fontSize: 14, fontWeight: '600' },
-  appleOption: { backgroundColor: '#302b36' },
-  appleOptionText: { color: '#fff' },
-  kakaoOption: { backgroundColor: '#f1f0f3' },
-  kakaoOptionText: { color: '#39333f' },
-  guestNote: { color: '#888591', fontSize: 12, textAlign: 'center' },
-  authNotice: {
-    color: '#a49caf',
-    fontSize: 11,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginTop: 12,
-  },
-  legalLinks: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 7,
-    marginTop: 14,
-  },
-  legalText: { color: '#8c8296', fontSize: 11, paddingVertical: 8 },
-  legalSeparator: { color: '#99909e', fontSize: 12 },
   modalOverlay: {
     flex: 1,
     backgroundColor: '#34273c63',
