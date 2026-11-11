@@ -1,4 +1,4 @@
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
@@ -37,8 +37,6 @@ export function QuizBackdrop() {
     width: size * scale,
     height: size * scale,
     borderRadius: (size * scale) / 2,
-    shadowRadius: 28 * scale,
-    elevation: 28 * scale,
   });
 
   return (
@@ -71,11 +69,12 @@ export function QuizBackdrop() {
 
 const s = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFill },
+  // Figma Ellipse: box-shadow 0 0 28px 0 Primary/Lght(#AAAAAA), backdrop-filter blur(12px).
+  // 배경 블러는 웹에서만 적용된다. 네이티브에는 블러 라이브러리가 없다.
   ellipse: {
     position: 'absolute',
     backgroundColor: '#f1f1f1',
-    shadowColor: '#aaa',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
+    boxShadow: '0px 0px 28px 0px #aaaaaa',
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(12px)' } as object) : null),
   },
 });
