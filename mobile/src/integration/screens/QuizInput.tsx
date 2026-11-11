@@ -32,6 +32,15 @@ export function QuizInput({
       case 'FILL_BLANK':
         if (!texts.trim()) throw new Error('빈칸 답을 입력하세요.');
         return { texts: texts.split('\n') };
+      case 'CHOSUNG':
+        if (!texts.trim()) throw new Error('초성 답을 입력하세요.');
+        return { texts: [texts] };
+      case 'SLIDER': {
+        const position = Number(texts);
+        if (!texts.trim() || !(position >= 0 && position <= 1))
+          throw new Error('0~1 사이 위치를 입력하세요.');
+        return { position };
+      }
       case 'OX':
         if (!ox) throw new Error('O 또는 X를 선택하세요.');
         return { value: ox === 'O' };
@@ -65,6 +74,19 @@ export function QuizInput({
       ) : null}
       {quiz.type === 'FILL_BLANK' ? (
         <Field label="빈칸 답 (한 줄에 하나씩)" value={texts} onChange={setTexts} multiline />
+      ) : null}
+      {quiz.type === 'CHOSUNG' ? (
+        <Field
+          label={`초성 답 (힌트: ${String(quiz.options?.hint ?? '')})`}
+          value={texts}
+          onChange={setTexts}
+        />
+      ) : null}
+      {quiz.type === 'SLIDER' ? (
+        <>
+          <Json value={quiz.options} />
+          <Field label="트랙 위치 (0~1)" value={texts} onChange={setTexts} />
+        </>
       ) : null}
       {quiz.type === 'OX' ? <Choices values={['O', 'X']} value={ox} onChange={setOx} /> : null}
       {quiz.type === 'ORDERING' ? (

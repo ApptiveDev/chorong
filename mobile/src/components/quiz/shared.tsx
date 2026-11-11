@@ -43,10 +43,18 @@ function QuizImage({ url, label }: { url: string; label: string }) {
     />
   );
 }
-export function ItemContent({ item }: { item: QuizItem | CardFace }) {
+export function ItemContent({
+  item,
+  textColor,
+}: {
+  item: QuizItem | CardFace;
+  textColor?: string;
+}) {
   return (
     <View style={styles.stack}>
-      {'title' in item && item.title ? <Text style={styles.heading}>{item.title}</Text> : null}
+      {'title' in item && item.title ? (
+        <Text style={[styles.heading, textColor && { color: textColor }]}>{item.title}</Text>
+      ) : null}
       {item.imageUrl ? (
         <QuizImage
           key={item.imageUrl}
@@ -54,7 +62,9 @@ export function ItemContent({ item }: { item: QuizItem | CardFace }) {
           label={item.text || ('id' in item ? item.id : item.title) || '퀴즈 이미지'}
         />
       ) : null}
-      {item.text ? <Text>{item.text}</Text> : null}
+      {item.text ? (
+        <Text style={textColor ? { color: textColor } : undefined}>{item.text}</Text>
+      ) : null}
     </View>
   );
 }

@@ -25,7 +25,7 @@ const {
 } = require('../.expo/quiz-tests/lib/mock-lesson-quizzes.js');
 const raw = (fixture) => ({ ...fixture, quizId: fixture.quizOrder, lessonId: 23 });
 
-for (const fixture of fixtures) {
+for (const fixture of fixtures.filter((item) => item.interactionType !== 'SWIPE')) {
   test(`${fixture.caseId}: API fixture renders with an isolated response and accepts a complete submission`, () => {
     const before = JSON.stringify(fixture);
     const quiz = prepareQuiz(raw(fixture));
@@ -50,6 +50,7 @@ test('unsupported types and malformed configs fail without rendering controls', 
     () => prepareQuiz({ ...raw(fixtures[0]), interactionType: 'NEW_TYPE' }),
     /지원하지/,
   );
+  assert.throws(() => prepareQuiz({ ...raw(fixtures[0]), interactionType: 'SWIPE' }), /지원하지/);
   for (const config of [
     null,
     {},
@@ -183,17 +184,11 @@ test('preview failure does not call login or token refresh', async () => {
   assert.deepEqual(calls, ['/api/dev/quizzes']);
 });
 
-test('slider and swipe keep distinct numeric and string response types', () => {
+test('slider accepts only numeric responses', () => {
   const slider = prepareQuiz(raw(fixtures.find((f) => f.interactionType === 'SLIDER')));
   assert.equal(responseIssue(slider, { value: 1760 }), null);
   assert.ok(responseIssue(slider, { value: '1760' }));
   assert.ok(responseIssue(slider, { value: Number.NaN }));
-  const swipe = prepareQuiz({
-    ...raw(fixtures.find((f) => f.interactionType === 'SWIPE')),
-    config: { left: { value: '0', label: '왼쪽' }, right: { value: '1', label: '오른쪽' } },
-  });
-  assert.equal(responseIssue(swipe, { value: '1' }), null);
-  assert.ok(responseIssue(swipe, { value: 1 }));
 });
 test('shared optional settings follow the server contract without filling omitted fields', () => {
   const source = raw(structuredClone(fixtures.find((f) => f.caseId === 'slider_exact')));
@@ -255,18 +250,9 @@ test('memory completion requires all distinct card IDs and rejects a reused or u
   assert.equal(responseIssue(quiz, reversed), null);
 });
 
-test('ten learning quizzes cover all eight interaction types and retain lesson IDs', () => {
+test('ten learning quizzes cover the remaining interaction types and retain lesson IDs', () => {
   const lessonIds = [41, 51, 61, 71, 81, 91, 101, 111, 121, 131];
-  const types = [
-    'SLIDER',
-    'SWIPE',
-    'TAP',
-    'DRAG_DROP',
-    'SORT',
-    'MATCHING',
-    'FLIP_CARD',
-    'MULTIPLE_CHOICE',
-  ];
+  const types = ['SLIDER', 'TAP', 'DRAG_DROP', 'SORT', 'MATCHING', 'FLIP_CARD', 'MULTIPLE_CHOICE'];
   assert.equal(mockLessonQuizzes.length, lessonIds.length);
   assert.deepEqual(
     [...new Set(mockLessonQuizzes.map((quiz) => quiz.interactionType))].sort(),
@@ -283,7 +269,7 @@ test('ten learning quizzes cover all eight interaction types and retain lesson I
 
 test('learning quiz answers are checked locally, including unordered maps and partial memory pairs', () => {
   const answers = new Map([
-    [411, { value: 'down' }],
+    [411, { selectedOptionIds: ['down'] }],
     [511, { selectedItemIds: ['sfumato'] }],
     [611, { order: ['hear', 'remember', 'repeat'] }],
     [711, { matches: { human: 'sweet', cat: 'little' } }],
@@ -321,7 +307,7 @@ test('learning quiz answers are checked locally, including unordered maps and pa
     },
     { correct: true, completed: false },
   );
-  assert.equal(checkMockQuiz(411, { value: 'up' }).correct, false);
+  assert.equal(checkMockQuiz(411, { selectedOptionIds: ['up'] }).correct, false);
 });
 
 test('quiz.ts returns lesson quizzes in mock mode without an HTTP request', async () => {
@@ -334,8 +320,8 @@ test('quiz.ts returns lesson quizzes in mock mode without an HTTP request', asyn
       throw new Error('unexpected network request');
     });
     const items = await quizApi.list(41);
-    assert.equal(items[0].interactionType, 'SWIPE');
-    assert.equal((await quizApi.check(411, { value: 'down' })).correct, true);
+    assert.equal(items[0].interactionType, 'MULTIPLE_CHOICE');
+    assert.equal((await quizApi.check(411, { selectedOptionIds: ['down'] })).correct, true);
     assert.equal(requests, 0);
   } finally {
     if (previous === undefined) delete process.env.EXPO_PUBLIC_USE_MOCK;

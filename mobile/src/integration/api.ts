@@ -1,6 +1,7 @@
 import type { IntegrationClient } from './client';
 import * as m from './models';
-import { array, bool, nullable, num, object, str, unknownObject } from './schema';
+import * as contract from './contract';
+import { array, nullable, num, object, optional, str } from './schema';
 
 export function createIntegrationApi(client: IntegrationClient) {
   const account = {
@@ -63,13 +64,17 @@ export function createIntegrationApi(client: IntegrationClient) {
         query: category || topic ? { category, topic } : undefined,
       }),
     course: (courseId: number) => client.request('API-402', m.courseDetail, { path: { courseId } }),
-    lesson: (lessonId: number) => client.request('API-403', m.lessonDetail, { path: { lessonId } }),
+    lesson: (lessonId: number) =>
+      client.request('API-403', contract.lesson, { path: { lessonId } }),
     start: (lessonId: number, replay: boolean) =>
-      client.request('API-404', m.lessonStart, { path: { lessonId }, body: { replay } }),
+      client.request('API-404', contract.lessonStart, { path: { lessonId }, body: { replay } }),
     completeContent: (contentId: number) =>
       client.request('API-405', m.contentComplete, { path: { contentId } }),
     answer: (quizId: number, answer: m.QuizAnswer, replay = false) =>
-      client.request('API-406', m.answerResult, { path: { quizId }, body: { answer, replay } }),
+      client.request('API-406', contract.answerResult, {
+        path: { quizId },
+        body: { answer: contract.encodeAnswer(quizId, answer), replay },
+      }),
     completeLesson: (lessonId: number) =>
       client.request('API-407', m.lessonComplete, {
         path: { lessonId },
@@ -79,25 +84,30 @@ export function createIntegrationApi(client: IntegrationClient) {
   };
   const review = {
     next: (lessonId?: number) =>
-      client.request('API-501', m.reviewSet, { query: lessonId ? { lessonId } : undefined }),
+      client.request('API-501', contract.reviewSet, { query: lessonId ? { lessonId } : undefined }),
     answer: (reviewItemId: number, answer: m.QuizAnswer) =>
       client.request(
         'API-502',
-        object({
-          attemptId: num,
-          isCorrect: bool,
-          correctAnswer: unknownObject,
-          explanation: str,
-          streakDays: num,
-          excludedUntil: nullable(str),
-        }),
-        { path: { reviewItemId }, body: { answer } },
+        (value, path) => {
+          const result = contract.answerResult(value, path);
+          return {
+            ...result,
+            excludedUntil: optional(nullable(str))(
+              (value as Record<string, unknown>).excludedUntil,
+              path,
+            ),
+          };
+        },
+        {
+          path: { reviewItemId },
+          body: { answer: contract.encodeReviewAnswer(reviewItemId, answer) },
+        },
       ),
     complete: (reviewItemIds: number[], sessionKey: string) =>
       client.request('API-503', m.rewards, { body: { reviewItemIds }, key: sessionKey }),
   };
   const onboarding = {
-    load: () => client.request('API-601', object({ lesson: m.lessonDetail })),
+    load: () => client.request('API-601', contract.onboarding),
     complete: (skipped: boolean) =>
       client.request('API-602', m.onboardingComplete, {
         body: { skipped },
@@ -108,7 +118,7 @@ export function createIntegrationApi(client: IntegrationClient) {
     explore: (query: m.PageQuery & { sort: 'recent' | 'popular' }) =>
       client.page('API-801', object({ housings: array(m.housingCard) }), { query }),
     visit: (housingId: number) =>
-      client.request('API-802', m.housingVisit, { path: { housingId } }),
+      client.request('API-802', contract.housingVisit, { path: { housingId } }),
     like: (housingId: number) => client.request('API-803', m.likeState, { path: { housingId } }),
     unlike: (housingId: number) => client.request('API-804', m.likeState, { path: { housingId } }),
     report: (housingId: number, reason: m.ReportReason, detail?: string) =>
@@ -126,28 +136,36 @@ export function createIntegrationApi(client: IntegrationClient) {
       client.request('API-906', object({ constellations: array(m.constellation) })),
   };
   const room = {
-    me: () => client.request('API-701', m.housingDetail),
+    me: () => client.request('API-701', contract.housingDetail),
+    update: (body: { name?: string; isPublic?: boolean }) =>
+      client.request('API-703', m.housing, { body }),
     save: (placements: m.PlacementInput[]) =>
-      client.request('API-702', object({ placements: array(m.placement) }), {
-        body: { placements },
+      client.request('API-702', contract.savedPlacements, {
+        body: { placements: contract.placementRequest(placements) },
       }),
     inventory: (itemType?: 'FURNITURE' | 'OBJECT') =>
-      client.request('API-907', object({ items: array(m.inventoryItem) }), {
+      client.request('API-907', contract.inventory, {
         query: itemType ? { itemType } : undefined,
       }),
     shop: (itemType?: 'FURNITURE' | 'OBJECT') =>
-      client.request('API-901', object({ items: array(m.shopItem) }), {
+      client.request('API-901', contract.shopItems, {
         query: itemType ? { itemType } : undefined,
       }),
     item: (itemId: number) =>
-      client.request('API-902', object({ item: m.shopItem, options: array(m.shopOption) }), {
+      client.request('API-902', contract.shopDetail, {
         path: { itemId },
       }),
     purchase: (items: m.ShopSelection[], key: string) =>
       client.request(
         'API-903',
-        object({ inventoryItems: array(m.inventoryItem), wallet: m.wallet }),
-        { body: { items }, key },
+        (value, path = '$') => {
+          const raw = value as { inventoryItems: unknown; wallet: unknown };
+          return {
+            inventoryItems: contract.inventory({ items: raw.inventoryItems }, path).items,
+            wallet: m.wallet(raw.wallet, `${path}.wallet`),
+          };
+        },
+        { body: { items: contract.purchaseRequest(items) }, key },
       ),
   };
   return { account, learning, review, onboarding, social, benefits, room };

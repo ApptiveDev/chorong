@@ -9,7 +9,12 @@ const {
 const { createIntegrationApi } = require('../.expo/integration-tests/api');
 const { catalog } = require('../.expo/integration-tests/catalog');
 const { wallet } = require('../.expo/integration-tests/models');
-const { mockApi } = require('../.expo/integration-tests/mockApi');
+const contract = require('../.expo/integration-tests/contract');
+const {
+  mockApi,
+  mockSnapshot,
+  restoreMockSnapshot,
+} = require('../.expo/integration-tests/mockApi');
 const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
@@ -17,7 +22,7 @@ const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private',
 const me = {
   ...user,
   providers: ['EMAIL'],
-  wallet: { star: 1, stardust: 20 },
+  wallet: { stardust: 20, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
   progress: { completedLessons: 0, totalLessons: 1 },
   housing: { isPublic: true, likeCount: 0 },
   onboardingCompleted: false,
@@ -60,6 +65,27 @@ function setup(persist = false, entries = new Map()) {
   );
   return { c, api: createIntegrationApi(c), entries };
 }
+test('mock social providers accept temporary credentials and open a member session', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  for (const provider of ['apple', 'google', 'kakao']) {
+    const c = new IntegrationClient(
+      'https://mock.invalid/api/v1',
+      storage,
+      () => uuid,
+      false,
+      mockApi,
+    );
+    c.http.defaults.adapter = async () => {
+      throw new Error('network request');
+    };
+    await createIntegrationApi(c).account.oauth(provider, { accessToken: 'arbitrary-input' });
+    assert.equal(c.getSnapshot().authenticated, true);
+    assert.equal(c.getSnapshot().user.status, 'ACTIVE');
+    assert.deepEqual((await createIntegrationApi(c).account.me()).providers, [
+      provider.toUpperCase(),
+    ]);
+  }
+});
 test('mock API renders linked data without using the HTTP adapter', async () => {
   const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
   const c = new IntegrationClient(
@@ -98,7 +124,7 @@ test('mock API renders linked data without using the HTTP adapter', async () => 
   const shop = await api.room.shop();
   const social = await api.social.explore({ sort: 'recent' });
   const visit = await api.social.visit(social.data.housings[0].housingId);
-  assert.equal(user.wallet.star, 120);
+  assert.equal(user.wallet.stardust, 180);
   assert.equal(start.contents[0].contentId, lesson.contents[0].contentId);
   assert.equal(start.contents.at(-1).quiz.quizId, lesson.contents.at(-1).quiz.quizId);
   assert.equal(housing.placements[0].inventoryId, inventory.items[0].inventoryId);
@@ -226,7 +252,7 @@ test('base URL keeps a single version prefix and rejects credential URLs', () =>
   assert.equal(integrationBaseURL('https://test.invalid/api/v1/'), 'https://test.invalid/api/v1');
   assert.throws(() => integrationBaseURL('https://password@test.invalid'));
 });
-test('all 47 APIs are inventoried; two deferred APIs cannot be sent', async () => {
+test('all 47 APIs are inventoried; unused avatar API remains deferred', async () => {
   assert.equal(Object.keys(catalog).length, 47);
   const { c } = setup();
   let sent = 0;
@@ -235,9 +261,26 @@ test('all 47 APIs are inventoried; two deferred APIs cannot be sent', async () =
     return respond(config, {});
   };
   const deferred = Object.keys(catalog).filter((id) => catalog[id][3] === 'deferred');
-  assert.deepEqual(deferred, ['API-703', 'API-704']);
-  for (const id of deferred) await assert.rejects(c.request(id, null), /보류/);
+  assert.deepEqual(deferred, ['API-704']);
+  for (const id of deferred) await assert.rejects(c.request(id, null), /사용하지 않는 API/);
   assert.equal(sent, 0);
+});
+test('housing visibility update sends API-703 body and reads housing response', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  let request;
+  c.http.defaults.adapter = async (config) => {
+    request = config;
+    return respond(config, {
+      data: { housingId: 1, name: '우주선', isPublic: true, likeCount: 0 },
+    });
+  };
+  const housing = await api.room.update({ isPublic: true });
+  assert.equal(request.method, 'patch');
+  assert.equal(request.url, '/housings/me');
+  assert.deepEqual(JSON.parse(request.data), { isPublic: true });
+  assert.equal(request.headers.get('Authorization'), `Bearer ${tokens.accessToken}`);
+  assert.equal(housing.isPublic, true);
 });
 test('housing save and batch purchase send PDF bodies and purchase key unchanged', async () => {
   const { c, api } = setup();
@@ -248,7 +291,12 @@ test('housing save and batch purchase send PDF bodies and purchase key unchanged
     if (config.url === '/housings/me/placements')
       return respond(config, { data: { placements: [] } });
     if (config.url === '/shop/purchases')
-      return respond(config, { data: { inventoryItems: [], wallet: { star: 2, stardust: 9 } } });
+      return respond(config, {
+        data: {
+          inventoryItems: [],
+          wallet: { stardust: 9, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
+        },
+      });
     throw new Error(`unexpected ${config.url}`);
   };
   const placements = [
@@ -259,11 +307,27 @@ test('housing save and batch purchase send PDF bodies and purchase key unchanged
     },
   ];
   await api.room.save(placements);
-  await api.room.purchase([{ itemId: 11, optionId: 12 }], 'purchase-key-1');
+  await api.room.purchase(
+    [
+      { itemId: 11, optionId: 12 },
+      { itemId: 11, optionId: 12 },
+      { itemId: 13, optionId: 14 },
+    ],
+    'purchase-key-1',
+  );
   assert.equal(calls[0].method, 'put');
-  assert.deepEqual(JSON.parse(calls[0].data), { placements });
+  assert.deepEqual(JSON.parse(calls[0].data), {
+    placements: [
+      { inventoryId: 'owned-1', area: 'INTERIOR', transform: { x: 0.5, y: 0.25, layer: 2 } },
+    ],
+  });
   assert.equal(calls[1].method, 'post');
-  assert.deepEqual(JSON.parse(calls[1].data), { items: [{ itemId: 11, optionId: 12 }] });
+  assert.deepEqual(JSON.parse(calls[1].data), {
+    items: [
+      { itemId: 11, optionId: 12, quantity: 2 },
+      { itemId: 13, optionId: 14, quantity: 1 },
+    ],
+  });
   assert.equal(calls[1].headers.get('Idempotency-Key'), 'purchase-key-1');
 });
 test('guest uses one stable UUID, no authorization; tokens never enter snapshots or traces', async () => {
@@ -303,9 +367,13 @@ test('nested private fields and echoed credentials are redacted', () => {
 test('PDF data envelope, nested types and 204 are enforced without coercion', async () => {
   const { c, api } = setup();
   await login(c);
-  c.http.defaults.adapter = async (config) => respond(config, { star: 1, stardust: 2 });
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { stardust: 2, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' });
   await assert.rejects(api.benefits.wallet(), /명세 불일치/);
-  c.http.defaults.adapter = async (config) => respond(config, { data: { star: '1', stardust: 2 } });
+  c.http.defaults.adapter = async (config) =>
+    respond(config, {
+      data: { stardust: '2', energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
+    });
   await assert.rejects(api.benefits.wallet(), /명세 불일치/);
   c.http.defaults.adapter = async (config) => respond(config, '', 204);
   await api.social.block(19);
@@ -339,7 +407,9 @@ test('concurrent and late 401s share one refresh rotation; retry gets the new be
       return fail(config);
     }
     assert.equal(config.headers.get('Authorization'), 'Bearer new-access');
-    return respond(config, { data: { star: 1, stardust: 2 } });
+    return respond(config, {
+      data: { stardust: 2, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
+    });
   };
   await Promise.all([api.benefits.wallet(), api.benefits.wallet()]);
   assert.equal(refreshes, 1);
@@ -405,7 +475,12 @@ test('late protected response cannot restore data after logout', async () => {
   let release;
   c.http.defaults.adapter = (config) =>
     new Promise((resolve) => {
-      release = () => resolve(respond(config, { data: { star: 1, stardust: 1 } }));
+      release = () =>
+        resolve(
+          respond(config, {
+            data: { stardust: 1, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
+          }),
+        );
     });
   const response = api.benefits.wallet();
   await new Promise((r) => setImmediate(r));
@@ -429,7 +504,11 @@ test('completion retry retains idempotency key and sends no invented completion 
       throw new AxiosError('network', 'ERR_NETWORK', config);
     }
     return respond(config, {
-      data: { rewards: [], wallet: { star: 1, stardust: 2 }, courseCompleted: false },
+      data: {
+        rewards: [],
+        wallet: { stardust: 2, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
+        courseCompleted: false,
+      },
     });
   };
   await assert.rejects(api.learning.completeLesson(12));
@@ -501,4 +580,785 @@ test('server error code, HTTP status and request ID remain inspectable without s
   assert.equal(trace.status, 403);
   assert.equal(trace.requestId, 'request-1');
   assert.equal(redact(trace).code, 'LESSON_LOCKED');
+});
+test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 연결한다', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const lesson = await api.learning.lesson(11);
+  assert.equal(lesson.title, '별은 왜 빛날까');
+  assert.equal(lesson.contents.length, 14);
+  assert.equal(lesson.contents.filter((content) => content.quiz).length, 8);
+  assert.match(lesson.contents[1].body, /46억 년째/);
+  const answers = [
+    { value: true },
+    { index: 0 },
+    { index: 0 },
+    { texts: ['3'] },
+    { value: true },
+    { texts: ['0', '2'] },
+    { order: [1, 3, 2, 0] },
+    { index: 1 },
+  ];
+  const graded = [];
+  for (const [index, content] of lesson.contents.filter((entry) => entry.quiz).entries()) {
+    graded.push((await api.learning.answer(content.quiz.quizId, answers[index])).isCorrect);
+  }
+  assert.deepEqual(graded, [false, false, false, false, true, false, true, true]);
+  assert.equal((await api.review.next(11)).reviewItems.length, 0);
+  for (const content of lesson.contents) await api.learning.completeContent(content.contentId);
+  const review = await api.review.next(11);
+  assert.equal(review.reviewItems.length, 5);
+  assert.equal(review.reviewItems.filter((item) => !graded[item.quiz.quizId - 11001]).length, 4);
+  assert.equal(review.reviewItems.filter((item) => graded[item.quiz.quizId - 11001]).length, 1);
+  const first = review.reviewItems[0];
+  const answer =
+    first.quiz.options.mockHtmlType === 'ox'
+      ? { value: first.quiz.options.answer[0] === 0 }
+      : first.quiz.options.mockHtmlType === 'range'
+        ? { texts: [String(Math.log10(first.quiz.options.answer[0]))] }
+        : first.quiz.options.mockHtmlType === 'match'
+          ? { order: first.quiz.options.answer }
+          : first.quiz.options.mockHtmlType === 'multi'
+            ? { texts: first.quiz.options.answer.map(String) }
+            : { index: first.quiz.options.answer[0] };
+  assert.equal((await api.review.answer(first.reviewItemId, answer)).isCorrect, true);
+  assert.equal(
+    (await api.review.next(11)).reviewItems.some((item) => item.quiz.quizId === first.quiz.quizId),
+    false,
+  );
+  const course = await api.learning.course(1);
+  let completedCourse;
+  for (const summary of course.lessons.filter((item) => item.lessonId !== 11)) {
+    const nextLesson = await api.learning.lesson(summary.lessonId);
+    for (const content of nextLesson.contents)
+      completedCourse = await api.learning.completeContent(content.contentId);
+  }
+  assert.equal(completedCourse.lessonCompleted, true);
+  assert.equal(completedCourse.completion.courseCompleted, true);
+  assert.deepEqual(
+    completedCourse.completion.rewards
+      .filter((item) => item.type === 'WALLET')
+      .map((item) => item.amount),
+    [5, 10],
+  );
+  assert.equal(
+    completedCourse.completion.rewards.some((item) => item.type === 'CONSTELLATION'),
+    true,
+  );
+  assert.equal(
+    (await api.benefits.constellations()).constellations.find((item) => item.courseId === 1).name,
+    '빛을 찾아서',
+  );
+  assert.equal(
+    (await api.benefits.rewards({ size: 100 })).data.rewards.some(
+      (item) => item.type === 'CONSTELLATION' && item.source.courseId === 1,
+    ),
+    true,
+  );
+});
+test('달의 모양 목업은 맞아요만 정답으로 채점한다', () => {
+  const moon = mockApi('API-403', { path: { lessonId: 12 } }).data.data;
+  const quiz = moon.contents.find((content) => content.quiz)?.quiz;
+  assert.ok(quiz);
+  const grade = (index) =>
+    mockApi('API-406', {
+      path: { quizId: quiz.quizId },
+      body: { answer: { index } },
+    }).data.data;
+  assert.equal(grade(0).isCorrect, true);
+  assert.equal(grade(1).isCorrect, false);
+  assert.deepEqual(grade(1).correctAnswer, { answer: [0] });
+  mockApi('API-501', { query: { lessonId: 12 } });
+  const review = mockApi('API-502', {
+    path: { reviewItemId: 1 },
+    body: { answer: { index: 1 } },
+  }).data.data;
+  assert.equal(review.isCorrect, false);
+});
+
+test('목업 학습·별자리·하우징 상태는 저장본에서 복원된다', () => {
+  const saved = JSON.parse(JSON.stringify(mockSnapshot()));
+  const before = {
+    progress: mockApi('API-408', {}).data.data,
+    constellations: mockApi('API-906', {}).data.data,
+    housing: mockApi('API-701', {}).data.data,
+    inventory: mockApi('API-907', {}).data.data,
+    wallet: mockApi('API-904', {}).data.data,
+  };
+  mockApi('API-202', { body: { nickname: '임시 이름' } });
+  mockApi('API-405', { path: { contentId: 1201 } });
+  assert.equal(restoreMockSnapshot(saved), true);
+  assert.deepEqual(mockSnapshot(), saved);
+  assert.deepEqual(mockApi('API-408', {}).data.data, before.progress);
+  assert.deepEqual(mockApi('API-906', {}).data.data, before.constellations);
+  assert.deepEqual(mockApi('API-701', {}).data.data, before.housing);
+  assert.deepEqual(mockApi('API-907', {}).data.data, before.inventory);
+  assert.deepEqual(mockApi('API-904', {}).data.data, before.wallet);
+  assert.equal(restoreMockSnapshot({ version: 1 }), false);
+});
+
+test('v2 lesson quiz and answer use interactionType and answer envelope', () => {
+  const lesson = contract.lesson({
+    lessonId: 9,
+    courseId: 2,
+    title: '시험 레슨',
+    description: '설명',
+    segments: [{ segmentId: 'a', title: '구간', order: 1, contentIds: [91] }],
+    contents: [
+      {
+        contentId: 91,
+        order: 1,
+        segmentId: 'a',
+        contentType: 'QUIZ',
+        body: null,
+        mediaUrl: null,
+        quiz: {
+          quizId: 901,
+          interactionType: 'SINGLE',
+          question: '질문',
+          instruction: '하나 선택',
+          quizOrder: 1,
+          config: { options: ['첫째', '둘째'] },
+        },
+      },
+    ],
+  });
+  assert.deepEqual(lesson.contents[0].quiz.options.choices, [
+    { index: 0, label: '첫째' },
+    { index: 1, label: '둘째' },
+  ]);
+  assert.deepEqual(contract.encodeAnswer(901, { index: 1 }), { answer: 1 });
+  contract.quiz({
+    quizId: 902,
+    interactionType: 'BLANK',
+    question: '질문',
+    quizOrder: 2,
+    config: { before: '앞', after: '뒤', options: ['가', '나'] },
+  });
+  assert.deepEqual(contract.encodeAnswer(902, { texts: ['나'] }), { answer: 1 });
+  contract.quiz({
+    quizId: 903,
+    interactionType: 'MATCH',
+    question: '짝',
+    quizOrder: 3,
+    config: {
+      pairs: [
+        ['왼쪽1', '오른쪽1'],
+        ['왼쪽2', '오른쪽2'],
+      ],
+    },
+  });
+  assert.deepEqual(contract.encodeAnswer(903, { order: [1, 0] }), {
+    pairs: [
+      ['왼쪽1', '오른쪽1'],
+      ['왼쪽2', '오른쪽2'],
+    ],
+  });
+  assert.deepEqual(contract.answerResult({ isCorrect: true, completed: true }).correctAnswer, {});
+  assert.throws(() => contract.encodeAnswer(901, { value: true }), /명세 불일치/);
+});
+
+test('v2 inventory copies and shop counts keep existing room model', () => {
+  const items = contract.inventory({
+    items: [
+      {
+        itemId: 3,
+        optionId: 4,
+        itemType: 'FURNITURE',
+        name: '의자',
+        option: { color: '파랑' },
+        ownedCount: 2,
+        placedCount: 1,
+        availableCount: 1,
+        copies: [
+          {
+            inventoryId: 'a',
+            acquiredVia: 'STARTER',
+            acquiredAt: '2026-11-01T00:00:00Z',
+            placed: true,
+          },
+          {
+            inventoryId: 'b',
+            acquiredVia: 'PURCHASE',
+            acquiredAt: '2026-11-02T00:00:00Z',
+            placed: false,
+          },
+        ],
+      },
+    ],
+  }).items;
+  assert.deepEqual(
+    items.map((item) => item.inventoryId),
+    ['a', 'b'],
+  );
+  const item = contract.shopItem({
+    itemId: 3,
+    name: '의자',
+    itemType: 'FURNITURE',
+    unlocked: true,
+    unlockHint: null,
+    minPrice: { currency: 'STARDUST', amount: 10 },
+    options: [
+      {
+        optionId: 4,
+        option: { color: '파랑' },
+        currency: 'STARDUST',
+        price: 10,
+        previewAsset: 'chair',
+        ownedCount: 2,
+      },
+    ],
+  });
+  assert.equal(item.options[0].owned, true);
+  assert.deepEqual(
+    contract.placementRequest([
+      { inventoryId: 'a', area: 'INTERIOR', transform: { x: 0.3, y: 0.4, rotation: 90, layer: 1 } },
+    ]),
+    [{ inventoryId: 'a', area: 'INTERIOR', transform: { x: 0.3, y: 0.4, layer: 1 } }],
+  );
+});
+
+test('v2 lesson keeps unsupported quiz content in place without grading data', () => {
+  const quizContent = (contentId, order, quiz) => ({
+    contentId,
+    order,
+    segmentId: 'a',
+    contentType: 'QUIZ',
+    body: null,
+    mediaUrl: null,
+    quiz: { question: '질문', quizOrder: order, ...quiz },
+  });
+  const raw = {
+    lessonId: 9,
+    courseId: 2,
+    title: '시험 레슨',
+    description: '설명',
+    contents: [
+      quizContent(81, 1, { quizId: 801, interactionType: 'OX', config: {} }),
+      quizContent(82, 2, {
+        quizId: 802,
+        interactionType: 'MULTI',
+        config: { options: ['a', 'b'] },
+      }),
+      quizContent(83, 3, { quizId: 803, interactionType: 'SLIDER', config: { ticks: ['0', '1'] } }),
+      quizContent(84, 4, { quizId: 804, interactionType: 'CHOSUNG', config: { hint: 'ㅇㅌ' } }),
+      quizContent(85, 5, {
+        quizId: 805,
+        interactionType: 'SINGLE',
+        config: { options: ['a', 'b'] },
+      }),
+    ],
+  };
+  for (const parsed of [
+    contract.lesson(raw),
+    contract.lessonStart({
+      reviewRequired: false,
+      review: null,
+      progress: { status: 'IN_PROGRESS', lastContentId: null, resumeContentId: 81 },
+      contents: raw.contents,
+    }),
+  ]) {
+    assert.deepEqual(
+      parsed.contents.map((c) => [c.contentId, c.order, c.contentType]),
+      raw.contents.map((c) => [c.contentId, c.order, 'QUIZ']),
+    );
+    assert.deepEqual(
+      parsed.contents.map((c) => c.quiz?.quizId ?? null),
+      [801, null, 803, 804, 805],
+    );
+    assert.deepEqual(
+      parsed.contents.map((c) => c.unsupportedQuiz ?? null),
+      [null, { quizId: 802, interactionType: 'MULTI' }, null, null, null],
+    );
+  }
+  // 미지원 유형은 답안을 만들어 보내지 않는다.
+  assert.throws(() => contract.encodeAnswer(802, { texts: ['0'] }), /명세 불일치/);
+  assert.throws(() => contract.encodeAnswer(802, { position: 0.5 }), /명세 불일치/);
+  // 온보딩은 quiz=null 콘텐츠를 답한 것으로 보고 보상을 받을 수 있어 그대로 실패시킨다.
+  assert.throws(() => contract.onboarding({ lesson: raw }), /interactionType=MULTI/);
+  // 복습 완료는 5문항 전부가 필요해 그대로 실패시킨다.
+  assert.throws(
+    () =>
+      contract.reviewSet({
+        reviewItems: [{ reviewItemId: 1, quiz: raw.contents[1].quiz }],
+        message: null,
+        rewardEligible: true,
+      }),
+    /interactionType=MULTI/,
+  );
+});
+
+test('v2 placement without item option keeps the placement and invents no option id', () => {
+  const placements = [
+    {
+      placementId: 1,
+      inventoryId: 'cat-1',
+      area: 'INTERIOR',
+      transform: { x: 0.2, y: 0.3, flippedX: true, layer: 4 },
+      itemId: 50,
+    },
+    {
+      placementId: 2,
+      inventoryId: 'chair-1',
+      area: 'INTERIOR',
+      transform: { x: 0.5, y: 0.6 },
+      itemId: 3,
+      optionId: 4,
+      option: { color: '파랑' },
+    },
+  ];
+  const housing = { housingId: 1, name: '우주', isPublic: true, likeCount: 0 };
+  const avatar = { x: 0.5, y: 0.5, state: 'IDLE', placementId: null };
+  const parsed = [
+    contract.housingDetail({ housing, placements, avatar }).placements,
+    contract.housingVisit({
+      housing,
+      placements,
+      avatar,
+      ownerNickname: '친구',
+      likedByMe: false,
+    }).placements,
+    contract.savedPlacements({ placements }).placements,
+  ];
+  for (const [optionless, withOption] of parsed) {
+    assert.equal(optionless.optionId, undefined);
+    assert.equal('optionId' in optionless, false);
+    assert.deepEqual(optionless.option, {});
+    assert.equal(optionless.itemId, 50);
+    assert.equal(optionless.inventoryId, 'cat-1');
+    assert.deepEqual(optionless.transform, {
+      x: 0.2,
+      y: 0.3,
+      flippedX: true,
+      layer: 4,
+      rotation: 0,
+    });
+    assert.equal(withOption.optionId, 4);
+    assert.deepEqual(withOption.option, { color: '파랑' });
+    assert.equal(withOption.transform.layer, 0);
+  }
+  assert.throws(
+    () =>
+      contract.savedPlacements({
+        placements: [{ ...placements[1], option: 'blue' }],
+      }),
+    /명세 불일치/,
+  );
+  assert.throws(
+    () =>
+      contract.savedPlacements({
+        placements: [{ ...placements[1], optionId: '4' }],
+      }),
+    /명세 불일치/,
+  );
+});
+
+test('CHOSUNG quiz maps hint, sends the typed string and uses only server grading', async () => {
+  const parsed = contract.quiz({
+    quizId: 960,
+    interactionType: 'CHOSUNG',
+    question: '이 색의 이름은?',
+    quizOrder: 1,
+    config: { hint: 'ㅇㅌㄹㅁㄹ' },
+  });
+  assert.deepEqual(parsed, {
+    quizId: 960,
+    question: '이 색의 이름은?',
+    hint: null,
+    type: 'CHOSUNG',
+    options: { hint: 'ㅇㅌㄹㅁㄹ' },
+  });
+  assert.throws(
+    () =>
+      contract.quiz({
+        quizId: 961,
+        interactionType: 'CHOSUNG',
+        question: '질문',
+        quizOrder: 1,
+        config: {},
+      }),
+    /config\.hint/,
+  );
+  assert.deepEqual(contract.encodeAnswer(960, { texts: [' 울트라 마린 '] }), {
+    answer: '울트라 마린',
+  });
+  assert.throws(() => contract.encodeAnswer(960, { texts: ['  '] }), /명세 불일치/);
+  assert.throws(() => contract.encodeAnswer(960, { index: 0 }), /명세 불일치/);
+
+  const { c, api } = setup();
+  await login(c);
+  const sent = [];
+  c.http.defaults.adapter = async (config) => {
+    sent.push(JSON.parse(config.data));
+    return respond(config, {
+      data: {
+        attemptId: 3,
+        isCorrect: false,
+        completed: true,
+        correctAnswer: { answer: '울트라마린' },
+        explanation: '서버 해설',
+      },
+    });
+  };
+  const result = await api.learning.answer(960, { texts: ['코발트'] });
+  assert.deepEqual(sent, [{ answer: { answer: '코발트' }, replay: false }]);
+  assert.equal(result.isCorrect, false);
+  assert.equal(result.correctAnswer.answer, '울트라마린');
+  assert.equal(result.explanation, '서버 해설');
+
+  // 온보딩 화면에는 초성 UI 가 없어 그대로 실패시킨다.
+  assert.throws(
+    () =>
+      contract.onboarding({
+        lesson: {
+          lessonId: 1,
+          courseId: 1,
+          title: '온보딩',
+          description: '',
+          contents: [
+            {
+              contentId: 1,
+              order: 1,
+              segmentId: 'a',
+              contentType: 'QUIZ',
+              quiz: {
+                quizId: 962,
+                interactionType: 'CHOSUNG',
+                question: '질문',
+                quizOrder: 1,
+                config: { hint: 'ㄱ' },
+              },
+            },
+          ],
+        },
+      }),
+    /interactionType=CHOSUNG/,
+  );
+});
+
+test('mock CHOSUNG lesson grades on the mock server, then completes the lesson', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const start = await api.learning.start(22, false);
+  const chosung = start.contents.find((content) => content.quiz?.type === 'CHOSUNG');
+  assert.equal(chosung.contentId, 2204);
+  assert.equal(chosung.order, 4);
+  assert.deepEqual(chosung.quiz.options, { hint: 'ㅈㅂ' });
+  assert.equal('answer' in chosung.quiz.options, false);
+
+  const wrong = await api.learning.answer(chosung.quiz.quizId, { texts: ['응결'] }, true);
+  assert.equal(wrong.isCorrect, false);
+  assert.equal(wrong.correctAnswer.answer, '증발');
+  assert.ok(wrong.explanation);
+  const right = await api.learning.answer(chosung.quiz.quizId, { texts: ['증 발'] });
+  assert.equal(right.isCorrect, true);
+
+  let last;
+  for (const content of start.contents)
+    last = await api.learning.completeContent(content.contentId);
+  assert.equal(last.lessonCompleted, true);
+
+  const review = await api.review.next(22);
+  assert.equal(review.reviewItems[0].quiz.type, 'CHOSUNG');
+  const reviewed = await api.review.answer(review.reviewItems[0].reviewItemId, {
+    texts: ['증발'],
+  });
+  assert.equal(reviewed.isCorrect, true);
+});
+
+const slider = require('../.expo/integration-tests/user/sliderQuizState');
+
+test('SLIDER config maps string ticks and optional hint; answer is a 0~1 position', async () => {
+  const parsed = contract.quiz({
+    quizId: 970,
+    interactionType: 'SLIDER',
+    question: '얼마나 걸릴까요?',
+    quizOrder: 1,
+    config: { ticks: ['0', '반나절', '하루'], hint: '놓으면 제출돼요' },
+  });
+  assert.deepEqual(parsed, {
+    quizId: 970,
+    question: '얼마나 걸릴까요?',
+    hint: null,
+    type: 'SLIDER',
+    options: { ticks: ['0', '반나절', '하루'], hint: '놓으면 제출돼요' },
+  });
+  const noHint = contract.quiz({
+    quizId: 971,
+    interactionType: 'SLIDER',
+    question: '질문',
+    quizOrder: 1,
+    config: { ticks: ['왼쪽', '오른쪽'] },
+  });
+  assert.deepEqual(noHint.options, { ticks: ['왼쪽', '오른쪽'] });
+  for (const ticks of [['하나'], ['a', 1], undefined])
+    assert.throws(
+      () =>
+        contract.quiz({
+          quizId: 972,
+          interactionType: 'SLIDER',
+          question: '질문',
+          quizOrder: 1,
+          config: { ticks },
+        }),
+      /config\.ticks/,
+    );
+  // 눈금 스냅 없이 위치를 그대로 보낸다.
+  for (const position of [0, 0.28, 1])
+    assert.deepEqual(contract.encodeAnswer(970, { position }), { answer: position });
+  for (const answer of [
+    { position: -0.01 },
+    { position: 1.01 },
+    { position: NaN },
+    { texts: ['0.5'] },
+  ])
+    assert.throws(() => contract.encodeAnswer(970, answer), /명세 불일치/);
+
+  const { c, api } = setup();
+  await login(c);
+  const sent = [];
+  let reply;
+  c.http.defaults.adapter = async (config) => {
+    sent.push(JSON.parse(config.data));
+    return respond(config, { data: reply });
+  };
+  reply = {
+    attemptId: 1,
+    isCorrect: false,
+    completed: true,
+    correctAnswer: { answer: 0.72 },
+    closeness: 56,
+    explanation: '서버 해설',
+  };
+  const wrong = await api.learning.answer(970, { position: 0.28 });
+  assert.deepEqual(sent[0], { answer: { answer: 0.28 }, replay: false });
+  assert.equal(wrong.isCorrect, false);
+  assert.equal(slider.closenessText(wrong), '정답에 56% 근접했어요');
+  assert.equal(slider.serverAnswerPosition(wrong), 0.72);
+  reply = { ...reply, isCorrect: true, closeness: 98 };
+  const right = await api.learning.answer(970, { position: 0.7 }, true);
+  assert.deepEqual(sent[1], { answer: { answer: 0.7 }, replay: true });
+  assert.equal(right.isCorrect, true);
+  assert.equal(slider.closenessText(right), '정답에 98% 근접했어요');
+  // closeness 가 없으면 문구를 만들지 않는다.
+  reply = { isCorrect: true, completed: true };
+  assert.equal(slider.closenessText(await api.learning.answer(970, { position: 0.5 })), null);
+});
+
+test('SLIDER position, ticks and release-once submission', async () => {
+  assert.equal(slider.positionAt(-20, 200), 0);
+  assert.equal(slider.positionAt(0, 200), 0);
+  assert.equal(slider.positionAt(56, 200), 0.28);
+  assert.equal(slider.positionAt(200, 200), 1);
+  assert.equal(slider.positionAt(260, 200), 1);
+  assert.equal(slider.positionAt(50, 0), 0);
+  assert.deepEqual(slider.tickPositions(['1톤', '천 톤', '100만 톤', '10억 톤']), [
+    { label: '1톤', position: 0 },
+    { label: '천 톤', position: 1 / 3 },
+    { label: '100만 톤', position: 2 / 3 },
+    { label: '10억 톤', position: 1 },
+  ]);
+  assert.deepEqual(
+    slider.tickPositions(['왼쪽', '오른쪽']).map((t) => t.position),
+    [0, 1],
+  );
+
+  // 응답 대기 중에 다시 놓아도 한 번만 보낸다.
+  const calls = [];
+  let finish;
+  const submitter = slider.createReleaseSubmitter(
+    (position) =>
+      new Promise((resolve) => {
+        calls.push(position);
+        finish = () => resolve({ isCorrect: true, correctAnswer: {} });
+      }),
+  );
+  const first = submitter.release(0.4);
+  assert.equal(submitter.state, 'submitting');
+  assert.equal(await submitter.release(0.9), null);
+  finish();
+  assert.deepEqual(await first, { isCorrect: true, correctAnswer: {} });
+  assert.equal(submitter.state, 'graded');
+  assert.equal(await submitter.release(0.1), null);
+  assert.deepEqual(calls, [0.4]);
+
+  // 실패하면 채점 상태가 되지 않고 다시 놓아 재시도할 수 있다.
+  let attempts = 0;
+  const retry = slider.createReleaseSubmitter(async (position) => {
+    attempts += 1;
+    if (attempts === 1) throw new Error('network');
+    return { position };
+  });
+  await assert.rejects(retry.release(1.5), /network/);
+  assert.equal(retry.state, 'idle');
+  assert.deepEqual(await retry.release(1.5), { position: 1 });
+  assert.equal(attempts, 2);
+});
+
+test('mock SLIDER lesson hides the answer, grades on the mock server and completes', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const start = await api.learning.start(21, false);
+  const item = start.contents.find((content) => content.quiz?.type === 'SLIDER');
+  assert.equal(item.contentId, 2104);
+  assert.deepEqual(item.quiz.options, {
+    ticks: ['0시간', '12시간', '하루(24시간)', '36시간'],
+    hint: '막대를 놓으면 제출돼요.',
+  });
+
+  const wrong = await api.learning.answer(item.quiz.quizId, { position: 0 }, true);
+  assert.equal(wrong.isCorrect, false);
+  assert.equal(typeof wrong.closeness, 'number');
+  assert.equal(slider.serverAnswerPosition(wrong), 24 / 36);
+  const right = await api.learning.answer(item.quiz.quizId, { position: 0.68 });
+  assert.equal(right.isCorrect, true);
+  assert.ok(right.explanation);
+
+  let last;
+  for (const content of start.contents)
+    last = await api.learning.completeContent(content.contentId);
+  assert.equal(last.lessonCompleted, true);
+
+  const review = await api.review.next(21);
+  assert.equal(review.reviewItems[0].quiz.type, 'SLIDER');
+  const reviewed = await api.review.answer(review.reviewItems[0].reviewItemId, { position: 1 });
+  assert.equal(reviewed.isCorrect, false);
+
+  // 온보딩 화면에는 슬라이더 UI 가 없어 그대로 실패시킨다.
+  assert.throws(
+    () =>
+      contract.onboarding({
+        lesson: {
+          ...start,
+          lessonId: 1,
+          courseId: 1,
+          title: '온보딩',
+          description: '',
+          contents: [item],
+        },
+      }),
+    /명세 불일치/,
+  );
+});
+
+test('대화형 콘텐츠는 dialogue 배열을 순서·화자·원문 그대로 전달한다', () => {
+  const { toNarrationContent } = require('../.expo/integration-tests/user/narrationContent');
+  const raw = {
+    contentId: 901,
+    order: 1,
+    segmentId: 'a',
+    contentType: 'TEXT',
+    body: '원래 본문',
+    mediaUrl: null,
+    dialogue: [
+      { speaker: '별지기', text: '첫 줄\n초롱이: 이건 대사 안의 문자열이에요.' },
+      { speaker: '초롱이', text: '두 번째냥? <&> "따옴표"' },
+      { speaker: '천문대장', text: '예상하지 못한 화자' },
+      { speaker: '별지기', text: '출처: 대사 안의 출처 문구' },
+    ],
+    source: 'NASA',
+    quiz: null,
+  };
+  const content = contract.lesson({
+    lessonId: 1,
+    courseId: 1,
+    title: 't',
+    description: 'd',
+    contents: [raw],
+  }).contents[0];
+  assert.equal(content.body, '원래 본문');
+  assert.equal(content.source, 'NASA');
+  assert.deepEqual(content.dialogue, raw.dialogue);
+
+  const narration = toNarrationContent(content);
+  assert.deepEqual(
+    narration.messages.map(({ id, order, speaker, text }) => [id, order, speaker, text]),
+    raw.dialogue.map((line, index) => [`901-${index}`, index, line.speaker, line.text]),
+  );
+  assert.equal(narration.source, '출처: NASA');
+
+  assert.throws(
+    () =>
+      contract.lesson({
+        lessonId: 1,
+        courseId: 1,
+        title: 't',
+        description: 'd',
+        contents: [{ ...raw, dialogue: [{ speaker: '별지기' }] }],
+      }),
+    Error,
+  );
+});
+
+test('dialogue 가 없으면 기존 body 파싱을 유지한다', () => {
+  const { toNarrationContent } = require('../.expo/integration-tests/user/narrationContent');
+  const base = { contentId: 7, order: 1, contentType: 'TEXT', mediaUrl: null, quiz: null };
+  const legacy = toNarrationContent({
+    ...base,
+    body: '별지기: 태양은 불이 아니에요.\n초롱이: 그럼 뭐냥?\n출처: NASA',
+  });
+  assert.deepEqual(
+    legacy.messages.map(({ speaker, text }) => [speaker, text]),
+    [
+      ['별지기', '태양은 불이 아니에요.'],
+      ['초롱이', '그럼 뭐냥?'],
+    ],
+  );
+  assert.equal(legacy.source, '출처: NASA');
+
+  const plain = toNarrationContent({ ...base, body: '평범한 설명', source: 'ESA' });
+  assert.deepEqual(plain.messages, [
+    { id: '7-0', order: 0, speaker: '별지기', text: '평범한 설명' },
+  ]);
+  assert.equal(plain.source, '출처: ESA');
+
+  const empty = toNarrationContent({ ...base, body: '본문 유지', dialogue: [] });
+  assert.equal(empty.messages[0].text, '본문 유지');
+});
+
+test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', async () => {
+  const { toNarrationContent } = require('../.expo/integration-tests/user/narrationContent');
+  const { lessons } = require('../.expo/integration-tests/mockData');
+  const texts = lessons
+    .flatMap((lesson) => lesson.contents)
+    .filter((item) => item.contentType === 'TEXT' && item.body);
+  assert.ok(texts.length > 0);
+  for (const item of texts) {
+    const narration = toNarrationContent(item);
+    assert.ok(narration.messages.length > 0, `content ${item.contentId}`);
+    for (const message of narration.messages) {
+      assert.ok(['별지기', '초롱이'].includes(message.speaker));
+      assert.ok(message.text.length > 0);
+    }
+  }
 });

@@ -54,10 +54,19 @@ export default function CourseScreen() {
               key={lesson.lessonId}
               accessibilityRole="button"
               onPress={() =>
-                router.push({
-                  pathname: '/learn/lesson/[lessonId]',
-                  params: { lessonId: String(lesson.lessonId), status: lesson.status },
-                })
+                lesson.status === 'COMPLETED'
+                  ? router.push({
+                      pathname: '/learn/study/[lessonId]',
+                      params: {
+                        lessonId: String(lesson.lessonId),
+                        title: lesson.title,
+                        replay: 'true',
+                      },
+                    })
+                  : router.push({
+                      pathname: '/learn/lesson/[lessonId]',
+                      params: { lessonId: String(lesson.lessonId), status: lesson.status },
+                    })
               }
               style={s.lesson}
             >

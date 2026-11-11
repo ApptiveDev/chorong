@@ -1,4 +1,4 @@
-// API-703이 확정되기 전까지 Mock 모드에서만 공개 설정 흐름을 시험한다.
+// Mock 응답과 화면에서 공유하는 공개 상태다.
 let isPublic = true;
 const listeners = new Set<() => void>();
 

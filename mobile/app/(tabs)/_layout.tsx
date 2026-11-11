@@ -1,18 +1,59 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import type { ComponentProps } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   HouseEditingProvider,
   useHouseEditing,
 } from '../../src/components/house/HouseEditingContext';
+import { useIntegration } from '../../src/integration/hooks';
 
-type IconName = ComponentProps<typeof Ionicons>['name'];
-
-const dockItems: { name: string; label: string; icon: IconName; iconActive: IconName }[] = [
-  { name: 'quiz', label: '학습', icon: 'book-outline', iconActive: 'book' },
-  { name: 'index', label: '나의 우주선', icon: 'planet-outline', iconActive: 'planet' },
-  { name: 'more', label: '제어실', icon: 'settings-outline', iconActive: 'settings' },
+const dockItems = [
+  { name: 'quiz', label: '학습' },
+  { name: 'index', label: '우주선' },
+  { name: 'more', label: '제어실' },
 ];
+
+type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0] & {
+  bottom: number;
+};
+
+function DockBar({ state, navigation, bottom }: DockBarProps) {
+  return (
+    <View style={[dockStyles.bar, { height: 64 + bottom, paddingBottom: bottom }]}>
+      <View style={dockStyles.items}>
+        {dockItems.map((item) => {
+          const routeIndex = state.routes.findIndex((route) => route.name === item.name);
+          const route = state.routes[routeIndex];
+          if (!route) return null;
+          const selected = state.index === routeIndex;
+          return (
+            <Pressable
+              key={route.key}
+              accessibilityRole="tab"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected }}
+              onPress={() => {
+                const event = navigation.emit({
+                  type: 'tabPress',
+                  target: route.key,
+                  canPreventDefault: true,
+                });
+                if (!selected && !event.defaultPrevented) navigation.navigate(route.name);
+              }}
+              onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
+              style={[dockStyles.item, selected && dockStyles.selected]}
+            >
+              <Text style={[dockStyles.label, selected && dockStyles.selectedLabel]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   return (
@@ -24,19 +65,22 @@ export default function TabsLayout() {
 
 function TabNavigator() {
   const { isEditing } = useHouseEditing();
+  const { bottom } = useSafeAreaInsets();
+  const session = useIntegration();
+
+  if (!session.ready)
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator accessibilityLabel="계정 확인 중" />
+      </View>
+    );
+  if (!session.authenticated) return <Redirect href="/welcome" />;
 
   return (
     <Tabs
+      tabBar={(props) => (isEditing ? null : <DockBar {...props} bottom={bottom} />)}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#0f172a',
-        tabBarInactiveTintColor: '#64748b',
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '500' },
-        tabBarStyle: {
-          display: isEditing ? 'none' : 'flex',
-          borderTopColor: '#cbd5e1',
-          backgroundColor: '#ffffff',
-        },
       }}
     >
       {dockItems.map((item) => (
@@ -45,9 +89,6 @@ function TabNavigator() {
           name={item.name}
           options={{
             title: item.label,
-            tabBarIcon: ({ color, focused, size }) => (
-              <Ionicons name={focused ? item.iconActive : item.icon} size={size} color={color} />
-            ),
           }}
         />
       ))}
@@ -55,3 +96,18 @@ function TabNavigator() {
     </Tabs>
   );
 }
+
+const dockStyles = StyleSheet.create({
+  bar: { width: '100%', backgroundColor: '#161616' },
+  items: { width: '100%', height: 64, flexDirection: 'row' },
+  item: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
+  selected: { borderBottomWidth: 4, borderBottomColor: '#f1f1f1' },
+  label: {
+    color: '#f1f1f1',
+    fontSize: 16,
+    lineHeight: 15,
+    fontFamily: 'PretendardMedium',
+    includeFontPadding: false,
+  },
+  selectedLabel: { fontFamily: 'PretendardBold' },
+});

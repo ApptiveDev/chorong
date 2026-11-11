@@ -8,12 +8,15 @@ export const mockLessonQuizzes: QuizSummary[] = [
     lessonId: 41,
     quizOrder: 1,
     difficulty: 'EASY',
-    interactionType: 'SWIPE',
+    interactionType: 'MULTIPLE_CHOICE',
     question: '시장 금리가 오르면 기존 고정금리 채권의 가격은 보통 어떻게 될까요?',
-    instruction: '카드를 좌우로 밀거나 아래 버튼을 눌러 선택하세요.',
+    instruction: '알맞은 답을 선택하세요.',
     config: {
-      left: { value: 'down', label: '내려가요' },
-      right: { value: 'up', label: '올라가요' },
+      selectionType: 'SINGLE',
+      options: [
+        { id: 'down', text: '내려가요' },
+        { id: 'up', text: '올라가요' },
+      ],
     },
   },
   {
@@ -169,7 +172,7 @@ export const mockLessonQuizzes: QuizSummary[] = [
 ];
 
 const answers: Record<number, QuizResponse> = {
-  411: { value: 'down' },
+  411: { selectedOptionIds: ['down'] },
   511: { selectedItemIds: ['sfumato'] },
   611: { order: ['hear', 'remember', 'repeat'] },
   711: { matches: { cat: 'little', human: 'sweet' } },

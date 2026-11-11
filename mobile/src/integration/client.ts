@@ -32,7 +32,10 @@ export type RequestOptions = {
   public?: boolean;
 };
 export type MockResponse = { status: number; data: unknown; headers: Record<string, string> };
-export type MockResponder = (id: EnabledApiId, options: RequestOptions) => MockResponse;
+export type MockResponder = (
+  id: EnabledApiId,
+  options: RequestOptions,
+) => MockResponse | Promise<MockResponse>;
 type State = {
   ready: boolean;
   user: UserBrief | Me | null;
@@ -325,7 +328,8 @@ export class IntegrationClient {
     if (!this.baseURL)
       throw new IntegrationError('EXPO_PUBLIC_API_URL 형식을 확인하세요.', 'CONFIGURATION_ERROR');
     const [method, template, , access] = catalog[id];
-    if ((access as string) === 'deferred') throw new Error('명세 변경 예정으로 보류한 API입니다.');
+    if ((access as string) === 'deferred')
+      throw new Error('현재 화면에서 사용하지 않는 API입니다.');
     if (access === 'member' && this.state.user?.status !== 'ACTIVE')
       throw new IntegrationError('회원 전용 기능입니다.', 'MEMBER_ONLY');
     if ((access === 'guest' || access === 'member') && !this.session)
@@ -373,7 +377,7 @@ export class IntegrationClient {
       };
       try {
         const response = this.mockResponder
-          ? this.mockResponder(id, options)
+          ? await this.mockResponder(id, options)
           : await this.http.request({
               method,
               url: endpoint,
