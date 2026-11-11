@@ -42,6 +42,7 @@ import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.bawibase.chorong.domain.user.service.UserWalletService
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -120,6 +121,7 @@ class HousingService(
         userId: Long,
         request: HousingAvatarPatchRequest,
     ): AvatarResponse {
+        users.findByIdForUpdate(userId) ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
         if (request.placementId != null && !coordinatePlacements.existsByIdAndUserId(request.placementId, userId)) {
             throw ApiV1Exception(ApiErrorCode.PLACEMENT_NOT_FOUND)
         }
@@ -158,6 +160,7 @@ class HousingService(
         userId: Long,
         request: HousingCoordinatePlacementBatchRequest,
     ): HousingCoordinatePlacementBatchResponse {
+        users.findByIdForUpdate(userId) ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
         val inventoryRefs =
             request.placements.map { placement ->
                 val rawId = placement.inventoryId.removePrefix(STORE_INVENTORY_PREFIX)
@@ -183,7 +186,6 @@ class HousingService(
                 if (furniture && placement.area != HousingPlacementArea.INTERIOR) {
                     throw ApiV1Exception(ApiErrorCode.PLACEMENT_AREA_MISMATCH)
                 }
-                if (placement.transform.rotation !in setOf(0, 90, 180, 270)) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
                 HousingCoordinatePlacementEntity(
                     userId = userId,
                     ownedItemId = owned?.id,
@@ -191,12 +193,53 @@ class HousingService(
                     area = placement.area,
                     x = placement.transform.x,
                     y = placement.transform.y,
-                    rotation = placement.transform.rotation,
+                    flippedX = placement.transform.flippedX,
                     layer = placement.transform.layer,
                 )
             }
-        coordinatePlacements.deleteAllByUserId(userId)
-        val saved = coordinatePlacements.saveAll(validated)
+        val existing = coordinatePlacements.findAllByUserIdOrderByLayerAscIdAsc(userId)
+        val byInventory =
+            existing.associateBy {
+                InventoryReference(
+                    it.storeInventoryId ?: checkNotNull(it.ownedItemId),
+                    it.storeInventoryId != null,
+                )
+            }
+        val requested = references.toSet()
+        val removed =
+            existing.filter {
+                InventoryReference(it.storeInventoryId ?: checkNotNull(it.ownedItemId), it.storeInventoryId != null) !in
+                    requested
+            }
+        avatarStates.findById(userId).orElse(null)?.let { avatar ->
+            if (removed.any { it.id == avatar.placementId }) avatar.placementId = null
+        }
+        coordinatePlacements.deleteAll(removed)
+        coordinatePlacements.flush()
+        val merged =
+            validated.zip(references).map { (candidate, ref) ->
+                byInventory[ref]?.apply {
+                    area = candidate.area
+                    x = candidate.x
+                    y = candidate.y
+                    flippedX = candidate.flippedX
+                    layer = candidate.layer
+                } ?: candidate
+            }
+        val saved =
+            try {
+                coordinatePlacements.saveAllAndFlush(merged)
+            } catch (error: DataIntegrityViolationException) {
+                val constraint =
+                    generateSequence(error as Throwable?) { it.cause }
+                        .filterIsInstance<org.hibernate.exception.ConstraintViolationException>()
+                        .firstOrNull()
+                        ?.constraintName
+                if (constraint in setOf("uq_housing_coordinate_placement_item", "uq_housing_coordinate_placement_store_inventory")) {
+                    throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED)
+                }
+                throw error
+            }
         return HousingCoordinatePlacementBatchResponse(saved.mapNotNull { it.toResponse(ownedById, storeOwnedById) })
     }
 
@@ -217,10 +260,10 @@ class HousingService(
             placementId = checkNotNull(id),
             inventoryId = storeInventoryId?.let { "$STORE_INVENTORY_PREFIX$it" } ?: ownedItemId.toString(),
             area = area,
-            transform = HousingPlacementTransformResponse(x, y, rotation, layer),
+            transform = HousingPlacementTransformResponse(x, y, flippedX, layer),
             itemId = itemId,
-            optionId = storeInventory?.optionId ?: NO_HOUSING_OPTION_ID,
-            option = storeInventory?.option ?: emptyMap(),
+            optionId = storeInventory?.optionId,
+            option = storeInventory?.option,
         )
     }
 
@@ -470,7 +513,11 @@ class HousingService(
                 catalog.furniture.filter { it.isDefault }.forEach { add(HousingItemType.FURNITURE to checkNotNull(it.id)) }
                 catalog.rooms.filter { it.isDefault }.forEach { add(HousingItemType.ROOM to checkNotNull(it.id)) }
             }
-        ownedItems.saveAll(rows.map { (type, id) -> HousingOwnedItemEntity(userId = userId, itemType = type, itemId = id) })
+        ownedItems.saveAll(
+            rows.map { (type, id) ->
+                HousingOwnedItemEntity(userId = userId, itemType = type, itemId = id, acquiredVia = "STARTER")
+            },
+        )
     }
 
     fun ownedSet(userId: Long): Set<Pair<HousingItemType, Long>> =
@@ -500,5 +547,3 @@ class HousingService(
         const val STORE_INVENTORY_PREFIX = "store:"
     }
 }
-
-private const val NO_HOUSING_OPTION_ID = 0L

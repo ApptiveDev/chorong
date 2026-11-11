@@ -36,12 +36,14 @@ class QuizItemEntity(
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     var answer: Map<String, Any?>?,
-    @Column(nullable = false, columnDefinition = "text")
-    var explanation: String,
+    @Column(columnDefinition = "text")
+    var explanation: String?,
     @Column(nullable = false, length = 30)
     var difficulty: String,
     @Column(name = "quiz_order", nullable = false)
     var quizOrder: Int,
+    @Column(columnDefinition = "text")
+    var source: String? = null,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -2,47 +2,32 @@ package com.bawibase.chorong.domain.quiz.model
 
 import java.math.BigDecimal
 
+/** DB에 저장하는 정답. 조회 응답에는 MULTI 정답만 config로 공개한다. */
 sealed interface QuizAnswer
 
-sealed interface SliderAnswer : QuizAnswer
-
-data class ExactSliderAnswer(
-    val value: BigDecimal,
-) : SliderAnswer
-
-data class RangeSliderAnswer(
-    val min: BigDecimal,
-    val max: BigDecimal,
-) : SliderAnswer
-
-data class SwipeAnswer(
-    val correctValue: String,
+data class OxAnswer(
+    val answer: Boolean,
 ) : QuizAnswer
 
-data class TapAnswer(
-    val correctItemIds: List<String>,
+data class SingleAnswer(
+    val answer: Int,
 ) : QuizAnswer
 
-data class MultipleChoiceAnswer(
-    val correctOptionIds: List<String>,
+data class MultiAnswer(
+    val answers: List<Int>,
 ) : QuizAnswer
 
-data class DragDropAnswer(
-    val placements: Map<String, String>,
+data class BlankAnswer(
+    val answer: Int,
 ) : QuizAnswer
 
-data class SortAnswer(
-    val correctOrder: List<String>,
+/** answer는 트랙 위치(0~1), tolerance는 정답으로 인정하는 위치 차이. */
+data class SliderAnswer(
+    val answer: BigDecimal,
+    val tolerance: BigDecimal,
 ) : QuizAnswer
 
-data class MatchingAnswer(
-    val matches: Map<String, String>,
-) : QuizAnswer
-
-data class FlipCardAnswer(
-    val pairs: List<QuizCardPair>,
-) : QuizAnswer
-
-data class FillBlankAnswer(
-    val texts: List<String>,
+/** 인정하는 정답 목록. 공백을 빼고 비교한다. */
+data class ChosungAnswer(
+    val answer: List<String>,
 ) : QuizAnswer

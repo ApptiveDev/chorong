@@ -20,12 +20,18 @@ data class ReviewAnswerResponse(
     val attemptId: Long,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val isCorrect: Boolean,
-    val explanation: String,
+    val completed: Boolean,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val explanation: String?,
     val streakDays: Int,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val excludedUntil: Instant?,
-    @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    val correctAnswer: JsonNode,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val correctAnswer: JsonNode?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val closeness: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val source: String? = null,
 )
 
 @Service
@@ -109,10 +115,13 @@ class ReviewAnswerService(
             ReviewAnswerResponse(
                 result.attemptId,
                 checkNotNull(result.correct),
+                result.completed,
                 result.explanation,
                 streakDays,
                 excludedUntil,
-                checkNotNull(result.correctAnswer),
+                result.correctAnswer,
+                result.closeness,
+                result.source,
             )
         saveAnswer(reviewItemId, response)
         return response
@@ -123,7 +132,8 @@ class ReviewAnswerService(
         reviewItemId: Long,
         item: ReviewItemRow,
     ): ReviewAnswerResponse {
-        item.answerResult?.let { return mapper.readValue(it, ReviewAnswerResponse::class.java) }
+        val saved = item.answerResult?.let(mapper::readTree)
+        if (saved?.has("completed") == true) return mapper.treeToValue(saved, ReviewAnswerResponse::class.java)
         val result = quizzes.getPublicAttempt(userId, item.quizId, checkNotNull(item.attemptId))
         val excludedUntil =
             if (result.correct == true) {
@@ -135,15 +145,21 @@ class ReviewAnswerService(
             } else {
                 null
             }
-        val streakDays = jdbc.queryForObject("SELECT streak_days FROM app_user WHERE user_id=?", Int::class.java, userId) ?: 0
+        val streakDays =
+            saved?.get("streakDays")?.asInt()
+                ?: jdbc.queryForObject("SELECT streak_days FROM app_user WHERE user_id=?", Int::class.java, userId)
+                ?: 0
         val response =
             ReviewAnswerResponse(
                 result.attemptId,
                 checkNotNull(result.correct),
+                result.completed,
                 result.explanation,
                 streakDays,
                 excludedUntil,
-                checkNotNull(result.correctAnswer),
+                result.correctAnswer,
+                result.closeness,
+                result.source,
             )
         saveAnswer(reviewItemId, response)
         return response

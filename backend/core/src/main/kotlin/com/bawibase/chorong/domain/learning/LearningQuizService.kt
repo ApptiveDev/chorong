@@ -18,9 +18,16 @@ data class AnswerResult(
     val attemptId: Long,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
     val isCorrect: Boolean,
-    val correctAnswer: JsonNode,
-    val explanation: String,
+    val completed: Boolean,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val correctAnswer: JsonNode?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val explanation: String?,
     val streakDays: Int,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val closeness: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val source: String? = null,
 )
 
 @Service
@@ -88,7 +95,8 @@ class LearningQuizService(
             userId,
             lesson.lessonId,
         )
-        if (result.completed) {
+        // 해설 없는 문항은 레슨 도입 질문이라 점수와 복습에 넣지 않는다.
+        if (result.completed && result.explanation != null) {
             val now = Timestamp.from(clock.instant())
             val studyDate = LocalDate.ofInstant(now.toInstant(), kst)
             updateReviewPool(userId, quizId, result, studyDate, now)
@@ -137,7 +145,7 @@ class LearningQuizService(
     }
 
     private fun QuizAttemptResponse.toAnswerResult(streakDays: Int) =
-        AnswerResult(attemptId, checkNotNull(correct), checkNotNull(correctAnswer), explanation, streakDays)
+        AnswerResult(attemptId, checkNotNull(correct), completed, correctAnswer, explanation, streakDays, closeness, source)
 
     private data class LinkedLesson(
         val lessonId: Long,

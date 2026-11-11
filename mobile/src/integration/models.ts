@@ -63,6 +63,7 @@ const courseFields = {
   courseId: num,
   title: str,
   category: str,
+  topic: str,
   totalLessons: num,
   completedLessons: num,
   constellation: nullable(object({ constellationId: num, name: str })),

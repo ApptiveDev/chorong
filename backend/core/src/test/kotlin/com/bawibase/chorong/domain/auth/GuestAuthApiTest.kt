@@ -143,7 +143,15 @@ class GuestAuthApiTest {
             WHERE l.user_id=?
             """.trimIndent()
         assertEquals(2L, jdbc.queryForObject(skinsSql, Long::class.java, id))
-        assertEquals(5L, jdbc.queryForObject("SELECT count(*) FROM chorong_dev.housing_owned_item WHERE user_id=?", Long::class.java, id))
+        assertEquals(8L, jdbc.queryForObject("SELECT count(*) FROM chorong_dev.housing_owned_item WHERE user_id=?", Long::class.java, id))
+        assertEquals(
+            3L,
+            jdbc.queryForObject(
+                "SELECT count(*) FROM chorong_dev.housing_owned_item WHERE user_id=? AND acquired_via='STARTER' AND item_type='FURNITURE'",
+                Long::class.java,
+                id,
+            ),
+        )
         assertEquals(0L, jdbc.queryForObject("SELECT coin FROM chorong_dev.user_wallet WHERE user_id=?", Long::class.java, id))
         assertEquals(
             uuid,

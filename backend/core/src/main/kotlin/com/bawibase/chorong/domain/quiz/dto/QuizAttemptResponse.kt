@@ -9,13 +9,21 @@ data class QuizAttemptResponse(
     val attemptId: Long,
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val graded: Boolean,
-    @param:Schema(description = "정답 여부. FLIP_CARD는 제출한 짝이 모두 맞는지 나타낸다.", nullable = true)
+    @param:Schema(description = "정답 여부", nullable = true)
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val correct: Boolean? = null,
-    @param:Schema(description = "유효한 답안 제출은 true. FLIP_CARD는 모든 카드의 짝을 맞춰야 true다.")
+    @param:Schema(description = "유효한 답안 제출은 true")
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val completed: Boolean,
-    val explanation: String,
+    @param:Schema(description = "해설. 해설이 없는 문항은 점수에 넣지 않으며 이 필드를 생략한다.")
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val explanation: String?,
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val correctAnswer: JsonNode? = null,
+    @param:Schema(description = "SLIDER만. 정답 위치에 얼마나 가까운지(0~100).")
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val closeness: Int? = null,
+    @param:Schema(description = "해설의 출처. 없으면 생략한다.")
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val source: String? = null,
 )

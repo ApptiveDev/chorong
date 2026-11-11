@@ -1,6 +1,7 @@
 package com.bawibase.chorong.domain.housing.dto
 
 import com.bawibase.chorong.domain.housing.entity.HousingProfileEntity
+import com.fasterxml.jackson.annotation.JsonAnySetter
 import com.fasterxml.jackson.annotation.JsonInclude
 import jakarta.validation.Valid
 import jakarta.validation.constraints.DecimalMax
@@ -61,9 +62,15 @@ data class HousingCoordinatePlacementRequest(
 data class HousingPlacementTransformRequest(
     @field:DecimalMin("0.0") @field:DecimalMax("1.0") val x: Double,
     @field:DecimalMin("0.0") @field:DecimalMax("1.0") val y: Double,
-    @field:Min(0) @field:Max(270) val rotation: Int = 0,
-    @field:Min(0) val layer: Int = 0,
-)
+    val flippedX: Boolean = false,
+    @field:Min(0) @field:Max(9) val layer: Int = 0,
+) {
+    @JsonAnySetter
+    fun rejectUnknown(
+        name: String,
+        value: Any?,
+    ): Unit = throw IllegalArgumentException("Unknown transform field: $name")
+}
 
 data class HousingCoordinatePlacementBatchRequest(
     @field:Size(max = 200) @field:Valid val placements: List<HousingCoordinatePlacementRequest>,
@@ -75,14 +82,14 @@ data class HousingCoordinatePlacementResponse(
     val area: com.bawibase.chorong.domain.housing.HousingPlacementArea,
     val transform: HousingPlacementTransformResponse,
     val itemId: Long,
-    val optionId: Long,
-    val option: Map<String, Any?>,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val optionId: Long?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val option: Map<String, Any?>?,
 )
 
 data class HousingPlacementTransformResponse(
     val x: Double,
     val y: Double,
-    val rotation: Int,
+    val flippedX: Boolean,
     val layer: Int,
 )
 

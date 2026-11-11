@@ -58,9 +58,9 @@ export function createIntegrationApi(client: IntegrationClient) {
       client.request('API-302', null, { path: { deviceUuid: await client.deviceUuid() } }),
   };
   const learning = {
-    courses: (category?: string) =>
+    courses: (category?: string, topic?: string) =>
       client.request('API-401', object({ courses: array(m.courseSummary) }), {
-        query: category ? { category } : undefined,
+        query: category || topic ? { category, topic } : undefined,
       }),
     course: (courseId: number) => client.request('API-402', m.courseDetail, { path: { courseId } }),
     lesson: (lessonId: number) => client.request('API-403', m.lessonDetail, { path: { lessonId } }),

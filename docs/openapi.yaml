@@ -1,0 +1,2284 @@
+openapi: 3.1.0
+info:
+  title: 초롱 서비스 API
+  version: 0.3.1
+  description: |
+    10/30 개발 명세서 L2와 레슨 와이어프레임을 반영한 다음 버전의 API 계약입니다.
+    기존 L3의 세부 규칙은 L2·와이어프레임과 충돌하지 않는 범위에서 유지합니다.
+    - `operationId`는 기존 API 번호(API-101 …)를 유지합니다.
+    - 인증: `Authorization: Bearer <accessToken>`. 게스트도 같은 헤더를 씁니다.
+      보안 요구사항 `guest`는 게스트 이상, `member`는 회원(role=MEMBER)만 허용(게스트는 ERR-41).
+    - 시간은 ISO 8601 UTC. 목록은 `cursor`/`size` 커서 페이지네이션(`meta.nextCursor`).
+    - 상태를 바꾸는 POST 일부는 `Idempotency-Key` 헤더를 받으며 24시간 내 같은 키는 같은 응답을 돌려줍니다.
+    - 에러 응답 본문은 `{ "error": { "code": "...", "message": "..." } }` 이고, 코드 목록은 L3의 ERR 표를 따릅니다.
+    - 신규 사용자는 무료 가구 3개를 받습니다. 동일 옵션의 아이템을 여러 개 보유할 수 있습니다.
+servers:
+  - url: https://api-chorong.bawibase.com/api/v1
+    description: production
+  - url: https://api-chorong-dev.bawibase.com/api/v1
+    description: development
+
+tags:
+  - name: auth
+    description: F-01 인증 (API-1xx)
+  - name: users
+    description: F-02 회원 정보 (API-2xx)
+  - name: push
+    description: F-03 알림 (API-3xx). 2일 이상 연속 학습 후 전날 학습하지 않은 사용자에게 10:00·18:00 KST에 발송합니다.
+  - name: learning
+    description: F-04 퀴즈와 학습 (API-4xx)
+  - name: review
+    description: F-05 복습하기 (API-5xx)
+  - name: onboarding
+    description: F-06 온보딩 (API-6xx)
+  - name: housing
+    description: F-07 하우징 · F-08 아바타 (API-7xx)
+  - name: community
+    description: F-09 커뮤니티 (API-8xx)
+  - name: shop
+    description: F-10 상점 · F-11 보상 · F-12 재화 · F-13 별자리 · F-14 인벤토리 (API-9xx)
+
+security:
+  - guest: []
+
+paths:
+  # ---------------------------------------------------------------- API-1xx 인증
+  /auth/guest:
+    post:
+      tags: [auth]
+      operationId: API-101
+      summary: 게스트 계정 생성 또는 디바이스 자동 로그인
+      description: |
+        F-01-01, F-02-05, F-07-01. 같은 `deviceUuid`가 이미 있으면 기존 게스트 계정을 돌려주고,
+        없으면 users · user_auth · auth_guest · 하우징 · 아바타 · 지갑을 함께 생성합니다.
+        신규 사용자에게 기본 가구 3개를 인벤토리로 지급합니다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceUuid, platform]
+              properties:
+                deviceUuid: { type: string, format: uuid }
+                platform: { $ref: '#/components/schemas/Platform' }
+      responses:
+        '200':
+          description: 토큰 쌍과 유저
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth/email/signup:
+    post:
+      tags: [auth]
+      operationId: API-102
+      summary: 이메일 회원가입 – 인증코드 발송
+      description: F-01-02. 6자리 코드, 10분 유효, 재발송 60초 제한(ERR-08). 이미 가입된 이메일은 ERR-10.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 64
+                  description: 영문·숫자 포함
+      responses:
+        '200':
+          description: 인증 세션
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      verificationId: { type: string }
+                      expiresAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: ERR-10 EMAIL_ALREADY_REGISTERED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/email/verify:
+    post:
+      tags: [auth]
+      operationId: API-103
+      summary: 이메일 인증코드 확인 (가입 완료)
+      description: |
+        F-01-02, F-02-03. 게스트 토큰으로 호출하면 현재 게스트 계정에 이메일 수단을 붙이고
+        status를 ACTIVE로 바꿉니다(가입하고 내 정보 저장하기). 해당 이메일이 이미 다른 회원 계정에
+        있으면 ERR-14. 코드 불일치·만료는 ERR-15.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationId, code]
+              properties:
+                verificationId: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: 토큰 쌍과 유저
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400':
+          description: ERR-15 VERIFICATION_INVALID / ERR-05
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '409':
+          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/email/login:
+    post:
+      tags: [auth]
+      operationId: API-104
+      summary: 이메일 로그인
+      description: F-01-03. 연속 5회 실패 시 15분 잠금(ERR-12, `retryAfter`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, deviceUuid]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                deviceUuid: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 토큰 쌍과 유저
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '423':
+          description: ERR-12 ACCOUNT_LOCKED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/oauth/{provider}:
+    post:
+      tags: [auth]
+      operationId: API-105
+      summary: OAuth 가입/로그인 (구글·카카오·애플)
+      description: |
+        F-01-04, F-02-03. `(provider, providerUid)` 일치 계정이 있으면 로그인, 없으면 신규 가입.
+        게스트 토큰으로 호출하면 전환 가입(이미 다른 회원 계정에 있는 수단이면 ERR-14).
+      security:
+        - {}
+        - guest: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceUuid]
+              properties:
+                idToken:
+                  type: string
+                  description: google · apple ID 토큰
+                accessToken:
+                  type: string
+                  description: kakao access token
+                authorizationCode:
+                  type: string
+                  description: apple authorization code
+                deviceUuid: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 토큰 쌍과 유저
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/token/refresh:
+    post:
+      tags: [auth]
+      operationId: API-106
+      summary: 토큰 갱신 (refresh 회전)
+      description: F-01-05. 이미 revoke된 refresh 재사용은 ERR-04이며 해당 유저의 모든 토큰이 revoke됩니다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken, deviceUuid]
+              properties:
+                refreshToken: { type: string }
+                deviceUuid: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 새 토큰 쌍
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/TokenPair' }
+        '401':
+          description: ERR-01 / ERR-04 AUTH_TOKEN_REUSED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: API-107
+      summary: 로그아웃
+      description: F-01-06. 현재 디바이스의 refresh 토큰 revoke, `all=true`면 전체 디바이스. Push 토큰도 삭제.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                all: { type: boolean, default: false }
+      responses:
+        '204': { description: 완료 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/link/{provider}:
+    post:
+      tags: [auth]
+      operationId: API-108
+      summary: 로그인 수단 연동
+      description: |
+        F-01-07. 해당 수단이 다른 계정에 이미 연결되어 있으면 존재 여부만 알리고 중단(ERR-11, 상대 계정 정보 없음).
+        요청 본문은 provider별 자격 증명(API-102~105와 동일). `email` provider는 인증코드 확인까지 끝낸 `verificationId`를 보냅니다.
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/LinkProvider'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                idToken: { type: string }
+                accessToken: { type: string }
+                authorizationCode: { type: string }
+                verificationId: { type: string }
+      responses:
+        '200':
+          description: 연동된 수단 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      providers:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuthProvider' }
+        '403': { $ref: '#/components/responses/MemberOnly' }
+        '409':
+          description: ERR-11 PROVIDER_ALREADY_LINKED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [auth]
+      operationId: API-109
+      summary: 로그인 수단 연동 해제
+      description: F-01-08. 마지막 수단은 해제 불가(ERR-13).
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/LinkProvider'
+      responses:
+        '200':
+          description: 남은 수단 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      providers:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuthProvider' }
+        '400':
+          description: ERR-13 LAST_AUTH_METHOD
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '403': { $ref: '#/components/responses/MemberOnly' }
+
+  # ---------------------------------------------------------------- API-2xx 회원
+  /users/me:
+    get:
+      tags: [users]
+      operationId: API-201
+      summary: 내 정보 조회
+      description: F-02-01, F-06-01, F-03-04.
+      responses:
+        '200':
+          description: 내 정보
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [users]
+      operationId: API-202
+      summary: 내 정보 수정 (닉네임, 학습 알림 on/off)
+      description: F-02-02, F-03-03, F-15-05.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nickname: { type: string, minLength: 2, maxLength: 12 }
+                pushEnabled: { type: boolean }
+      responses:
+        '200':
+          description: 갱신된 내 정보
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [auth]
+      operationId: API-110
+      summary: 회원 탈퇴
+      description: |
+        F-01-09. 즉시 status=WITHDRAWN, 토큰·로그인 수단·Push 토큰 삭제, 하우징 비공개.
+        개인정보(email, nickname)와 나머지 데이터는 90일 후 배치 삭제.
+      security:
+        - member: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 255 }
+      responses:
+        '204': { description: 탈퇴 완료 }
+        '403': { $ref: '#/components/responses/MemberOnly' }
+
+  # ---------------------------------------------------------------- API-3xx 알림
+  /push/devices:
+    put:
+      tags: [push]
+      operationId: API-301
+      summary: Push 디바이스 토큰 등록/갱신
+      description: F-03-01. `(deviceUuid)` 기준 upsert.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceUuid, platform, pushToken]
+              properties:
+                deviceUuid: { type: string, format: uuid }
+                platform: { $ref: '#/components/schemas/Platform' }
+                pushToken: { type: string }
+      responses:
+        '204': { description: 등록됨 }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+  /push/devices/{deviceUuid}:
+    delete:
+      tags: [push]
+      operationId: API-302
+      summary: Push 디바이스 토큰 삭제
+      description: F-03-02.
+      parameters:
+        - name: deviceUuid
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 삭제됨 }
+
+  # ---------------------------------------------------------------- API-4xx 학습
+  /courses:
+    get:
+      tags: [learning]
+      operationId: API-401
+      summary: 코스 목록 (분야·주제별)
+      description: F-04-02. ONBOARDING 코스는 제외합니다.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema: { type: string }
+        - name: topic
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: 코스 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      courses:
+                        type: array
+                        items: { $ref: '#/components/schemas/CourseSummary' }
+
+  /courses/{courseId}:
+    get:
+      tags: [learning]
+      operationId: API-402
+      summary: 코스 상세 (레슨 목록 · 일일 해금 판정)
+      description: |
+        F-04-03, F-04-08. 호출 시 그 코스에 오늘(KST) 해금된 레슨이 없고 다음 미해금 레슨이 있으면
+        레슨 하나를 UNLOCKED로 만듭니다(접속한 날마다 코스당 1개).
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: 코스 상세
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/CourseDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /lessons/{lessonId}:
+    get:
+      tags: [learning]
+      operationId: API-403
+      summary: 레슨 상세 (컨텐츠 목록)
+      description: F-04-01. 대화·그림·영상·퀴즈를 순서대로 돌려줍니다. 퀴즈 정답·해설은 제외합니다.
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      responses:
+        '200':
+          description: 레슨 상세
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LessonDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /lessons/{lessonId}/start:
+    post:
+      tags: [learning]
+      operationId: API-404
+      summary: 레슨 시작 / 이어하기 / 다시 하기
+      description: |
+        F-04-04, F-04-07, F-04-10, F-05-05.
+        1) 해금 검사(미해금 ERR-20, `unlocksAt` 포함) → 2) 복습 세트가 만들어지면 `reviewRequired=true`로
+        먼저 돌려주고 레슨 진입은 복습 완료 후 → 3) UNLOCKED이면 IN_PROGRESS로.
+        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 이미 받은 보상은 다시 주지 않음).
+        에너지: 레슨을 시작할 때 에너지 1개를 씁니다. 같은 레슨을 이어서 시작하면 다시 쓰지 않습니다.
+        에너지가 0이어도 학습은 진행하지만 완료 시 별가루를 주지 않습니다.
+        다시 하기는 별가루를 아직 받지 않은 레슨일 때만 에너지를 쓰고, 완료하면 그때 별가루를 줍니다.
+        온보딩 레슨은 에너지를 쓰지 않습니다.
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                replay: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 레슨 시작 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LessonStartResponse' }
+        '403':
+          description: ERR-20 LESSON_LOCKED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /contents/{contentId}/complete:
+    post:
+      tags: [learning]
+      operationId: API-405
+      summary: 컨텐츠 완료 보고 (이어하기 위치 갱신)
+      description: |
+        F-04-05, F-04-09. 마지막 컨텐츠면 레슨 완료 처리와 보상 지급까지 수행하고
+        `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다. 복습 미완료 상태면 ERR-21.
+      parameters:
+        - name: contentId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 진행 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      progress: { $ref: '#/components/schemas/LessonProgress' }
+                      lessonCompleted: { type: boolean }
+                      completion:
+                        $ref: '#/components/schemas/LessonCompleteResponse'
+        '409':
+          description: ERR-21 REVIEW_REQUIRED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /quizzes/{quizId}/answer:
+    post:
+      tags: [learning]
+      operationId: API-406
+      summary: 퀴즈 답안 제출·채점
+      description: |
+        F-04-06, F-05-02, F-06-03, F-03-04. 채점 후 정답·해설·화면 피드백을 돌려주고 답안을 기록합니다.
+        레슨 학습(`replay=false`)이면 복습 풀(WRONG/CORRECT)을 갱신하고, 학습일·연속일을 갱신합니다.
+        `QuizAnswer` 형식은 퀴즈의 `interactionType`과 일치해야 합니다.
+        해설이 없는 문항은 레슨 도입 질문이며 복습 풀과 레슨 결과의 정답 수에 넣지 않습니다.
+      parameters:
+        - name: quizId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer: { $ref: '#/components/schemas/QuizAnswer' }
+                replay: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 채점 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/AnswerResult' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+  /lessons/{lessonId}/complete:
+    post:
+      tags: [learning]
+      operationId: API-407
+      summary: 레슨 완료 (보상 지급)
+      description: |
+        F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03. 최초 완료 1회만 보상.
+        레슨 별가루는 시작할 때 에너지를 쓴 경우에만 줍니다. 별 뱃지·그림·코스 보상은 에너지와 무관합니다.
+        코스의 모든 레슨이 완료되면 코스 보상과 별자리 뱃지도 함께 지급.
+        와이어프레임의 결과 화면에 필요한 정답 수·문항 수와 획득한 별 뱃지를 함께 돌려줍니다.
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 지급된 보상
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LessonCompleteResponse' }
+        '409':
+          description: ERR-07 (마지막 컨텐츠 미완료) / ERR-21
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /users/me/progress:
+    get:
+      tags: [learning]
+      operationId: API-408
+      summary: 전체 진행 상황
+      description: F-04-08.
+      responses:
+        '200':
+          description: 진행 상황
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      courses:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            courseId: { type: integer, format: int64 }
+                            completedLessons: { type: integer }
+                            totalLessons: { type: integer }
+                      current:
+                        type: object
+                        nullable: true
+                        properties:
+                          lessonId: { type: integer, format: int64 }
+                          courseId: { type: integer, format: int64 }
+                          status: { $ref: '#/components/schemas/LessonStatus' }
+
+  # ---------------------------------------------------------------- API-5xx 복습
+  /reviews/next:
+    get:
+      tags: [review]
+      operationId: API-501
+      summary: 복습 세트 조회 (5문항, 틀린 문제 80% · 맞춘 문제 20%)
+      description: |
+        F-05-01. 후보가 5개 미만이면 `reviewItems=[]`와 `message`("더 이상 복습할 문제가 없어요")를 돌려줍니다.
+        복습에서 오늘 맞춘 문제는 제외됩니다.
+      parameters:
+        - name: lessonId
+          in: query
+          required: false
+          description: 레슨 시작 전 복습이면 지정, 단독 복습은 생략
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 복습 세트
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ReviewSet' }
+
+  /reviews/{reviewItemId}/answer:
+    post:
+      tags: [review]
+      operationId: API-502
+      summary: 복습 답안 제출
+      description: |
+        F-05-03, F-05-06. 정답이면 다음 날 00:00 KST까지 재출제 제외(`excludedUntil`),
+        오답이면 WRONG 풀로 이동하고 바로 재출제 가능.
+      parameters:
+        - name: reviewItemId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer: { $ref: '#/components/schemas/QuizAnswer' }
+      responses:
+        '200':
+          description: 채점 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/AnswerResult'
+                      - type: object
+                        properties:
+                          excludedUntil:
+                            type: string
+                            format: date-time
+                            nullable: true
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reviews/complete:
+    post:
+      tags: [review]
+      operationId: API-503
+      summary: 복습 세션 완료 (보상)
+      description: F-05-04, F-11-02. 5문항이 모두 오늘 제출된 것인지 확인 후 보상(하루 3세션까지).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewItemIds]
+              properties:
+                reviewItemIds:
+                  type: array
+                  minItems: 5
+                  maxItems: 5
+                  items: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 보상 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/RewardResponse' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+  # ---------------------------------------------------------------- API-6xx 온보딩
+  /onboarding:
+    get:
+      tags: [onboarding]
+      operationId: API-601
+      summary: 온보딩 퀴즈 조회
+      description: F-06-03. `category=ONBOARDING` 코스의 유일한 레슨과 퀴즈 컨텐츠.
+      responses:
+        '200':
+          description: 온보딩 레슨
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      lesson: { $ref: '#/components/schemas/LessonDetail' }
+
+  /onboarding/complete:
+    post:
+      tags: [onboarding]
+      operationId: API-602
+      summary: 온보딩 완료 또는 건너뛰기
+      description: |
+        F-06-04, F-06-05, F-11-06. `skipped=false`면 50 별가루 지급(1회), `skipped=true`면 보상 없이 완료 처리.
+        건너뛴 뒤 다시 진행할 수 없습니다.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [skipped]
+              properties:
+                skipped: { type: boolean }
+      responses:
+        '200':
+          description: 보상과 완료 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/RewardResponse'
+                      - type: object
+                        properties:
+                          onboardingCompleted: { type: boolean }
+
+  # ---------------------------------------------------------------- API-7xx 하우징·아바타
+  /housings/me:
+    get:
+      tags: [housing]
+      operationId: API-701
+      summary: 내 우주 조회 (홈)
+      description: F-07-02, F-08-02, F-09-05.
+      responses:
+        '200':
+          description: 내 하우징
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/HousingDetail' }
+    patch:
+      tags: [housing]
+      operationId: API-703
+      summary: 하우징 이름 · 공개 여부 변경
+      description: F-07-07, F-09-02. 기본 공개 상태는 true입니다. `isPublic` 변경은 회원만(게스트 ERR-41).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 20 }
+                isPublic: { type: boolean }
+      responses:
+        '200':
+          description: 하우징
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Housing' }
+        '403': { $ref: '#/components/responses/MemberOnly' }
+
+  /housings/me/placements:
+    put:
+      tags: [housing]
+      operationId: API-702
+      summary: 배치 전체 저장 (꾸미기 모드 '저장하기')
+      description: |
+        F-07-04, F-07-05, F-14-04. 배치 전체를 교체합니다(최대 200개, 빈 배열 = 모두 회수).
+        보유한 개별 inventoryId 하나당 배치 하나만 허용합니다. 대칭 반전은 허용하고 회전은 허용하지 않습니다.
+        미보유·중복 배치 inventoryId는 ERR-30, 영역 불일치는 ERR-31.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [placements]
+              properties:
+                placements:
+                  type: array
+                  maxItems: 200
+                  items: { $ref: '#/components/schemas/PlacementInput' }
+      responses:
+        '200':
+          description: 저장된 배치
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      placements:
+                        type: array
+                        items: { $ref: '#/components/schemas/Placement' }
+        '400':
+          description: ERR-30 / ERR-31 / ERR-05
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /housings/me/avatar:
+    patch:
+      tags: [housing]
+      operationId: API-704
+      summary: 아바타 위치·상태 저장
+      description: F-08-03. `placementId`는 본인 배치여야 함(ERR-32).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                x: { type: number, minimum: 0, maximum: 1 }
+                y: { type: number, minimum: 0, maximum: 1 }
+                state: { $ref: '#/components/schemas/AvatarState' }
+                placementId:
+                  type: integer
+                  format: int64
+                  nullable: true
+      responses:
+        '200':
+          description: 아바타
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Avatar' }
+        '400':
+          description: ERR-32 PLACEMENT_NOT_FOUND
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  # ---------------------------------------------------------------- API-8xx 커뮤니티
+  /housings/explore:
+    get:
+      tags: [community]
+      operationId: API-801
+      summary: 공개 하우징 탐색 (우주 탐험)
+      description: |
+        F-09-01. 호출자 하우징이 비공개면 ERR-40. 본인·차단 관계·정지 중·탈퇴 유저는 제외.
+      security:
+        - member: []
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recent, popular]
+            default: recent
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 하우징 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      housings:
+                        type: array
+                        items: { $ref: '#/components/schemas/HousingCard' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '403':
+          description: ERR-40 HOUSING_PRIVATE_SELF / ERR-41
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /housings/{housingId}:
+    get:
+      tags: [community]
+      operationId: API-802
+      summary: 다른 유저 하우징 구경
+      description: F-09-03, F-08-02. 비공개·차단·정지·탈퇴 대상은 ERR-42(사유 비노출).
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/HousingId'
+      responses:
+        '200':
+          description: 하우징 상세
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/HousingDetail'
+                      - type: object
+                        properties:
+                          ownerNickname: { type: string }
+                          likedByMe: { type: boolean }
+        '403':
+          description: ERR-40 / ERR-41
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: ERR-42 HOUSING_NOT_VISIBLE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /housings/{housingId}/like:
+    post:
+      tags: [community]
+      operationId: API-803
+      summary: 좋아요
+      description: F-09-04. 멱등. 본인 하우징 ERR-43.
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/HousingId'
+      responses:
+        '200':
+          description: 좋아요 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LikeState' }
+        '400':
+          description: ERR-43 SELF_TARGET
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: ERR-42 HOUSING_NOT_VISIBLE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [community]
+      operationId: API-804
+      summary: 좋아요 취소
+      description: F-09-04. 멱등.
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/HousingId'
+      responses:
+        '200':
+          description: 좋아요 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LikeState' }
+
+  /reports:
+    post:
+      tags: [community]
+      operationId: API-805
+      summary: 신고
+      description: |
+        F-09-06. 24시간 내 서로 다른 3명 이상이 같은 하우징(유저)을 신고하면 해당 유저는 30일간
+        모든 유저에게서 숨겨집니다. 대상에게는 알리지 않습니다.
+      security:
+        - member: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [housingId, reason]
+              properties:
+                housingId: { type: integer, format: int64 }
+                reason: { $ref: '#/components/schemas/ReportReason' }
+                detail: { type: string, maxLength: 255 }
+      responses:
+        '200':
+          description: 신고 접수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reportId: { type: integer, format: int64 }
+        '400':
+          description: ERR-43 SELF_TARGET / ERR-05
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /blocks:
+    get:
+      tags: [community]
+      operationId: API-808
+      summary: 차단한 사용자 목록
+      description: F-09-07, F-15-05.
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 차단 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      users:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            userId: { type: integer, format: int64 }
+                            nickname: { type: string }
+                            blockedAt: { type: string, format: date-time }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+
+  /blocks/{userId}:
+    post:
+      tags: [community]
+      operationId: API-806
+      summary: 사용자 차단
+      description: F-09-07. 양방향으로 탐색·조회에서 제외. 본인 ERR-43.
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204': { description: 차단됨 }
+        '400':
+          description: ERR-43 SELF_TARGET
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [community]
+      operationId: API-807
+      summary: 차단 풀기
+      description: F-09-07.
+      security:
+        - member: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204': { description: 해제됨 }
+
+  # ---------------------------------------------------------------- API-9xx 상점·보상·재화·별자리·인벤토리
+  /shop/items:
+    get:
+      tags: [shop]
+      operationId: API-901
+      summary: 상점 목록
+      description: F-10-01. 해금 여부, 옵션별 보유 여부, 최저 가격 포함.
+      parameters:
+        - name: itemType
+          in: query
+          schema: { $ref: '#/components/schemas/ItemType' }
+      responses:
+        '200':
+          description: 아이템 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ShopItem' }
+
+  /shop/items/{itemId}:
+    get:
+      tags: [shop]
+      operationId: API-902
+      summary: 아이템 상세 (옵션·가격·미리보기 에셋)
+      description: F-10-02.
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 아이템 상세
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      item: { $ref: '#/components/schemas/ShopItem' }
+                      options:
+                        type: array
+                        items: { $ref: '#/components/schemas/ShopOption' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /shop/purchases:
+    post:
+      tags: [shop]
+      operationId: API-903
+      summary: 구매 (여러 옵션 일괄, 전부 성공 또는 전부 실패)
+      description: |
+        F-10-04, F-15-04. 미리 배치한 아이템을 일괄 구매할 수 있습니다.
+        같은 색상·모양 옵션의 아이템도 여러 개 구매할 수 있습니다.
+        항목별 검증 순서: 해금(ERR-50) → 옵션 유효·판매 중(ERR-52) → 별가루 합계 잔액(ERR-51).
+        하나라도 실패하면 전체 거부하고 `error.items[]`에 항목별 사유를 돌려줍니다.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [itemId, optionId, quantity]
+                    properties:
+                      itemId: { type: integer }
+                      optionId: { type: integer, format: int64 }
+                      quantity: { type: integer, minimum: 1, maximum: 50 }
+      responses:
+        '200':
+          description: 구매 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      inventoryItems:
+                        type: array
+                        items: { $ref: '#/components/schemas/InventoryItem' }
+                      wallet: { $ref: '#/components/schemas/Wallet' }
+        '400':
+          description: ERR-52 OPTION_INVALID / ERR-05
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseErrorResponse' }
+        '402':
+          description: ERR-51 INSUFFICIENT_BALANCE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseErrorResponse' }
+        '403':
+          description: ERR-50 ITEM_LOCKED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseErrorResponse' }
+  /users/me/wallet:
+    get:
+      tags: [shop]
+      operationId: API-904
+      summary: 재화 잔액
+      description: F-12-02. 별가루와 에너지.
+      responses:
+        '200':
+          description: 잔액
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Wallet' }
+
+  /users/me/rewards:
+    get:
+      tags: [shop]
+      operationId: API-905
+      summary: 보상 지급 내역
+      description: F-11-05.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 보상 내역
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      rewards:
+                        type: array
+                        items: { $ref: '#/components/schemas/RewardRecord' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+
+  /constellations:
+    get:
+      tags: [shop]
+      operationId: API-906
+      summary: 별자리 목록과 획득 현황
+      description: F-13-04.
+      responses:
+        '200':
+          description: 별자리
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      constellations:
+                        type: array
+                        items: { $ref: '#/components/schemas/Constellation' }
+
+  /users/me/inventory:
+    get:
+      tags: [shop]
+      operationId: API-907
+      summary: 인벤토리 조회
+      description: F-14-01. 같은 아이템·옵션을 묶어 보유·배치·배치 가능 수와 개별 보유 ID를 돌려줍니다.
+      parameters:
+        - name: itemType
+          in: query
+          schema: { $ref: '#/components/schemas/ItemType' }
+      responses:
+        '200':
+          description: 보유 아이템
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/InventoryItem' }
+
+  /users/me/artworks:
+    get:
+      tags: [shop]
+      operationId: API-908
+      summary: 학습으로 획득한 그림과 완료일 조회
+      description: L2 학습 보상. 그림은 완료한 레슨별로 한 번 기록합니다.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 그림 기록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      artworks:
+                        type: array
+                        items: { $ref: '#/components/schemas/LearningArtwork' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+
+components:
+  securitySchemes:
+    guest:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 게스트 이상 (role=GUEST | MEMBER)
+    member:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 회원만 (role=MEMBER). 게스트는 ERR-41 MEMBER_ONLY
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 24시간 내 같은 키는 같은 응답
+      schema: { type: string, maxLength: 64 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    CourseId:
+      name: courseId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    LessonId:
+      name: lessonId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    HousingId:
+      name: housingId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    OAuthProvider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [google, kakao, apple]
+    LinkProvider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [email, google, kakao, apple]
+
+  responses:
+    Unauthorized:
+      description: ERR-01 UNAUTHORIZED / ERR-03 AUTH_TOKEN_EXPIRED
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    MemberOnly:
+      description: ERR-41 MEMBER_ONLY
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: ERR-06 NOT_FOUND
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ValidationFailed:
+      description: ERR-05 VALIDATION_FAILED
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: ERR-08 RATE_LIMITED
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    # ---- 공통
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: L3 ERR 표의 코드명
+              enum:
+                - UNAUTHORIZED
+                - FORBIDDEN
+                - AUTH_TOKEN_EXPIRED
+                - AUTH_TOKEN_REUSED
+                - VALIDATION_FAILED
+                - NOT_FOUND
+                - CONFLICT
+                - RATE_LIMITED
+                - INTERNAL
+                - EMAIL_ALREADY_REGISTERED
+                - PROVIDER_ALREADY_LINKED
+                - ACCOUNT_LOCKED
+                - LAST_AUTH_METHOD
+                - ACCOUNT_EXISTS_FOR_PROVIDER
+                - VERIFICATION_INVALID
+                - LESSON_LOCKED
+                - REVIEW_REQUIRED
+                - INVENTORY_ITEM_NOT_OWNED
+                - PLACEMENT_AREA_MISMATCH
+                - PLACEMENT_NOT_FOUND
+                - HOUSING_PRIVATE_SELF
+                - MEMBER_ONLY
+                - HOUSING_NOT_VISIBLE
+                - SELF_TARGET
+                - ITEM_LOCKED
+                - INSUFFICIENT_BALANCE
+                - OPTION_INVALID
+            message: { type: string }
+            fields:
+              type: array
+              description: VALIDATION_FAILED일 때 필드별 사유
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  reason: { type: string }
+            retryAfter:
+              type: integer
+              description: ACCOUNT_LOCKED · RATE_LIMITED 시 초 단위
+            unlocksAt:
+              type: string
+              format: date-time
+              nullable: true
+              description: LESSON_LOCKED 시 다음 해금 시각
+    PurchaseErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            error:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      itemId: { type: integer }
+                      optionId: { type: integer, format: int64 }
+                      code: { type: string }
+    PageMeta:
+      type: object
+      properties:
+        nextCursor:
+          type: string
+          nullable: true
+
+    # ---- 열거형 (L3 ENUM)
+    AuthProvider:
+      type: string
+      description: ENUM-01
+      enum: [EMAIL, GOOGLE, KAKAO, APPLE, GUEST]
+    UserStatus:
+      type: string
+      description: ENUM-02
+      enum: [GUEST, ACTIVE, WITHDRAWN]
+    Platform:
+      type: string
+      description: ENUM-03
+      enum: [IOS, ANDROID]
+    ContentType:
+      type: string
+      description: ENUM-04
+      enum: [TEXT, IMAGE, VIDEO, QUIZ]
+    QuizType:
+      type: string
+      description: 학습 콘텐츠 시뮬레이터의 퀴즈 유형. O/X, 하나 고르기, 여러 개 고르기, 빈칸, 슬라이더, 짝 맞추기, 초성.
+      enum: [OX, SINGLE, MULTI, BLANK, SLIDER, MATCH, CHOSUNG]
+    LessonStatus:
+      type: string
+      description: ENUM-06. LOCKED는 진행 행이 없는 레슨(응답 전용)
+      enum: [LOCKED, UNLOCKED, IN_PROGRESS, COMPLETED]
+    ItemType:
+      type: string
+      description: ENUM-07
+      enum: [FURNITURE, OBJECT]
+    HousingItemType:
+      type: string
+      description: ENUM-08
+      enum: [INTERIOR, EXTERIOR]
+    AvatarState:
+      type: string
+      description: ENUM-09 (DB는 0/1/2)
+      enum: [IDLE, SIT, SLEEP]
+    ReportReason:
+      type: string
+      description: ENUM-10
+      enum: [INAPPROPRIATE_NAME, ABUSE, SPAM, OTHER]
+    CurrencyType:
+      type: string
+      description: 구매·보상 재화
+      enum: [STARDUST]
+    RewardType:
+      type: string
+      description: ENUM-12
+      enum: [WALLET, UNLOCK, INVENTORY, CONSTELLATION, ARTWORK]
+    AcquiredVia:
+      type: string
+      description: ENUM-13
+      enum: [PURCHASE, REWARD, STARTER]
+    BadgeType:
+      type: string
+      description: ENUM-15
+      enum: [STAR, CONSTELLATION]
+
+    # ---- 인증·회원
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn:
+          type: integer
+          description: access 토큰 수명(초), 3600
+    UserBrief:
+      type: object
+      properties:
+        userId: { type: integer, format: int64 }
+        nickname: { type: string }
+        status: { $ref: '#/components/schemas/UserStatus' }
+    AuthResponse:
+      type: object
+      properties:
+        data:
+          allOf:
+            - $ref: '#/components/schemas/TokenPair'
+            - type: object
+              properties:
+                user: { $ref: '#/components/schemas/UserBrief' }
+                isNew:
+                  type: boolean
+                  description: 이 호출로 계정이 새로 만들어졌는지
+    Wallet:
+      type: object
+      properties:
+        stardust: { type: integer, format: int64 }
+        energy:
+          type: integer
+          minimum: 0
+          maximum: 5
+          description: 남은 에너지. 매일 00시(KST)에 5개로 채워지며 남은 개수는 이월하지 않습니다. 신규 사용자는 5개로 시작합니다.
+        energyResetsAt:
+          type: string
+          format: date-time
+          description: 다음 충전 시각(다음 00시 KST).
+    Me:
+      type: object
+      properties:
+        userId: { type: integer, format: int64 }
+        nickname: { type: string }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        providers:
+          type: array
+          items: { $ref: '#/components/schemas/AuthProvider' }
+        wallet: { $ref: '#/components/schemas/Wallet' }
+        progress:
+          type: object
+          properties:
+            completedLessons: { type: integer }
+            totalLessons: { type: integer }
+        housing:
+          type: object
+          properties:
+            isPublic: { type: boolean }
+            likeCount: { type: integer }
+        onboardingCompleted: { type: boolean }
+        pushEnabled: { type: boolean }
+        streakDays: { type: integer }
+        lastStudyDate:
+          type: string
+          format: date
+          nullable: true
+
+    # ---- 학습
+    CourseSummary:
+      type: object
+      properties:
+        courseId: { type: integer, format: int64 }
+        title: { type: string }
+        category: { type: string }
+        topic: { type: string }
+        totalLessons: { type: integer }
+        completedLessons: { type: integer }
+        constellation:
+          type: object
+          nullable: true
+          properties:
+            constellationId: { type: integer, format: int64 }
+            name: { type: string }
+    LessonSummary:
+      type: object
+      properties:
+        lessonId: { type: integer, format: int64 }
+        title: { type: string }
+        order: { type: integer }
+        status: { $ref: '#/components/schemas/LessonStatus' }
+        unlocksAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: LOCKED 레슨의 다음 해금 가능 시각(오늘 해금분이 남아 있으면 null)
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+    CourseDetail:
+      allOf:
+        - $ref: '#/components/schemas/CourseSummary'
+        - type: object
+          properties:
+            description: { type: string }
+            lessons:
+              type: array
+              items: { $ref: '#/components/schemas/LessonSummary' }
+    QuizPublic:
+      type: object
+      description: 해설을 제외한 퀴즈. config는 interactionType에 대응합니다. 정답은 MULTI의 정답 순번과 MATCH의 짝만 공개합니다.
+      required: [quizId, interactionType, question, config, quizOrder]
+      properties:
+        quizId: { type: integer, format: int64 }
+        lessonId: { type: integer, format: int64 }
+        interactionType: { $ref: '#/components/schemas/QuizType' }
+        question: { type: string }
+        instruction: { type: string }
+        config: { $ref: '#/components/schemas/QuizConfig' }
+        difficulty: { type: string, maxLength: 30 }
+        quizOrder: { type: integer, minimum: 1 }
+    QuizConfig:
+      oneOf:
+        - $ref: '#/components/schemas/OxConfig'
+        - $ref: '#/components/schemas/SingleConfig'
+        - $ref: '#/components/schemas/MultiConfig'
+        - $ref: '#/components/schemas/BlankConfig'
+        - $ref: '#/components/schemas/SliderConfig'
+        - $ref: '#/components/schemas/MatchConfig'
+        - $ref: '#/components/schemas/ChosungConfig'
+    OxConfig:
+      type: object
+      description: OX. 문장은 question에 있고 추가 구성은 없습니다.
+      additionalProperties: false
+    SingleConfig:
+      type: object
+      required: [options]
+      properties:
+        options:
+          type: array
+          description: 보기 문구. 답안은 0부터 시작하는 순번입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    MultiConfig:
+      type: object
+      required: [options, answers]
+      properties:
+        options:
+          type: array
+          description: 보기 문구. 답안은 0부터 시작하는 순번 목록입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+        answers:
+          type: array
+          description: |
+            정답 보기 순번 목록(오름차순). 앱은 보기를 고를 때마다 바로 판정합니다.
+            오답을 고른 순간 그때까지 고른 순번 전체를, 정답을 모두 고른 순간 정답 순번 전체를 한 번 제출합니다.
+          minItems: 1
+          uniqueItems: true
+          items: { type: integer, minimum: 0 }
+      additionalProperties: false
+    BlankConfig:
+      type: object
+      required: [before, after, options]
+      properties:
+        before: { type: string, minLength: 1, description: 빈칸 앞 문장 }
+        after: { type: string, minLength: 1, description: 빈칸 뒤 문장 }
+        options:
+          type: array
+          description: 빈칸에 넣을 낱말. 답안은 0부터 시작하는 순번입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    SliderConfig:
+      type: object
+      required: [ticks]
+      properties:
+        ticks:
+          type: array
+          description: 트랙 왼쪽부터 같은 간격으로 놓는 눈금 문구. 답안은 트랙 위치 0~1입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+        hint: { type: string, minLength: 1, description: 안내 문구. 생략 시 앱 기본 문구 }
+      additionalProperties: false
+    MatchConfig:
+      type: object
+      required: [pairs]
+      properties:
+        pairs:
+          type: array
+          description: |
+            [왼쪽, 오른쪽] 짝 목록이며 정답입니다. 앱은 오른쪽 열을 섞어 보여 주고 한 쌍씩 바로 판정합니다.
+            모든 짝을 맞추면 맞춘 짝 전체를 제출합니다.
+          minItems: 2
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string, minLength: 1 }
+      additionalProperties: false
+    ChosungConfig:
+      type: object
+      required: [hint]
+      properties:
+        hint: { type: string, minLength: 1, description: '초성 힌트. 예: ㅇㅌㄹㅁㄹ' }
+      additionalProperties: false
+    Content:
+      type: object
+      required: [contentId, order, contentType, segmentId]
+      properties:
+        contentId: { type: integer, format: int64 }
+        order: { type: integer }
+        segmentId: { type: string }
+        contentType: { $ref: '#/components/schemas/ContentType' }
+        body:
+          type: string
+          nullable: true
+        mediaUrl:
+          type: string
+          format: uri-reference
+          nullable: true
+        dialogue:
+          type: array
+          description: TEXT 콘텐츠의 화자별 대사. 배열 순서대로 표시하며 탭할 때 다음 대사를 드러냅니다.
+          items: { $ref: '#/components/schemas/DialogueLine' }
+        source:
+          type: string
+          description: 화면에 표시할 학습 자료 출처. 출처가 없으면 생략합니다.
+        quiz:
+          allOf:
+            - $ref: '#/components/schemas/QuizPublic'
+          nullable: true
+    DialogueLine:
+      type: object
+      required: [speaker, text]
+      properties:
+        speaker: { type: string }
+        text: { type: string }
+    LessonSegment:
+      type: object
+      required: [segmentId, title, order, contentIds]
+      properties:
+        segmentId: { type: string }
+        title: { type: string }
+        order: { type: integer, minimum: 1 }
+        contentIds:
+          type: array
+          minItems: 1
+          items: { type: integer, format: int64 }
+    LessonDetail:
+      type: object
+      properties:
+        lessonId: { type: integer, format: int64 }
+        courseId: { type: integer, format: int64 }
+        title: { type: string }
+        description: { type: string }
+        segments:
+          type: array
+          description: 레슨 상단 구간 표시와 구간별 현재 단계 계산에 사용합니다.
+          items: { $ref: '#/components/schemas/LessonSegment' }
+        contents:
+          type: array
+          items: { $ref: '#/components/schemas/Content' }
+    LessonProgress:
+      type: object
+      properties:
+        status: { $ref: '#/components/schemas/LessonStatus' }
+        lastContentId:
+          type: integer
+          format: int64
+          nullable: true
+        resumeContentId:
+          type: integer
+          format: int64
+          nullable: true
+    LessonStartResponse:
+      type: object
+      properties:
+        reviewRequired: { type: boolean }
+        review:
+          allOf:
+            - $ref: '#/components/schemas/ReviewSet'
+          nullable: true
+        progress: { $ref: '#/components/schemas/LessonProgress' }
+        contents:
+          type: array
+          items: { $ref: '#/components/schemas/Content' }
+        segments:
+          type: array
+          items: { $ref: '#/components/schemas/LessonSegment' }
+    QuizAnswer:
+      description: |
+        interactionType별 답안. 정답 표시(correctAnswer)도 같은 모양입니다.
+        - OX: `{ "answer": true }`
+        - SINGLE·BLANK: `{ "answer": 1 }` (보기 순번, 0부터)
+        - MULTI: `{ "answers": [1, 2] }` (순서 무관)
+        - SLIDER: `{ "answer": 0.28 }` (트랙 위치 0~1)
+        - MATCH: `{ "pairs": [["왼쪽", "오른쪽"], ...] }` (짝 전체, 순서 무관)
+        - CHOSUNG: `{ "answer": "울트라마린" }` (공백을 빼고 비교)
+      oneOf:
+        - type: object
+          description: OX
+          required: [answer]
+          properties:
+            answer: { type: boolean }
+          additionalProperties: false
+        - type: object
+          description: SINGLE·BLANK
+          required: [answer]
+          properties:
+            answer: { type: integer, minimum: 0 }
+          additionalProperties: false
+        - type: object
+          description: MULTI
+          required: [answers]
+          properties:
+            answers:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items: { type: integer, minimum: 0 }
+          additionalProperties: false
+        - type: object
+          description: SLIDER
+          required: [answer]
+          properties:
+            answer: { type: number, minimum: 0, maximum: 1 }
+          additionalProperties: false
+        - type: object
+          description: MATCH
+          required: [pairs]
+          properties:
+            pairs:
+              type: array
+              items:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items: { type: string }
+          additionalProperties: false
+        - type: object
+          description: CHOSUNG
+          required: [answer]
+          properties:
+            answer: { type: string, minLength: 1 }
+          additionalProperties: false
+    AnswerResult:
+      type: object
+      required: [isCorrect, completed]
+      properties:
+        attemptId: { type: integer, format: int64 }
+        isCorrect: { type: boolean }
+        completed:
+          type: boolean
+          description: 유효한 제출이면 true.
+        correctAnswer:
+          allOf:
+            - $ref: '#/components/schemas/QuizAnswer'
+          description: 완료된 문항에서 정답 표시용으로 반환합니다.
+        explanation:
+          type: string
+          description: 해설. 해설이 없는 문항(레슨 도입 질문)은 생략합니다. 앱은 결과 시트 없이 다음 화면으로 넘어갑니다.
+        closeness:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: SLIDER만. 정답 위치에 얼마나 가까운지. 화면 문구 예시 "정답에 78% 근접했어요".
+        source:
+          type: string
+          description: 해설의 출처. 없으면 생략합니다.
+        streakDays: { type: integer }
+    Reward:
+      type: object
+      properties:
+        type: { $ref: '#/components/schemas/RewardType' }
+        currency:
+          allOf:
+            - $ref: '#/components/schemas/CurrencyType'
+          nullable: true
+        amount:
+          type: integer
+          format: int64
+          nullable: true
+        itemId:
+          type: integer
+          nullable: true
+        badge:
+          type: object
+          nullable: true
+          properties:
+            badgeType: { $ref: '#/components/schemas/BadgeType' }
+            constellationId: { type: integer, format: int64 }
+            lessonId:
+              type: integer
+              format: int64
+              nullable: true
+        artwork:
+          allOf:
+            - $ref: '#/components/schemas/LearningArtwork'
+          description: 그림 보상일 때 반환합니다.
+    RewardResponse:
+      type: object
+      properties:
+        rewards:
+          type: array
+          items: { $ref: '#/components/schemas/Reward' }
+        wallet: { $ref: '#/components/schemas/Wallet' }
+    LessonCompleteResponse:
+      allOf:
+        - $ref: '#/components/schemas/RewardResponse'
+        - type: object
+          properties:
+            courseCompleted: { type: boolean }
+            quizSummary:
+              type: object
+              required: [correctCount, totalCount]
+              properties:
+                correctCount: { type: integer, minimum: 0 }
+                totalCount: { type: integer, minimum: 0 }
+              description: 레슨 결과 화면의 정답 수와 채점 대상 문항 수. 해설이 없는 문항은 세지 않습니다.
+            stardustSkipped:
+              type: boolean
+              description: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
+    RewardRecord:
+      allOf:
+        - $ref: '#/components/schemas/Reward'
+        - type: object
+          properties:
+            source:
+              type: object
+              properties:
+                courseId: { type: integer, format: int64 }
+                lessonId: { type: integer, format: int64 }
+                courseTitle: { type: string }
+                lessonTitle: { type: string }
+            grantedAt: { type: string, format: date-time }
+    LearningArtwork:
+      type: object
+      required: [artworkId, lessonId, imageUrl, completedAt]
+      properties:
+        artworkId: { type: integer, format: int64 }
+        lessonId: { type: integer, format: int64 }
+        imageUrl: { type: string, format: uri }
+        completedAt: { type: string, format: date-time }
+
+    # ---- 복습
+    ReviewItem:
+      type: object
+      properties:
+        reviewItemId: { type: integer, format: int64 }
+        quiz: { $ref: '#/components/schemas/QuizPublic' }
+    ReviewSet:
+      type: object
+      properties:
+        reviewItems:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/ReviewItem' }
+        message:
+          type: string
+          nullable: true
+          description: 문제가 부족할 때 "더 이상 복습할 문제가 없어요"
+        rewardEligible:
+          type: boolean
+          description: 오늘 보상 세션(3회) 남아 있는지
+
+    # ---- 하우징·아바타
+    Transform:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+        flippedX: { type: boolean, default: false }
+        layer:
+          type: integer
+          minimum: 0
+          maximum: 9
+          default: 0
+    PlacementInput:
+      type: object
+      required: [inventoryId, area, transform]
+      properties:
+        inventoryId: { type: string }
+        area: { $ref: '#/components/schemas/HousingItemType' }
+        transform: { $ref: '#/components/schemas/Transform' }
+    Placement:
+      allOf:
+        - $ref: '#/components/schemas/PlacementInput'
+        - type: object
+          properties:
+            placementId: { type: integer, format: int64 }
+            itemId: { type: integer, format: int64 }
+            optionId:
+              type: integer
+              format: int64
+              description: Omitted when the item has no option.
+            option:
+              allOf:
+                - { $ref: '#/components/schemas/ItemOption' }
+              description: Omitted when the item has no option.
+    Avatar:
+      type: object
+      description: 고양이 아바타는 가구 아이템으로 보유·배치하며 상태와 위치는 이 객체로 표시합니다.
+      properties:
+        x: { type: number }
+        y: { type: number }
+        state: { $ref: '#/components/schemas/AvatarState' }
+        placementId:
+          type: integer
+          format: int64
+          nullable: true
+    Housing:
+      type: object
+      properties:
+        housingId: { type: integer, format: int64 }
+        name: { type: string }
+        isPublic: { type: boolean }
+        likeCount: { type: integer }
+    HousingDetail:
+      type: object
+      properties:
+        housing: { $ref: '#/components/schemas/Housing' }
+        placements:
+          type: array
+          items: { $ref: '#/components/schemas/Placement' }
+        avatar: { $ref: '#/components/schemas/Avatar' }
+        activeRoomId:
+          type: string
+          nullable: true
+        legacyLayouts:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/Layout' }
+    Layout:
+      type: object
+      properties:
+        backgroundId: { type: string }
+        surfaceSkins:
+          type: object
+          additionalProperties: { type: string }
+        avatarId: { type: string }
+        placements:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutPlacement' }
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    LayoutPlacement:
+      type: object
+      properties:
+        slotId: { type: string }
+        furnitureId: { type: string }
+    HousingCard:
+      type: object
+      properties:
+        housingId: { type: integer, format: int64 }
+        ownerNickname: { type: string }
+        name: { type: string }
+        likeCount: { type: integer }
+        likedByMe: { type: boolean }
+        preview:
+          type: array
+          description: 썸네일용 배치 요약(일부)
+          items: { $ref: '#/components/schemas/Placement' }
+    LikeState:
+      type: object
+      properties:
+        likeCount: { type: integer }
+        likedByMe: { type: boolean }
+
+    # ---- 상점·인벤토리·별자리
+    ItemOption:
+      type: object
+      description: option_json
+      properties:
+        color: { type: string }
+        shape: { type: string }
+        assetKey: { type: string }
+    ShopOption:
+      type: object
+      properties:
+        optionId: { type: integer, format: int64 }
+        option: { $ref: '#/components/schemas/ItemOption' }
+        currency: { $ref: '#/components/schemas/CurrencyType' }
+        price: { type: integer, format: int64 }
+        previewAsset: { type: string }
+        ownedCount: { type: integer, minimum: 0 }
+    ShopItem:
+      type: object
+      properties:
+        itemId: { type: integer }
+        name: { type: string }
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        unlocked: { type: boolean }
+        unlockHint:
+          type: string
+          nullable: true
+          description: 미해금 시 해금 조건(어느 레슨/코스의 보상인지)
+        minPrice:
+          type: object
+          properties:
+            currency: { $ref: '#/components/schemas/CurrencyType' }
+            amount: { type: integer, format: int64 }
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/ShopOption' }
+    InventoryItem:
+      type: object
+      description: 동일 아이템·색상·모양 옵션의 보유분을 묶은 항목.
+      properties:
+        itemId: { type: integer }
+        optionId: { type: integer, format: int64 }
+        itemType: { $ref: '#/components/schemas/ItemType' }
+        name: { type: string }
+        option: { $ref: '#/components/schemas/ItemOption' }
+        ownedCount: { type: integer, minimum: 0 }
+        placedCount: { type: integer, minimum: 0 }
+        availableCount:
+          type: integer
+          minimum: 0
+          description: ownedCount - placedCount
+        copies:
+          type: array
+          items:
+            type: object
+            required: [inventoryId, acquiredVia, acquiredAt, placed]
+            properties:
+              inventoryId: { type: string }
+              acquiredVia: { $ref: '#/components/schemas/AcquiredVia' }
+              acquiredAt: { type: string, format: date-time }
+              placed: { type: boolean }
+    Constellation:
+      type: object
+      properties:
+        constellationId: { type: integer, format: int64 }
+        courseId: { type: integer, format: int64 }
+        name: { type: string }
+        starCount: { type: integer }
+        earnedStars: { type: integer }
+        badgeEarned: { type: boolean }
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+
+
