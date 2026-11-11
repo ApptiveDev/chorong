@@ -57,7 +57,6 @@ export default function StudyScreen() {
   return <Study key={generation} />;
 }
 function Study() {
-  const session = useIntegration();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
@@ -99,11 +98,6 @@ function Study() {
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
   const leaveStudy = () => router.replace('/quiz');
-  const firstGuestStudy = params.fromWelcome === 'true' && session.user?.status === 'GUEST';
-  const finishStudyFlow = () =>
-    firstGuestStudy
-      ? router.replace({ pathname: '/quiz', params: { view: 'join' } })
-      : router.replace('/quiz');
   useEffect(() => {
     let active = true;
     void task.run(async () => {
@@ -289,7 +283,8 @@ function Study() {
       if (result.lessonCompleted) return;
     }
     if (position < contents.length - 1) setPosition(position + 1);
-    else if (!replay) {
+    else if (replay) leaveStudy();
+    else {
       const result = await completeLesson();
       if (!result && justGraded) throw new Error('레슨을 완료하지 못했습니다.');
     }
@@ -789,8 +784,8 @@ function Study() {
                         ? () => quizFooter?.onPress()
                         : lessonDone
                           ? () =>
-                              firstGuestStudy
-                                ? finishStudyFlow()
+                              params.fromWelcome === 'true'
+                                ? leaveStudy()
                                 : constellationCompleted
                                   ? setShowConstellation(true)
                                   : leaveStudy()

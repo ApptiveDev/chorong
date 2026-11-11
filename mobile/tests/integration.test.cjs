@@ -16,6 +16,7 @@ const {
   restoreMockSnapshot,
 } = require('../.expo/integration-tests/mockApi');
 const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
+const { firstStudyLesson } = require('../.expo/integration-tests/user/welcomeFlow');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
 const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private', expiresIn: 3600 };
@@ -454,6 +455,78 @@ test('app restart rotates stored refresh and reloads server user status', async 
   assert.deepEqual(urls, ['/auth/token/refresh', '/users/me']);
   assert.equal(restored.c.getSnapshot().user.onboardingCompleted, false);
   assert.equal(restored.c.getSnapshot().ready, true);
+});
+
+test('목업 사용자 데이터만으로는 인증되지 않고 비회원 세션은 재실행 후에도 유지된다', async () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  const entries = new Map();
+  const storage = {
+    get: async (key) => entries.get(key) ?? null,
+    set: async (key, value) => {
+      entries.set(key, value);
+    },
+    remove: async (key) => {
+      entries.delete(key);
+    },
+  };
+  const makeClient = () =>
+    new IntegrationClient('https://mock.invalid/api/v1', storage, () => uuid, true, mockApi);
+  try {
+    mockApi('API-104', {});
+    const fresh = makeClient();
+    await fresh.initialize();
+    assert.equal(fresh.getSnapshot().ready, true);
+    assert.equal(fresh.getSnapshot().authenticated, false);
+    assert.equal(fresh.getSnapshot().user, null);
+
+    await createIntegrationApi(fresh).account.guest('ANDROID');
+    assert.equal(fresh.getSnapshot().user.status, 'GUEST');
+    const restored = makeClient();
+    await restored.initialize();
+    assert.equal(restored.getSnapshot().ready, true);
+    assert.equal(restored.getSnapshot().authenticated, true);
+    assert.equal(restored.getSnapshot().user.status, 'GUEST');
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('완료된 첫 레슨은 기존 기록을 보존한 채 처음부터 다시 진행한다', async () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const contents = mockApi('API-403', { path: { lessonId: 11 } }).data.data.contents;
+    for (const content of contents) mockApi('API-405', { path: { contentId: content.contentId } });
+    const detail = mockApi('API-402', { path: { courseId: 1 } }).data.data;
+    const selected = firstStudyLesson(detail.lessons);
+    assert.equal(selected.lesson.lessonId, 11);
+    assert.equal(selected.replay, true);
+    const before = JSON.parse(JSON.stringify(mockSnapshot()));
+    const started = mockApi('API-404', {
+      path: { lessonId: selected.lesson.lessonId },
+      body: { replay: selected.replay },
+    }).data.data;
+    assert.equal(started.progress.status, 'COMPLETED');
+    assert.equal(started.contents[0].contentId, contents[0].contentId);
+    assert.deepEqual(mockSnapshot(), before);
+
+    const firstQuiz = started.contents.find((content) => content.quiz).quiz;
+    mockApi('API-406', {
+      path: { quizId: firstQuiz.quizId },
+      body: { answer: { value: true }, replay: true },
+    });
+    assert.deepEqual(mockSnapshot(), before);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('첫 학습은 잠긴 레슨을 건너뛰고 미완료 레슨을 일반 모드로 연다', () => {
+  const selected = firstStudyLesson([
+    { lessonId: 1, title: '잠김', status: 'LOCKED' },
+    { lessonId: 2, title: '첫 학습', status: 'UNLOCKED' },
+  ]);
+  assert.equal(selected.lesson.lessonId, 2);
+  assert.equal(selected.replay, false);
 });
 test('late protected response cannot restore data after logout', async () => {
   const { c, api } = setup();

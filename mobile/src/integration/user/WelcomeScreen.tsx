@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { useIntegration, useTask } from '../hooks';
 import { integrationApi as api, useMockApi } from '../runtime';
+import { firstStudyLesson } from './welcomeFlow';
 
 export function WelcomeCat({ size = 120 }: { size?: number }) {
   return (
@@ -61,26 +62,28 @@ export default function WelcomeScreen() {
   };
   const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
   const start = () => {
-    if (session.authenticated) {
+    if (!session.ready || task.busy) return;
+    if (session.authenticated && session.user?.status !== 'GUEST') {
       router.replace('/quiz');
       return;
     }
-    if (!platform && !useMockApi) return;
+    if (!session.authenticated && !platform && !useMockApi) return;
     void task.run(async () => {
-      await api.account.guest(platform ?? 'ANDROID');
+      if (!session.authenticated) await api.account.guest(platform ?? 'ANDROID');
       try {
         const { courses } = await api.learning.courses();
         const firstCourse = courses[0];
         if (firstCourse) {
           const detail = await api.learning.course(firstCourse.courseId);
-          const firstLesson = detail.lessons.find((lesson) => lesson.status !== 'LOCKED');
-          if (firstLesson) {
+          const firstStudy = firstStudyLesson(detail.lessons);
+          if (firstStudy) {
             router.replace({
               pathname: '/learn/study/[lessonId]',
               params: {
-                lessonId: String(firstLesson.lessonId),
-                title: firstLesson.title,
+                lessonId: String(firstStudy.lesson.lessonId),
+                title: firstStudy.lesson.title,
                 fromWelcome: 'true',
+                replay: firstStudy.replay ? 'true' : 'false',
               },
             });
             return;
@@ -206,13 +209,21 @@ export default function WelcomeScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityState={{
-                disabled: task.busy || (!session.authenticated && !platform && !useMockApi),
+                disabled:
+                  !session.ready ||
+                  task.busy ||
+                  (!session.authenticated && !platform && !useMockApi),
               }}
-              disabled={task.busy || (!session.authenticated && !platform && !useMockApi)}
+              disabled={
+                !session.ready || task.busy || (!session.authenticated && !platform && !useMockApi)
+              }
               onPress={start}
               style={[
                 s.primary,
-                (task.busy || (!session.authenticated && !platform && !useMockApi)) && s.disabled,
+                (!session.ready ||
+                  task.busy ||
+                  (!session.authenticated && !platform && !useMockApi)) &&
+                  s.disabled,
               ]}
             >
               <Text allowFontScaling={false} numberOfLines={1} style={s.primaryText}>
