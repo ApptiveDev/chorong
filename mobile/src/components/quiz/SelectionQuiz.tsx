@@ -2,6 +2,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { toggleSelection } from '../../lib/quiz-state';
 import type { QuizItem, SelectionConfig } from '../../types/quiz';
 import { ItemContent, itemLabel, styles } from './shared';
+import {
+  QUIZ_FEEDBACK_COLORS,
+  quizFeedbackSurface,
+} from '../../integration/user/quizFeedbackColors';
 
 export function SelectionQuiz({
   config,
@@ -66,9 +70,9 @@ export function SelectionQuiz({
                 wireframe
                   ? checked
                     ? graded === true
-                      ? '#477656'
+                      ? QUIZ_FEEDBACK_COLORS.correct.text
                       : graded === false
-                        ? '#ad6262'
+                        ? QUIZ_FEEDBACK_COLORS.incorrect.text
                         : '#594567'
                     : '#282636'
                   : undefined
@@ -95,7 +99,7 @@ const choiceStyles = StyleSheet.create({
     gap: 8,
   },
   selected: { borderColor: '#746287', backgroundColor: '#f4f0f8' },
-  correct: { borderColor: '#83ac92', backgroundColor: '#eff7f1' },
-  wrong: { borderColor: '#d3a4a4', backgroundColor: '#fdf1f1' },
+  correct: quizFeedbackSurface.correct,
+  wrong: quizFeedbackSurface.incorrect,
   marker: { color: '#746287', fontSize: 18 },
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
 import { AnimatedReveal } from './AnimatedReveal';
 
 type Choice = { index: number; label: string };
@@ -194,7 +195,16 @@ export function FillBlankQuiz({
                     (result.isCorrect ? s.correctOption : s.wrongOption),
                 ]}
               >
-                <Text style={s.optionText}>{choice.label}</Text>
+                <Text
+                  style={[
+                    s.optionText,
+                    selected === choice.index &&
+                      result &&
+                      (result.isCorrect ? s.correctText : s.wrongText),
+                  ]}
+                >
+                  {choice.label}
+                </Text>
               </Pressable>
             ))}
           </View>
@@ -277,14 +287,15 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
   pressedOption: { opacity: 0.65 },
-  correctOption: { backgroundColor: '#eff7f1' },
-  wrongOption: { backgroundColor: '#fdf1f1' },
-  correctText: { color: '#43835d' },
-  wrongText: { color: '#b56060' },
+  // Figma button_빈칸: 테두리 없이 배경·글자색만 바꾼다.
+  correctOption: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
+  wrongOption: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
+  correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
+  wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
   feedbackSlot: { minHeight: 120, marginTop: 24 },
   feedback: { borderRadius: 14, padding: 17, gap: 5 },
-  feedbackGood: { backgroundColor: '#f0f6f1' },
-  feedbackWrong: { backgroundColor: '#fdf1f1' },
+  feedbackGood: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
+  feedbackWrong: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
   feedbackTitle: { color: '#282636', fontSize: 13, fontFamily: 'PretendardBold' },
   feedbackText: { color: '#282636', fontSize: 13, lineHeight: 20, fontFamily: 'PretendardRegular' },
   error: { color: '#b56060', fontSize: 12, lineHeight: 18 },

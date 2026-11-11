@@ -13,6 +13,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { positionAt } from './sliderQuizState';
+import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
 
 export const DEFAULT_SLIDER_HINT = '끌어서 고르기';
 // 손잡이(높이 20)보다 넓게 잡히도록 위아래로 늘리는 터치 여백.
@@ -250,7 +251,7 @@ const s = StyleSheet.create({
     width: 2,
     height: 20,
     borderRadius: 1,
-    backgroundColor: '#43835d',
+    backgroundColor: QUIZ_FEEDBACK_COLORS.correct.border,
   },
   thumb: {
     position: 'absolute',
@@ -281,8 +282,8 @@ const s = StyleSheet.create({
   },
   feedback: { marginTop: 12, paddingHorizontal: 12, paddingVertical: 12, gap: 5 },
   feedbackTitle: { fontFamily: 'PretendardBold', fontSize: 14 },
-  correctText: { color: '#43835d' },
-  wrongText: { color: '#b56060' },
+  correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
+  wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
   feedbackText: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 13, lineHeight: 20 },
   error: {
     marginTop: 8,

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
 
 type Choice = { index: number; label: string };
 type Phase = 'UNANSWERED' | 'FEEDBACK' | 'ANSWERED' | 'TRANSITIONING';
@@ -259,8 +260,9 @@ const s = StyleSheet.create({
     paddingVertical: 16,
   },
   optionTint: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  correctTint: { backgroundColor: 'rgba(67,131,93,0.16)' },
-  wrongTint: { backgroundColor: 'rgba(181,96,96,0.16)' },
+  // Figma button_선택지 고르기: 회색 상하 경계선은 그대로 두고 배경·글자색만 바꾼다.
+  correctTint: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
+  wrongTint: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
   optionText: {
     color: '#747474',
     fontFamily: 'PretendardSemiBold',
@@ -268,8 +270,8 @@ const s = StyleSheet.create({
     lineHeight: 20,
     includeFontPadding: false,
   },
-  correctText: { color: '#43835d' },
-  wrongText: { color: '#b56060' },
+  correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
+  wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
   feedbackSlot: { minHeight: 132 },
   feedback: { paddingHorizontal: 12, paddingVertical: 12, gap: 5 },
   feedbackTitle: { fontFamily: 'PretendardBold', fontSize: 14 },

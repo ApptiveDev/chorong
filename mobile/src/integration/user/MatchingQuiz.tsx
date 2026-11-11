@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
 
 type Side = 'left' | 'right';
 type Selection = { side: Side; index: number };
@@ -277,14 +278,14 @@ const s = StyleSheet.create({
   },
   selected: { backgroundColor: 'rgba(170,170,170,0.18)' },
   activeText: { color: '#161616' },
-  correct: { backgroundColor: 'rgba(109,170,126,0.2)' },
+  correct: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
   incorrect: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: 'rgba(207,115,115,0.18)',
+    backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background,
   },
   error: { color: '#a94444', fontFamily: 'PretendardMedium', fontSize: 13, textAlign: 'center' },
 });

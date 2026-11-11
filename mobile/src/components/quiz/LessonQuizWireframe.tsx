@@ -8,6 +8,7 @@ import { QuizCard } from '../../integration/user/QuizCard';
 import { AnimatedReveal } from '../../integration/user/AnimatedReveal';
 import { QuizRenderer } from './QuizRenderer';
 import { useQuizFooter, type RegisterQuizFooter } from '../../integration/user/quizFooter';
+import { QUIZ_FEEDBACK_COLORS } from '../../integration/user/quizFeedbackColors';
 
 const labels: Record<InteractiveQuiz['interactionType'], string> = {
   SLIDER: '값 움직이기',
@@ -218,7 +219,15 @@ const s = StyleSheet.create({
   disabled: { opacity: 0.45 },
   error: { color: '#b91c1c', fontSize: 12 },
   result: { backgroundColor: '#eef2f5', borderRadius: 6, padding: 12, gap: 5 },
-  feedback: { backgroundColor: '#f5f3f8', borderRadius: 14, padding: 17 },
-  goodFeedback: { backgroundColor: '#f0f6f1', borderRadius: 14, padding: 17 },
+  feedback: {
+    backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background,
+    borderRadius: 14,
+    padding: 17,
+  },
+  goodFeedback: {
+    backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background,
+    borderRadius: 14,
+    padding: 17,
+  },
   stageFeedback: { marginTop: 'auto' },
 });

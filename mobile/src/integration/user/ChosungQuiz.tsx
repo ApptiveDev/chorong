@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { Button, styles } from '../ui';
+import { QUIZ_FEEDBACK_COLORS, quizFeedbackSurface } from './quizFeedbackColors';
 
 export function isChosungQuiz(quiz: Quiz | null | undefined): boolean {
   return quiz?.type === 'CHOSUNG' && typeof quiz.options?.hint === 'string';
@@ -138,11 +139,11 @@ const s = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'PretendardBold',
   },
-  correctInput: { borderColor: '#43835d' },
-  wrongInput: { borderColor: '#b56060' },
+  correctInput: quizFeedbackSurface.correct,
+  wrongInput: quizFeedbackSurface.incorrect,
   feedback: { borderRadius: 14, padding: 17, gap: 5 },
-  feedbackGood: { backgroundColor: '#f0f6f1' },
-  feedbackWrong: { backgroundColor: '#fdf1f1' },
+  feedbackGood: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
+  feedbackWrong: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
   feedbackTitle: { color: '#282636', fontSize: 13, fontFamily: 'PretendardBold' },
   feedbackText: { color: '#282636', fontSize: 13, lineHeight: 20, fontFamily: 'PretendardRegular' },
   lowerSpace: { flexGrow: 1, minHeight: 80 },

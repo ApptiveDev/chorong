@@ -4,6 +4,7 @@ import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
 import { tickPositions } from './sliderQuizState';
 import { DEFAULT_SLIDER_HINT, SliderFeedback, SliderQuizView } from './SliderQuizView';
+import { QUIZ_FEEDBACK_COLORS, quizFeedbackSurface } from './quizFeedbackColors';
 
 type HtmlKind = 'ox' | 'blank' | 'single' | 'range' | 'multi' | 'match';
 type Choice = { index: number; label: string };
@@ -305,8 +306,8 @@ const s = StyleSheet.create({
   },
   optionText: { color: '#282636', fontSize: 14 },
   selected: { borderColor: '#746287', backgroundColor: '#f4f0f8' },
-  correct: { borderColor: '#83ac92', backgroundColor: '#eff7f1' },
-  wrong: { borderColor: '#d3a4a4', backgroundColor: '#fdf1f1' },
+  correct: quizFeedbackSurface.correct,
+  wrong: quizFeedbackSurface.incorrect,
   oxRow: { flexDirection: 'row', gap: 20, justifyContent: 'center' },
   ox: { maxWidth: 140, height: 140, borderColor: 'transparent', alignItems: 'center' },
   oxText: { color: '#a29ca8', fontSize: 70, fontWeight: '200' },
@@ -315,12 +316,12 @@ const s = StyleSheet.create({
   matched: { opacity: 0.5, backgroundColor: '#eef6f0' },
   feedback: {
     marginTop: 'auto',
-    backgroundColor: '#f5f3f8',
+    backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background,
     borderRadius: 14,
     padding: 17,
     gap: 5,
   },
-  feedbackGood: { backgroundColor: '#f0f6f1' },
+  feedbackGood: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
   feedbackTitle: { color: '#282636', fontWeight: '700', fontSize: 13 },
   feedbackText: { color: '#282636', fontSize: 13, lineHeight: 23 },
   check: {

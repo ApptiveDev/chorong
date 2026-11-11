@@ -16,6 +16,7 @@ import { UserStatus } from './Screen';
 import { AnimatedReveal } from './AnimatedReveal';
 import { QuizQuestionRule } from './QuizBackdrop';
 import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
+import { QUIZ_FEEDBACK_COLORS, quizFeedbackSurface } from './quizFeedbackColors';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -175,11 +176,16 @@ export function QuizCard({
               label={value}
               secondary
               selected={ox === value}
+              // 고른 버튼만 정답·오답으로 칠한다. 오답을 골랐을 때만 남은 버튼(실제 정답)을 연하게 표시한다.
               graded={
                 task.result
-                  ? (task.result as AnswerResult).isCorrect === (ox === value)
-                    ? 'correct'
-                    : 'wrong'
+                  ? ox === value
+                    ? (task.result as AnswerResult).isCorrect
+                      ? 'correct'
+                      : 'wrong'
+                    : (task.result as AnswerResult).isCorrect
+                      ? undefined
+                      : 'answer'
                   : undefined
               }
               ox
@@ -252,7 +258,16 @@ export function QuizCard({
           offsetY={8}
         >
           {quiz.type !== 'OX' ? (
-            <Text style={isWireframeQuiz ? quizStyles.feedbackTitle : styles.subtitle}>
+            <Text
+              style={
+                isWireframeQuiz
+                  ? [
+                      quizStyles.feedbackTitle,
+                      !(task.result as AnswerResult).isCorrect && quizStyles.wrongText,
+                    ]
+                  : styles.subtitle
+              }
+            >
               {isWireframeQuiz
                 ? (task.result as AnswerResult).isCorrect
                   ? '맞았어요!'
@@ -292,7 +307,8 @@ function QuizAction({
   disabled?: boolean;
   secondary?: boolean;
   selected?: boolean;
-  graded?: 'correct' | 'wrong';
+  // answer: 오답을 골랐을 때 고르지 않은 실제 정답(OX 전용).
+  graded?: 'correct' | 'wrong' | 'answer';
   ox?: boolean;
   wireframe?: boolean;
   primary?: boolean;
@@ -350,6 +366,7 @@ function QuizAction({
         ox && selected && quizStyles.oxPressed,
         graded === 'correct' && (ox ? quizStyles.oxCorrect : quizStyles.correct),
         graded === 'wrong' && (ox ? quizStyles.oxWrong : quizStyles.wrong),
+        graded === 'answer' && ox && quizStyles.oxAnswer,
         disabled && !wireframe && quizStyles.disabled,
       ]}
     >
@@ -362,6 +379,7 @@ function QuizAction({
           wireframe && selected && (ox ? quizStyles.oxSelectedText : quizStyles.selectedText),
           graded === 'correct' && (ox ? quizStyles.oxCorrectText : quizStyles.correctText),
           graded === 'wrong' && (ox ? quizStyles.oxWrongText : quizStyles.wrongText),
+          graded === 'answer' && ox && quizStyles.oxAnswerText,
           ox && quizStyles.oxText,
         ]}
       >
@@ -394,7 +412,7 @@ const quizStyles = StyleSheet.create({
     lineHeight: 28,
     textAlign: 'center',
   },
-  feedbackTitle: { color: '#477656', fontSize: 15, fontWeight: '700' },
+  feedbackTitle: { color: QUIZ_FEEDBACK_COLORS.correct.text, fontSize: 15, fontWeight: '700' },
   blankInput: {
     alignSelf: 'center',
     minWidth: 120,
@@ -421,8 +439,8 @@ const quizStyles = StyleSheet.create({
   option: { minHeight: 54, borderRadius: 13, padding: 14 },
   optionText: { color: '#282636', fontSize: 14, fontWeight: '400' },
   selectedText: { color: '#594567' },
-  correctText: { color: '#477656' },
-  wrongText: { color: '#ad6262' },
+  correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
+  wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
   secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#dce2e8' },
   secondaryText: { color: '#273a52' },
   oxAction: {
@@ -437,10 +455,12 @@ const quizStyles = StyleSheet.create({
   oxIdleText: { color: '#aaa' },
   oxSelectedText: { color: '#c6c6c6' },
   oxPressed: { shadowColor: '#f1f1f1', shadowOpacity: 1, shadowRadius: 6.4 },
-  oxCorrect: { borderColor: '#c6c6c6', backgroundColor: 'transparent' },
-  oxWrong: { borderColor: '#d9d9d9', backgroundColor: 'transparent' },
-  oxCorrectText: { color: '#747474' },
-  oxWrongText: { color: '#c6c6c6' },
+  oxCorrect: quizFeedbackSurface.correct,
+  oxWrong: quizFeedbackSurface.incorrect,
+  oxCorrectText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
+  oxWrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
+  oxAnswer: quizFeedbackSurface.answer,
+  oxAnswerText: { color: QUIZ_FEEDBACK_COLORS.answer.text },
   oxFeedback: {
     marginTop: 32,
     marginHorizontal: 1,
@@ -459,10 +479,20 @@ const quizStyles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  correct: { borderColor: '#83ac92', backgroundColor: '#eff7f1' },
-  wrong: { borderColor: '#d3a4a4', backgroundColor: '#fdf1f1' },
-  feedback: { backgroundColor: '#f5f3f8', borderRadius: 14, padding: 17, gap: 5 },
-  goodFeedback: { backgroundColor: '#f0f6f1', borderRadius: 14, padding: 17, gap: 5 },
+  correct: quizFeedbackSurface.correct,
+  wrong: quizFeedbackSurface.incorrect,
+  feedback: {
+    backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background,
+    borderRadius: 14,
+    padding: 17,
+    gap: 5,
+  },
+  goodFeedback: {
+    backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background,
+    borderRadius: 14,
+    padding: 17,
+    gap: 5,
+  },
   stageFeedback: { marginTop: 'auto' },
   disabled: { opacity: 0.45 },
 });
