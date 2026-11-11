@@ -1,5 +1,5 @@
 import * as m from './models';
-import { ContractError, num, object, objectValue, str, unknownObject } from './schema';
+import { ContractError, num, objectValue, str, unknownObject } from './schema';
 
 type QuizType = 'OX' | 'SINGLE' | 'MULTI' | 'BLANK' | 'SLIDER' | 'MATCH' | 'CHOSUNG';
 const quizKinds: QuizType[] = ['OX', 'SINGLE', 'MULTI', 'BLANK', 'SLIDER', 'MATCH', 'CHOSUNG'];
@@ -111,15 +111,7 @@ const content = (value: unknown, path = '$', allowUnsupported = false): m.Conten
     mediaUrl: value.mediaUrl === undefined ? null : value.mediaUrl,
     quiz: value.quiz === undefined ? null : value.quiz,
   };
-  if (Array.isArray(value.dialogue)) {
-    const lines = value.dialogue.map((line, index) => {
-      const item = object({ speaker: str, text: str })(line, `${path}.dialogue[${index}]`);
-      return `${item.speaker}: ${item.text}`;
-    });
-    adapted.body = lines.join('\n');
-  }
-  if (typeof value.source === 'string' && typeof adapted.body === 'string')
-    adapted.body += `\n출처: ${value.source}`;
+  // dialogue·source 는 body 에 합치지 않고 그대로 넘긴다(형식 검증은 m.content 가 한다).
   if (value.quiz != null) {
     try {
       adapted.quiz = quiz(value.quiz, `${path}.quiz`);

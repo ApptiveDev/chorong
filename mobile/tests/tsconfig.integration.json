@@ -15,6 +15,7 @@
     "../src/integration/client.ts",
     "../src/integration/api.ts",
     "../src/integration/mockApi.ts",
-    "../src/integration/user/sliderQuizState.ts"
+    "../src/integration/user/sliderQuizState.ts",
+    "../src/integration/user/narrationContent.ts"
   ]
 }

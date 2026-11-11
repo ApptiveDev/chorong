@@ -88,7 +88,7 @@ export const quiz = object({
   options: nullable(unknownObject),
   hint: nullable(str),
 });
-export const content = object({
+const contentBase = object({
   contentId: num,
   order: num,
   contentType: enumeration('TEXT', 'IMAGE', 'VIDEO', 'QUIZ'),
@@ -96,6 +96,17 @@ export const content = object({
   mediaUrl: nullable(str),
   quiz: nullable(quiz),
 });
+// API v2 에서만 오는 선택 필드. TEXT 콘텐츠의 화자별 대사(배열 순서대로 표시)와 출처를
+// body 와 별도로 보존한다. 목업 콘텐츠는 생략할 수 있게 선택 속성으로 둔다.
+const contentExtra = object({
+  dialogue: optional(array(object({ speaker: str, text: str }))),
+  source: optional(str),
+  segmentId: optional(str),
+});
+export const content = (v: unknown, p = '$') => {
+  contentExtra(v, p);
+  return contentBase(v, p) as Infer<typeof contentBase> & Partial<Infer<typeof contentExtra>>;
+};
 export const lessonDetail = object({
   lessonId: num,
   courseId: num,

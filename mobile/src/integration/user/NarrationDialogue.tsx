@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-export type NarrationMessage = {
-  id: string;
-  speaker: '별지기' | '초롱이';
-  text: string;
-  order: number;
-};
+import type { NarrationMessage } from './narrationContent';
+
+export type { NarrationMessage };
 
 const GAP = 40;
 const SOURCE_SPACE = 40;

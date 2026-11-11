@@ -1256,3 +1256,95 @@ test('mock SLIDER lesson hides the answer, grades on the mock server and complet
     /명세 불일치/,
   );
 });
+
+test('대화형 콘텐츠는 dialogue 배열을 순서·화자·원문 그대로 전달한다', () => {
+  const { toNarrationContent } = require('../.expo/integration-tests/user/narrationContent');
+  const raw = {
+    contentId: 901,
+    order: 1,
+    segmentId: 'a',
+    contentType: 'TEXT',
+    body: '원래 본문',
+    mediaUrl: null,
+    dialogue: [
+      { speaker: '별지기', text: '첫 줄\n초롱이: 이건 대사 안의 문자열이에요.' },
+      { speaker: '초롱이', text: '두 번째냥? <&> "따옴표"' },
+      { speaker: '천문대장', text: '예상하지 못한 화자' },
+      { speaker: '별지기', text: '출처: 대사 안의 출처 문구' },
+    ],
+    source: 'NASA',
+    quiz: null,
+  };
+  const content = contract.lesson({
+    lessonId: 1,
+    courseId: 1,
+    title: 't',
+    description: 'd',
+    contents: [raw],
+  }).contents[0];
+  assert.equal(content.body, '원래 본문');
+  assert.equal(content.source, 'NASA');
+  assert.deepEqual(content.dialogue, raw.dialogue);
+
+  const narration = toNarrationContent(content);
+  assert.deepEqual(
+    narration.messages.map(({ id, order, speaker, text }) => [id, order, speaker, text]),
+    raw.dialogue.map((line, index) => [`901-${index}`, index, line.speaker, line.text]),
+  );
+  assert.equal(narration.source, '출처: NASA');
+
+  assert.throws(
+    () =>
+      contract.lesson({
+        lessonId: 1,
+        courseId: 1,
+        title: 't',
+        description: 'd',
+        contents: [{ ...raw, dialogue: [{ speaker: '별지기' }] }],
+      }),
+    Error,
+  );
+});
+
+test('dialogue 가 없으면 기존 body 파싱을 유지한다', () => {
+  const { toNarrationContent } = require('../.expo/integration-tests/user/narrationContent');
+  const base = { contentId: 7, order: 1, contentType: 'TEXT', mediaUrl: null, quiz: null };
+  const legacy = toNarrationContent({
+    ...base,
+    body: '별지기: 태양은 불이 아니에요.\n초롱이: 그럼 뭐냥?\n출처: NASA',
+  });
+  assert.deepEqual(
+    legacy.messages.map(({ speaker, text }) => [speaker, text]),
+    [
+      ['별지기', '태양은 불이 아니에요.'],
+      ['초롱이', '그럼 뭐냥?'],
+    ],
+  );
+  assert.equal(legacy.source, '출처: NASA');
+
+  const plain = toNarrationContent({ ...base, body: '평범한 설명', source: 'ESA' });
+  assert.deepEqual(plain.messages, [
+    { id: '7-0', order: 0, speaker: '별지기', text: '평범한 설명' },
+  ]);
+  assert.equal(plain.source, '출처: ESA');
+
+  const empty = toNarrationContent({ ...base, body: '본문 유지', dialogue: [] });
+  assert.equal(empty.messages[0].text, '본문 유지');
+});
+
+test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', async () => {
+  const { toNarrationContent } = require('../.expo/integration-tests/user/narrationContent');
+  const { lessons } = require('../.expo/integration-tests/mockData');
+  const texts = lessons
+    .flatMap((lesson) => lesson.contents)
+    .filter((item) => item.contentType === 'TEXT' && item.body);
+  assert.ok(texts.length > 0);
+  for (const item of texts) {
+    const narration = toNarrationContent(item);
+    assert.ok(narration.messages.length > 0, `content ${item.contentId}`);
+    for (const message of narration.messages) {
+      assert.ok(['별지기', '초롱이'].includes(message.speaker));
+      assert.ok(message.text.length > 0);
+    }
+  }
+});
