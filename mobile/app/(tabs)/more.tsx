@@ -1,20 +1,23 @@
-import { useState } from 'react';
+﻿import { useEffect } from 'react';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import {
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../../src/integration/hooks';
 import { integrationApi as api } from '../../src/integration/runtime';
-import { UserStatus } from '../../src/integration/user/Screen';
-import { WelcomeCat } from '../../src/integration/user/WelcomeScreen';
+const providerNames: Record<string, string> = {
+  EMAIL: 'Email',
+  GOOGLE: 'Google',
+  KAKAO: 'Kakao',
+  APPLE: 'Apple',
+};
 
 export default function More() {
   const router = useRouter();
@@ -22,7 +25,7 @@ export default function More() {
   const session = useIntegration();
   const member = session.authenticated && session.user?.status === 'ACTIVE';
   const go = (path: string) => router.push(path as Href);
-  if (member) return <MemberControlRoom nickname={session.user?.nickname ?? '별지기'} go={go} />;
+  if (member) return <MemberControlRoom go={go} />;
   return <GuestControlRoom go={go} returnTo={returnTo === '/social' ? returnTo : undefined} />;
 }
 
@@ -103,155 +106,124 @@ function GuestMenuButton({
   );
 }
 
-function MemberControlRoom({ nickname, go }: { nickname: string; go: (path: string) => void }) {
-  const router = useRouter();
+function MemberControlRoom({ go }: { go: (path: string) => void }) {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const session = useIntegration();
   const task = useTask();
-  const [modal, setModal] = useState<'terms' | 'privacy' | 'contact' | 'logout'>('terms');
-  const [modalVisible, setModalVisible] = useState(false);
-  const [contactText, setContactText] = useState('');
-  const openModal = (kind: 'terms' | 'privacy' | 'contact' | 'logout') => {
-    setModal(kind);
-    setModalVisible(true);
-  };
-  const modalTitle =
-    modal === 'terms'
-      ? '이용약관'
-      : modal === 'privacy'
-        ? '개인정보처리방침'
-        : modal === 'logout'
-          ? '로그아웃할까요?'
-          : '문의하기';
-  const logout = () =>
-    void task.run(async () => {
-      await api.account.logout(false);
-      setModalVisible(false);
-      router.replace('/more');
-    });
+  const user = session.user;
+  useEffect(() => {
+    if (
+      session.ready &&
+      session.authenticated &&
+      user?.status === 'ACTIVE' &&
+      !('providers' in user)
+    )
+      void task.run(() => api.account.me());
+  }, [session.ready, session.authenticated, user?.status]);
+
+  const provider =
+    user && 'providers' in user ? user.providers.find((item) => item !== 'GUEST') : null;
+  const loginMethod = provider ? (providerNames[provider] ?? provider) : '—';
+  const nickname = user?.nickname?.trim() || '—';
+  const cardScale = Math.min(1, Math.max(0, (width - 64) / 332));
+
   return (
-    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={s.memberContent}>
-        <Text style={s.memberTitle}>제어실</Text>
-        <Pressable accessibilityRole="button" onPress={() => go('/profile')} style={s.profileRow}>
-          <View style={s.avatar}>
-            <WelcomeCat size={46} />
-          </View>
-          <View style={s.profileText}>
-            <Text style={s.nickname}>{nickname}</Text>
-            <Text style={s.profileSub}>프로필과 계정 ›</Text>
-          </View>
-        </Pressable>
-        <View style={s.memberGroup}>
-          <MemberRow title="우주선 관리하기" onPress={() => go('/settings/universe')} />
-          <MemberRow title="알림" onPress={() => go('/settings/notifications')} last />
-        </View>
-        <View style={s.memberGroup}>
-          <MemberRow title="이용약관" onPress={() => openModal('terms')} />
-          <MemberRow title="개인정보처리방침" onPress={() => openModal('privacy')} />
-          <MemberRow title="문의하기" onPress={() => openModal('contact')} external last />
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => openModal('logout')}
-          style={s.logoutButton}
-        >
-          <Text style={s.logoutText}>로그아웃</Text>
-        </Pressable>
-      </ScrollView>
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModalVisible(false)}
+    <SafeAreaView style={s.guestSafe} edges={['top', 'left', 'right']}>
+      <ScrollView
+        style={s.guestScroll}
+        contentContainerStyle={[s.guestContent, { paddingTop: Math.max(8, 52 - insets.top) }]}
       >
-        <View style={s.modalOverlay}>
-          <ScrollView
-            style={s.modalPanel}
-            contentContainerStyle={s.modalContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={s.modalTitle}>{modalTitle}</Text>
-            {modal === 'logout' ? (
-              <>
-                <Text style={s.modalDescription}>로그아웃하면 다시 로그인해야 합니다.</Text>
-                <View style={s.logoutActions}>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setModalVisible(false)}
-                    style={s.logoutCancel}
-                  >
-                    <Text style={s.logoutCancelText}>취소</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={task.busy}
-                    onPress={logout}
-                    style={s.logoutConfirm}
-                  >
-                    <Text style={s.logoutConfirmText}>로그아웃</Text>
-                  </Pressable>
-                </View>
-                <UserStatus task={task} />
-              </>
-            ) : modal === 'contact' ? (
-              <>
-                <Text style={s.modalDescription}>불편한 점이나 궁금한 점을 적어 주세요.</Text>
-                <Text style={s.modalLabel}>문의 내용</Text>
-                <TextInput
-                  accessibilityLabel="문의 내용"
-                  placeholder="내용을 입력해 주세요."
-                  placeholderTextColor="#aaa3b1"
-                  value={contactText}
-                  onChangeText={setContactText}
-                  multiline
-                  maxLength={1000}
-                  style={s.contactInput}
-                />
-                <Text style={s.modalDescription}>문의 접수 기능은 준비 중입니다.</Text>
-              </>
-            ) : (
-              <Text style={s.modalDescription}>{modalTitle} 본문 준비 중</Text>
-            )}
-            {modal !== 'logout' ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setModalVisible(false)}
-                style={s.modalButton}
-              >
-                <Text style={s.modalButtonText}>닫기</Text>
-              </Pressable>
-            ) : null}
-          </ScrollView>
+        <View style={s.guestHeader}>
+          <Text style={s.guestHeaderTitle}>제어실</Text>
         </View>
-      </Modal>
+        <View style={s.guestColumn}>
+          <View style={{ width: 332 * cardScale, height: 164 * cardScale }}>
+            <View
+              style={[
+                s.memberCard,
+                { transform: [{ scale: cardScale }], transformOrigin: [0, 0, 0] },
+              ]}
+            >
+              <View style={[s.guestCardHeader, s.memberCardHeader]}>
+                <Text style={s.licenceTitle}>Astronaut Licence</Text>
+                <Text style={s.licenceNumber} accessibilityLabel="회원증 번호 정보 없음">
+                  No. —
+                </Text>
+              </View>
+              <Image
+                source={require('../../assets/control-room-member-profile.png')}
+                resizeMode="cover"
+                style={s.memberPhoto}
+                accessibilityLabel="흰 고양이 프로필"
+              />
+              <View style={s.memberNameField}>
+                <Text style={s.memberFieldLabel}>NAME</Text>
+                <Text style={s.memberFieldValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {nickname}
+                </Text>
+              </View>
+              <View style={s.memberLoginField}>
+                <Text style={s.memberFieldLabel}>LogIn</Text>
+                <Text style={s.memberFieldValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {loginMethod}
+                </Text>
+              </View>
+              <View style={s.memberDateField}>
+                <Text style={s.memberFieldLabel}>Date of Issue</Text>
+                <Text style={s.memberFieldValue}>—</Text>
+              </View>
+              <Image
+                source={require('../../assets/control-room-member-star.png')}
+                resizeMode="contain"
+                style={s.memberStar}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+              <Text style={s.memberStarCopy}>Good{'\n'}Luck!!</Text>
+              <Image
+                source={require('../../assets/control-room-member-signature-one.png')}
+                resizeMode="contain"
+                style={s.memberSignatureOne}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+              <Image
+                source={require('../../assets/control-room-member-signature-two.png')}
+                resizeMode="contain"
+                style={s.memberSignatureTwo}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+              <Image
+                source={require('../../assets/control-room-member-barcode.png')}
+                resizeMode="stretch"
+                style={s.memberBarcode}
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+              />
+            </View>
+          </View>
+          {task.error ? <Text style={s.memberError}>회원 정보를 불러오지 못했습니다.</Text> : null}
+          <View style={s.guestMenu}>
+            <GuestMenuButton title="프로필과 계정" onPress={() => go('/profile')} />
+            <GuestMenuButton
+              title="우주선 관리하기"
+              onPress={() => go('/settings/universe')}
+              highlight
+            />
+            <GuestMenuButton title="알림" onPress={() => go('/settings/notifications')} />
+            <GuestMenuButton title="이용약관" onPress={() => go('/settings/terms')} />
+            <GuestMenuButton title="개인정보 처리방침" onPress={() => go('/settings/privacy')} />
+            <GuestMenuButton title="문의하기" onPress={() => go('/settings/contact')} />
+          </View>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function MemberRow({
-  title,
-  onPress,
-  last = false,
-  external = false,
-}: {
-  title: string;
-  onPress: () => void;
-  last?: boolean;
-  external?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[s.memberRow, last && s.memberRowLast]}
-    >
-      <Text style={s.memberRowText}>{title}</Text>
-      <Text style={s.memberChevron}>{external ? '↗' : '›'}</Text>
-    </Pressable>
-  );
-}
-
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
   guestSafe: { flex: 1, backgroundColor: '#e4e4e4' },
   guestScroll: { flex: 1 },
   guestContent: { flexGrow: 1, alignItems: 'center', paddingBottom: 32 },
@@ -324,109 +296,64 @@ const s = StyleSheet.create({
   guestMenuText: {
     color: '#161616',
     fontFamily: 'PretendardRegular',
+    fontWeight: '400',
     fontSize: 16,
-    lineHeight: 20,
+    lineHeight: 16,
+    letterSpacing: 0,
     includeFontPadding: false,
     textAlign: 'center',
   },
-  memberContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 },
-  memberTitle: { color: '#282636', fontSize: 25, fontWeight: '700', marginBottom: 23 },
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
-    minHeight: 72,
-    paddingHorizontal: 13,
-    backgroundColor: '#f2edf7',
-    borderRadius: 22,
-  },
-  avatar: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
-  profileText: { gap: 5 },
-  nickname: { color: '#282636', fontSize: 16, fontWeight: '700' },
-  profileSub: { color: '#aaa3b1', fontSize: 12 },
-  memberGroup: {
+  memberCard: {
+    width: 332,
+    height: 164,
+    backgroundColor: '#ffdc2e',
     borderWidth: 1,
-    borderColor: '#eeeaf3',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 3,
-    marginTop: 20,
+    borderBottomWidth: 4,
+    borderColor: '#161616',
+    borderRadius: 8,
+    overflow: 'hidden',
   },
-  memberRow: {
-    minHeight: 59,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f2eff6',
-  },
-  memberRowLast: { borderBottomWidth: 0 },
-  memberRowText: { color: '#282636', fontSize: 14 },
-  memberChevron: { color: '#b3abbc', fontSize: 19 },
-  logoutButton: {
-    minHeight: 48,
-    marginTop: 'auto',
-    paddingTop: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutText: { color: '#8c8296', fontSize: 13 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalPanel: {
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '90%',
-    backgroundColor: '#fff',
-    borderRadius: 23,
-  },
-  modalContent: { padding: 25, gap: 12 },
-  modalTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
-  modalDescription: { color: '#9a8aa4', fontSize: 13, lineHeight: 21 },
-  modalLabel: { color: '#9a8ba7', fontSize: 12, marginTop: 4 },
-  contactInput: {
-    minHeight: 115,
+  memberCardHeader: { backgroundColor: '#f1f1f1' },
+  memberPhoto: {
+    position: 'absolute',
+    left: 20,
+    top: 46,
+    width: 96,
+    height: 99,
     borderWidth: 1,
-    borderColor: '#ded4e5',
-    borderRadius: 11,
-    padding: 12,
-    backgroundColor: '#fbf9fd',
-    color: '#4e3f5b',
-    fontSize: 13,
-    lineHeight: 21,
-    textAlignVertical: 'top',
+    borderColor: '#161616',
   },
-  modalButton: {
-    minHeight: 45,
-    backgroundColor: '#f3f1f6',
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
+  memberNameField: { position: 'absolute', left: 136, top: 43, width: 91 },
+  memberLoginField: { position: 'absolute', left: 231, top: 43, width: 91 },
+  memberDateField: { position: 'absolute', left: 136, top: 73, width: 100 },
+  memberFieldLabel: {
+    color: '#161616',
+    fontFamily: 'TekoRegular',
+    fontSize: 10,
+    lineHeight: 12,
+    includeFontPadding: false,
   },
-  modalButtonText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
-  logoutActions: { flexDirection: 'row', gap: 9, marginTop: 10 },
-  logoutCancel: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
+  memberFieldValue: {
+    color: '#161616',
+    fontFamily: 'PretendardBold',
+    fontSize: 14,
+    lineHeight: 18,
+    includeFontPadding: false,
   },
-  logoutCancelText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
-  logoutConfirm: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#373044',
-    alignItems: 'center',
-    justifyContent: 'center',
+  memberStar: { position: 'absolute', right: 14, top: 70, width: 82, height: 58 },
+  memberStarCopy: {
+    position: 'absolute',
+    right: 42,
+    top: 88,
+    color: '#161616',
+    fontFamily: 'TekoRegular',
+    fontSize: 9,
+    lineHeight: 8,
+    textAlign: 'center',
+    transform: [{ rotate: '11deg' }],
   },
-  logoutConfirmText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  memberSignatureOne: { position: 'absolute', left: 139, top: 112, width: 106, height: 31 },
+  memberSignatureTwo: { position: 'absolute', left: 170, top: 129, width: 128, height: 27 },
+  memberBarcode: { position: 'absolute', right: 0, top: 43, width: 15, height: 108 },
+  memberError: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
 });
