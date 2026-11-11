@@ -75,16 +75,9 @@ function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; return
             </View>
           </View>
           <View style={s.guestMenu}>
-            <GuestMenuButton title="로그인" onPress={openSocial} />
-            <GuestMenuButton
-              title="우주선 관리하기"
-              onPress={() => go('/settings/universe')}
-              highlight
-            />
+            {/* Figma S01_1 제어실/비회원: 로그인(강조) · 알림 두 개만 둔다. */}
+            <GuestMenuButton title="로그인" onPress={openSocial} highlight />
             <GuestMenuButton title="알림" onPress={() => go('/settings/notifications')} />
-            <GuestMenuButton title="이용약관" onPress={() => go('/settings/terms')} />
-            <GuestMenuButton title="개인정보 처리방침" onPress={() => go('/settings/privacy')} />
-            <GuestMenuButton title="문의하기" onPress={() => go('/settings/contact')} />
           </View>
         </View>
       </ScrollView>
@@ -181,10 +174,10 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
                   <Text style={s.memberFieldLabel}>Date of Issue</Text>
                   <Text style={s.memberFieldValue}>—</Text>
                 </View>
-                <MemberLicenceStar style={s.memberStar} accessible={false} />
-                <MemberLicenceSignatureOne style={s.memberSignatureOne} accessible={false} />
-                <MemberLicenceSignatureTwo style={s.memberSignatureTwo} accessible={false} />
-                <MemberLicenceBarcode style={s.memberBarcode} accessible={false} />
+                <MemberLicenceStar style={s.memberStar} />
+                <MemberLicenceSignatureOne style={s.memberSignatureOne} />
+                <MemberLicenceSignatureTwo style={s.memberSignatureTwo} />
+                <MemberLicenceBarcode style={s.memberBarcode} />
               </View>
             </View>
           </View>

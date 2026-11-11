@@ -188,8 +188,6 @@ function DraggableItem({
   );
 }
 
-
-
 export function FurnitureArt({
   name,
   color,
