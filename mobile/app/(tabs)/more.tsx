@@ -288,7 +288,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#f1f1f1',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#161616',
     borderRadius: 4,
   },
@@ -296,11 +296,8 @@ const s = StyleSheet.create({
   guestMenuText: {
     color: '#161616',
     fontFamily: 'PretendardRegular',
-    fontWeight: '400',
     fontSize: 16,
-    lineHeight: 16,
-    letterSpacing: 0,
-    includeFontPadding: false,
+    lineHeight: 20,
     textAlign: 'center',
   },
   memberCard: {

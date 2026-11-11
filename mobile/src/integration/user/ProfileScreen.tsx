@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
+import { AppButton } from '../../components/AppButton';
 import { client, integrationApi as api, useMockApi } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Me } from '../models';
@@ -243,16 +244,16 @@ export default function ProfileScreen() {
                 {taskError}
               </Text>
             ) : null}
-            <AccountActionButton
-              kind="logout"
-              label="로그아웃"
-              disabled={task.busy}
+            <AppButton
+              title="로그아웃"
+              variant="light"
+              loading={task.busy}
               onPress={() => finish('logout')}
             />
-            <AccountActionButton
-              kind="withdraw"
-              label="회원탈퇴"
-              disabled={task.busy}
+            <AppButton
+              title="회원탈퇴"
+              variant="danger"
+              loading={task.busy}
               onPress={() => {
                 setAction(null);
                 setWithdrawOpen(true);
@@ -363,59 +364,6 @@ export default function ProfileScreen() {
         </View>
       </Modal>
     </SafeAreaView>
-  );
-}
-
-function AccountActionButton({
-  kind,
-  label,
-  disabled,
-  onPress,
-}: {
-  kind: ButtonKind;
-  label: string;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        s.actionButton,
-        disabled
-          ? s.actionDisabled
-          : kind === 'logout'
-            ? pressed
-              ? s.logoutPressed
-              : s.logoutDefault
-            : pressed
-              ? s.withdrawPressed
-              : s.withdrawDefault,
-      ]}
-    >
-      {({ pressed }) => (
-        <Text
-          style={[
-            s.actionText,
-            disabled
-              ? s.actionTextDisabled
-              : kind === 'logout'
-                ? pressed
-                  ? s.logoutTextPressed
-                  : s.logoutTextDefault
-                : pressed
-                  ? s.withdrawTextPressed
-                  : s.withdrawTextDefault,
-          ]}
-        >
-          {label}
-        </Text>
-      )}
-    </Pressable>
   );
 }
 
@@ -579,30 +527,6 @@ const s = StyleSheet.create({
     marginTop: 7,
   },
   bottomActions: { width: '100%', maxWidth: 312, gap: 13 },
-  actionButton: {
-    width: '100%',
-    height: 48,
-    borderWidth: 1.5,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutDefault: { backgroundColor: '#f1f1f1', borderColor: '#161616' },
-  logoutPressed: { backgroundColor: '#161616', borderColor: '#161616' },
-  withdrawDefault: { backgroundColor: '#f92669', borderColor: '#161616' },
-  withdrawPressed: { backgroundColor: '#ff558b', borderColor: '#d21450' },
-  actionDisabled: { backgroundColor: '#d9d9d9', borderColor: '#747474' },
-  actionText: {
-    fontFamily: 'PretendardRegular',
-    fontSize: 16,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-  logoutTextDefault: { color: '#161616' },
-  logoutTextPressed: { color: '#f1f1f1' },
-  withdrawTextDefault: { color: '#f1f1f1' },
-  withdrawTextPressed: { color: '#d21450' },
-  actionTextDisabled: { color: '#747474' },
   overlay: {
     flex: 1,
     backgroundColor: '#16161680',
