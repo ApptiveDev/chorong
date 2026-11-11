@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { Redirect, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BackArrow } from '../../components/settings/ControlSettingsUI';
 import Svg, { Path } from 'react-native-svg';
 import { AppButton } from '../../components/AppButton';
 import { client, integrationApi as api, useMockApi } from '../runtime';
@@ -165,7 +165,8 @@ export default function ProfileScreen() {
           contentContainerStyle={[
             s.content,
             {
-              paddingTop: Math.max(0, 52 - insets.top),
+              // 헤더 상단 여백: Safe Area 아래 32 (우주선 관리하기·알림과 동일).
+              paddingTop: 32,
               paddingBottom: Math.max(0, 52 - insets.bottom),
             },
           ]}
@@ -177,7 +178,7 @@ export default function ProfileScreen() {
               onPress={() => router.replace('/more')}
               style={s.back}
             >
-              <Ionicons name="chevron-back" size={28} color="#161616" />
+              <BackArrow />
             </Pressable>
             <Text style={s.title}>프로필과 계정</Text>
           </View>
@@ -373,7 +374,7 @@ const s = StyleSheet.create({
   loading: { flex: 1 },
   content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 32 },
   header: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 12 },
-  back: { width: 24, height: 29, justifyContent: 'center', alignItems: 'flex-start' },
+  back: { width: 14, height: 29, justifyContent: 'center', alignItems: 'center' },
   title: { color: '#161616', fontFamily: 'PretendardBold', fontSize: 24, lineHeight: 29 },
   center: {
     flexGrow: 1,

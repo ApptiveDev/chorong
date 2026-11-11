@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../../src/integration/hooks';
 import { integrationApi as api } from '../../src/integration/runtime';
 import {
@@ -37,14 +37,13 @@ export default function More() {
 
 function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; returnTo?: '/social' }) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const openSocial = () =>
     returnTo ? router.push({ pathname: '/account', params: { returnTo } }) : go('/account');
   return (
     <SafeAreaView style={s.guestSafe} edges={['top', 'left', 'right']}>
       <ScrollView
         style={s.guestScroll}
-        contentContainerStyle={[s.guestContent, { paddingTop: Math.max(8, 52 - insets.top) }]}
+        contentContainerStyle={[s.guestContent, { paddingTop: HEADER_TOP }]}
       >
         <View style={s.guestHeader}>
           <Text style={s.guestHeaderTitle}>제어실</Text>
@@ -106,7 +105,6 @@ function GuestMenuButton({
 }
 
 function MemberControlRoom({ go }: { go: (path: string) => void }) {
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const session = useIntegration();
   const task = useTask();
@@ -131,7 +129,7 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
     <SafeAreaView style={s.guestSafe} edges={['top', 'left', 'right']}>
       <ScrollView
         style={s.guestScroll}
-        contentContainerStyle={[s.guestContent, { paddingTop: Math.max(8, 52 - insets.top) }]}
+        contentContainerStyle={[s.guestContent, { paddingTop: HEADER_TOP }]}
       >
         <View style={s.guestHeader}>
           <Text style={s.guestHeaderTitle}>제어실</Text>
@@ -199,6 +197,9 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
     </SafeAreaView>
   );
 }
+
+// 헤더 상단 여백: Safe Area 아래 32. 우주선 관리하기·알림(ControlSettingsUI)과 같은 값.
+const HEADER_TOP = 32;
 
 const s = StyleSheet.create({
   guestSafe: { flex: 1, backgroundColor: '#e4e4e4' },
