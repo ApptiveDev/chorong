@@ -17,6 +17,7 @@ import { Button, Card, positiveId, styles } from '../ui';
 import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
+import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { UserScreen, UserStatus } from './Screen';
 import type { RegisterQuizFooter } from './quizFooter';
@@ -72,6 +73,7 @@ export function ReviewScreen() {
   const oxStage = !notice && current?.quiz.type === 'OX';
   const instantQuiz =
     current?.quiz.type === 'OX' ||
+    isChosungQuiz(current?.quiz) ||
     (current?.quiz.type === 'MULTIPLE_CHOICE' &&
       (!isHtmlLessonQuiz(current.quiz) || current.quiz.options?.mockHtmlType === 'single')) ||
     current?.quiz.options?.mockHtmlType === 'blank' ||
@@ -163,7 +165,15 @@ export function ReviewScreen() {
               ]}
               keyboardShouldPersistTaps="handled"
             >
-              {isHtmlLessonQuiz(current.quiz) && current.quiz.type !== 'OX' ? (
+              {isChosungQuiz(current.quiz) ? (
+                <ChosungQuiz
+                  key={current.reviewItemId}
+                  quiz={current.quiz}
+                  disabled={done.includes(current.reviewItemId)}
+                  submit={(answer) => api.review.answer(current.reviewItemId, answer)}
+                  onGraded={() => setDone((old) => [...old, current.reviewItemId])}
+                />
+              ) : isHtmlLessonQuiz(current.quiz) && current.quiz.type !== 'OX' ? (
                 <HtmlLessonQuiz
                   quiz={current.quiz}
                   disabled={done.includes(current.reviewItemId)}
