@@ -17,6 +17,7 @@ const {
 } = require('../.expo/integration-tests/mockApi');
 const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
 const { firstStudyLesson } = require('../.expo/integration-tests/user/welcomeFlow');
+const { nicknameValidationError } = require('../.expo/integration-tests/user/profileNickname');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
 const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private', expiresIn: 3600 };
@@ -441,6 +442,85 @@ test('failed logout keeps session; successful 204 logout clears persisted tokens
   assert.equal(c.getSnapshot().authenticated, false);
   assert.equal(entries.size, 0);
   assert.equal(c.getSnapshot().traces[0].api, 'API-107');
+});
+test('profile nickname validation follows the server length and rejects unsupported characters', () => {
+  assert.equal(nicknameValidationError('가'), '닉네임은 2~12자로 입력하세요.');
+  assert.equal(
+    nicknameValidationError('가나다라마바사아자차카타파'),
+    '닉네임은 2~12자로 입력하세요.',
+  );
+  assert.equal(nicknameValidationError('  별지기7  '), null);
+  assert.equal(nicknameValidationError('별 지기'), '한글, 영문, 숫자만 입력할 수 있습니다.');
+  assert.equal(nicknameValidationError('cat🌙'), '한글, 영문, 숫자만 입력할 수 있습니다.');
+});
+test('profile updates the shared member nickname only after a successful response', async () => {
+  const { c, api } = setup();
+  await login(c);
+  c.http.defaults.adapter = async (config) => fail(config, 503, 'INTERNAL');
+  await assert.rejects(api.account.update({ nickname: '새이름' }));
+  assert.equal(c.getSnapshot().user.nickname, '시험');
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { data: { ...me, nickname: '새이름' } });
+  await api.account.update({ nickname: '새이름' });
+  assert.equal(c.getSnapshot().user.nickname, '새이름');
+});
+test('withdrawal failure preserves member session and success allows a guest session', async () => {
+  const { c, api } = setup();
+  await login(c);
+  c.http.defaults.adapter = async (config) => fail(config, 503, 'INTERNAL');
+  await assert.rejects(api.account.withdraw());
+  assert.equal(c.getSnapshot().user.status, 'ACTIVE');
+  c.http.defaults.adapter = async (config) => {
+    if (config.url === '/users/me') return respond(config, '', 204);
+    if (config.url === '/auth/guest')
+      return respond(config, {
+        data: { ...tokens, user: { userId: 8, nickname: '게스트', status: 'GUEST' }, isNew: true },
+      });
+    throw new Error(`unexpected ${config.url}`);
+  };
+  await api.account.withdraw();
+  assert.equal(c.getSnapshot().authenticated, false);
+  await api.account.guest('ANDROID');
+  assert.equal(c.getSnapshot().user.status, 'GUEST');
+});
+test('a former guest device cannot restore the member after logout', async () => {
+  const entries = new Map();
+  const storage = {
+    get: async (key) => entries.get(key) ?? null,
+    set: async (key, value) => entries.set(key, value),
+    remove: async (key) => entries.delete(key),
+  };
+  const freshUuid = '12345678-1234-4234-8234-123456789abd';
+  const ids = [uuid, freshUuid];
+  const c = new IntegrationClient(
+    'https://test.invalid/api/v1',
+    storage,
+    () => ids.shift() ?? freshUuid,
+    true,
+  );
+  const api = createIntegrationApi(c);
+  await c.deviceUuid();
+  await login(c);
+  c.http.defaults.adapter = async (config) => {
+    if (config.url === '/auth/logout') return respond(config, '', 204);
+    if (config.url === '/auth/guest') {
+      const { deviceUuid } = JSON.parse(config.data);
+      const user =
+        deviceUuid === uuid
+          ? { userId: 7, nickname: '시험', status: 'ACTIVE' }
+          : { userId: 8, nickname: '게스트', status: 'GUEST' };
+      return respond(config, { data: { ...tokens, user, isNew: user.status === 'GUEST' } });
+    }
+    throw new Error(`unexpected ${config.url}`);
+  };
+  await api.account.logout(false);
+  await api.account.guest('ANDROID');
+  assert.equal(c.getSnapshot().user.status, 'ACTIVE');
+  await api.account.logout(false);
+  await c.renewGuestDeviceUuid();
+  await api.account.guest('ANDROID');
+  assert.equal(entries.get('chorong.v1.device'), freshUuid);
+  assert.equal(c.getSnapshot().user.status, 'GUEST');
 });
 test('app restart rotates stored refresh and reloads server user status', async () => {
   const { c, entries } = setup(true);
