@@ -20,7 +20,7 @@ import { UserScreen, UserStatus } from './Screen';
 
 type CatalogTab = 'owned' | 'shop';
 type Filter = 'ALL' | 'plant' | 'rug' | 'chair' | 'lamp' | 'desk' | 'shelf' | 'bed';
-type Wallet = { star: number; stardust: number };
+type Wallet = { stardust: number };
 type PendingItem = {
   key: string;
   itemId: number;
@@ -28,7 +28,7 @@ type PendingItem = {
   name: string;
   itemType: ShopItem['itemType'];
   option: Record<string, unknown>;
-  currency: 'STAR' | 'STARDUST';
+  currency: 'STARDUST';
   price: number;
   transform: PlacementInput['transform'];
 };

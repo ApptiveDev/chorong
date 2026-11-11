@@ -37,6 +37,8 @@ import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
 import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
 import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
+import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
+import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
@@ -93,7 +95,7 @@ function Study() {
   const [exitOpen, setExitOpen] = useState(false);
   const [resumePosition, setResumePosition] = useState(0);
   const [refreshNotice, setRefreshNotice] = useState(''),
-    [wallet, setWallet] = useState<{ star: number; stardust: number } | null>(null);
+    [wallet, setWallet] = useState<{ stardust: number } | null>(null);
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
   const leaveStudy = () => router.replace('/quiz');
@@ -175,9 +177,13 @@ function Study() {
   const matchingStage = quizStage && !!current.quiz && hasMatchingPairs(current.quiz);
   const singleChoiceStage = quizStage && !!current.quiz && hasSingleChoiceOptions(current.quiz);
   const multiChoiceStage = quizStage && !!current.quiz && hasMultiChoiceOptions(current.quiz);
+  const chosungStage = quizStage && isChosungQuiz(current.quiz);
+  const sliderStage = quizStage && isSliderQuiz(current.quiz);
   const instantQuiz =
     quizStage &&
     (current.quiz?.type === 'OX' ||
+      chosungStage ||
+      sliderStage ||
       fillBlankStage ||
       matchingStage ||
       multiChoiceStage ||
@@ -540,7 +546,45 @@ function Study() {
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && current.quiz ? (
-                    fillBlankStage ? (
+                    sliderStage ? (
+                      <SliderQuiz
+                        key={`${current.contentId}:${current.quiz.quizId}`}
+                        quiz={current.quiz}
+                        disabled={answered.has(current.contentId)}
+                        submit={(answer) =>
+                          api.learning.answer(current.quiz!.quizId, answer, replay)
+                        }
+                        onGraded={() =>
+                          setAnswered((previous) => new Set(previous).add(current.contentId))
+                        }
+                        onAdvance={() => {
+                          if (replay && last) {
+                            leaveStudy();
+                            return;
+                          }
+                          return advance(true);
+                        }}
+                      />
+                    ) : chosungStage ? (
+                      <ChosungQuiz
+                        key={`${current.contentId}:${current.quiz.quizId}`}
+                        quiz={current.quiz}
+                        disabled={answered.has(current.contentId)}
+                        submit={(answer) =>
+                          api.learning.answer(current.quiz!.quizId, answer, replay)
+                        }
+                        onGraded={() =>
+                          setAnswered((previous) => new Set(previous).add(current.contentId))
+                        }
+                        onAdvance={() => {
+                          if (replay && last) {
+                            leaveStudy();
+                            return;
+                          }
+                          return advance(true);
+                        }}
+                      />
+                    ) : fillBlankStage ? (
                       <FillBlankQuiz
                         key={current.contentId}
                         quiz={current.quiz}

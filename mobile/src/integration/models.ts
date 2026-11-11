@@ -20,7 +20,11 @@ export type OAuthCredential = {
   authorizationCode?: string;
 };
 export type QuizAnswer =
-  { index: number } | { texts: string[] } | { value: boolean } | { order: number[] };
+  | { index: number }
+  | { texts: string[] }
+  | { value: boolean }
+  | { order: number[] }
+  | { position: number };
 export type PageQuery = { cursor?: string; size?: number };
 export type ReportReason = 'INAPPROPRIATE_NAME' | 'ABUSE' | 'SPAM' | 'OTHER';
 export const status = enumeration('GUEST', 'ACTIVE', 'WITHDRAWN');
@@ -33,7 +37,11 @@ export const authResponse = object({
   user: userBrief,
   isNew: bool,
 });
-export const wallet = object({ star: num, stardust: num });
+export const wallet = object({
+  stardust: num,
+  energy: optional(num),
+  energyResetsAt: optional(str),
+});
 export const providers = object({
   providers: array(enumeration('EMAIL', 'GOOGLE', 'KAKAO', 'APPLE', 'GUEST')),
 });
@@ -75,7 +83,7 @@ export const courseDetail = object({
 });
 export const quiz = object({
   quizId: num,
-  type: enumeration('MULTIPLE_CHOICE', 'FILL_BLANK', 'OX', 'ORDERING'),
+  type: enumeration('MULTIPLE_CHOICE', 'FILL_BLANK', 'OX', 'ORDERING', 'CHOSUNG', 'SLIDER'),
   question: str,
   options: nullable(unknownObject),
   hint: nullable(str),
@@ -113,21 +121,31 @@ export const lessonStart = object({
   contents: array(content),
 });
 export const answerResult = object({
-  attemptId: num,
+  attemptId: optional(num),
   isCorrect: bool,
+  completed: optional(bool),
   correctAnswer: unknownObject,
-  explanation: str,
-  streakDays: num,
+  explanation: optional(str),
+  closeness: optional(num),
+  source: optional(str),
+  streakDays: optional(num),
 });
 export const reward = object({
-  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION'),
-  currency: optional(nullable(enumeration('STAR', 'STARDUST'))),
+  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION', 'ARTWORK'),
+  currency: optional(nullable(enumeration('STARDUST'))),
   amount: optional(nullable(num)),
   itemId: optional(nullable(num)),
   badge: optional(nullable(unknownObject)),
+  artwork: optional(unknownObject),
 });
 export const rewards = object({ rewards: array(reward), wallet });
-export const lessonComplete = object({ rewards: array(reward), wallet, courseCompleted: bool });
+export const lessonComplete = object({
+  rewards: array(reward),
+  wallet,
+  courseCompleted: bool,
+  quizSummary: optional(object({ correctCount: num, totalCount: num })),
+  stardustSkipped: optional(bool),
+});
 export const contentComplete = object({
   progress,
   lessonCompleted: bool,
@@ -151,7 +169,7 @@ export const placement = object({
   area: housingArea,
   transform,
   itemId: num,
-  optionId: num,
+  optionId: optional(num),
   option: unknownObject,
 });
 export const housingDetail = object({
@@ -168,7 +186,7 @@ export const itemType = enumeration('FURNITURE', 'OBJECT');
 export const shopOption = object({
   optionId: num,
   option: unknownObject,
-  currency: enumeration('STAR', 'STARDUST'),
+  currency: enumeration('STARDUST'),
   price: num,
   previewAsset: str,
   owned: bool,
@@ -179,7 +197,7 @@ export const shopItem = object({
   itemType,
   unlocked: bool,
   unlockHint: nullable(str),
-  minPrice: object({ currency: enumeration('STAR', 'STARDUST'), amount: num }),
+  minPrice: object({ currency: enumeration('STARDUST'), amount: num }),
   options: array(shopOption),
 });
 export const inventoryItem = object({
@@ -192,6 +210,24 @@ export const inventoryItem = object({
   acquiredVia: enumeration('PURCHASE', 'REWARD', 'STARTER'),
   acquiredAt: str,
   placed: bool,
+});
+export const inventoryGroup = object({
+  itemId: num,
+  optionId: num,
+  itemType,
+  name: str,
+  option: unknownObject,
+  ownedCount: num,
+  placedCount: num,
+  availableCount: num,
+  copies: array(
+    object({
+      inventoryId: str,
+      acquiredVia: enumeration('PURCHASE', 'REWARD', 'STARTER'),
+      acquiredAt: str,
+      placed: bool,
+    }),
+  ),
 });
 export type PlacementInput = {
   inventoryId: string;
@@ -226,7 +262,7 @@ export const constellation = object({
   imageUrl: nullable(str),
 });
 export const rewardRecord = object({
-  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION'),
+  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION', 'ARTWORK'),
   source: unknownObject,
   grantedAt: str,
 });

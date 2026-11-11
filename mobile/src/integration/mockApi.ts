@@ -1,6 +1,16 @@
 import type { EnabledApiId } from './catalog';
 import type { MockResponder } from './client';
-import { courses, inventory, lessons, me, room, shopItems, socialCards } from './mockData';
+import {
+  chosungMockQuizId,
+  sliderMockQuizId,
+  courses,
+  inventory,
+  lessons,
+  me,
+  room,
+  shopItems,
+  socialCards,
+} from './mockData';
 import { mockVisibility } from './mockVisibility';
 
 declare const process: { env: Record<string, string | undefined> };
@@ -37,7 +47,7 @@ const state: MockState = {
 };
 
 type MockSnapshot = {
-  version: 1;
+  version: 2;
   user: MockState['user'];
   wallet: MockState['wallet'];
   likes: number[];
@@ -56,7 +66,7 @@ type MockSnapshot = {
 
 export function mockSnapshot(): MockSnapshot {
   return {
-    version: 1,
+    version: 2,
     user: state.user,
     wallet: state.wallet,
     likes: [...state.likes],
@@ -78,9 +88,10 @@ export function restoreMockSnapshot(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const saved = value as Partial<MockSnapshot>;
   if (
-    saved.version !== 1 ||
+    saved.version !== 2 ||
     !saved.user ||
     !saved.wallet ||
+    typeof saved.wallet.energy !== 'number' ||
     !Array.isArray(saved.likes) ||
     !Array.isArray(saved.placements) ||
     !Array.isArray(saved.inventory) ||
@@ -163,6 +174,45 @@ const body = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+const groupedInventory = (items: typeof state.inventory) => {
+  const groups = new Map<string, (typeof items)[number][]>();
+  for (const item of items) {
+    const key = `${item.itemId}:${item.optionId}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.values()].map((copies) => ({
+    itemId: copies[0].itemId,
+    optionId: copies[0].optionId,
+    itemType: copies[0].itemType,
+    name: copies[0].name,
+    option: copies[0].option,
+    ownedCount: copies.length,
+    placedCount: copies.filter((copy) => copy.placed).length,
+    availableCount: copies.filter((copy) => !copy.placed).length,
+    copies: copies.map(({ inventoryId, acquiredVia, acquiredAt, placed }) => ({
+      inventoryId,
+      acquiredVia,
+      acquiredAt,
+      placed,
+    })),
+  }));
+};
+const shopContractItem = (item: (typeof shopItems)[number]) => ({
+  ...item,
+  options: item.options.map(({ owned: _owned, ...option }) => ({
+    ...option,
+    ownedCount: state.inventory.filter((copy) => copy.optionId === option.optionId).length,
+  })),
+});
+const contractPlacement = (item: (typeof room.placements)[number]) => ({
+  ...item,
+  transform: {
+    x: item.transform.x,
+    y: item.transform.y,
+    layer: item.transform.layer,
+    flippedX: (item.transform as typeof item.transform & { flippedX?: boolean }).flippedX ?? false,
+  },
+});
 const firstLessonQuiz = (quizId: number) =>
   lessons[0].contents.find((content) => content.quiz?.quizId === quizId)?.quiz;
 const scoreFirstLessonAnswer = (quizId: number, raw: unknown) => {
@@ -217,6 +267,51 @@ const scoreOtherLessonAnswer = (quizId: number, raw: unknown) => {
     correct: body(raw).index === yes.index,
     expected: [yes.index as number],
     explanation: `정답은 '${yes.label}'입니다.`,
+  };
+};
+
+// 서버 채점 대역. 명세대로 공백을 빼고 비교하고 correctAnswer 는 { answer: 문자열 } 로 돌려준다.
+const chosungMockAnswers = new Map([
+  [
+    chosungMockQuizId,
+    { answer: '증발', explanation: '물이 데워져 수증기가 되는 현상을 증발이라고 해요.' },
+  ],
+]);
+const scoreChosungAnswer = (quizId: number, raw: unknown) => {
+  const expected = chosungMockAnswers.get(quizId);
+  if (!expected) return null;
+  const answer = body(raw).answer;
+  const normalize = (value: string) => value.replace(/\s/g, '');
+  return {
+    correct: typeof answer === 'string' && normalize(answer) === normalize(expected.answer),
+    expected: expected.answer,
+    explanation: expected.explanation,
+  };
+};
+// 서버 채점 대역. 명세대로 |answer - 정답| <= 허용 오차면 정답이고 closeness(0~100)를 돌려준다.
+// 정답 위치·오차는 응답 전에는 공개하지 않는다. 근접도 계산식은 목업용이며 서버 식과 다를 수 있다.
+const sliderMockAnswers = new Map([
+  [
+    sliderMockQuizId,
+    {
+      answer: 24 / 36,
+      tolerance: 0.05,
+      explanation: '지구는 약 24시간에 한 바퀴 자전해요. 그래서 하루가 24시간이에요.',
+    },
+  ],
+]);
+const scoreSliderAnswer = (quizId: number, raw: unknown) => {
+  const expected = sliderMockAnswers.get(quizId);
+  if (!expected) return null;
+  const answer = body(raw).answer;
+  if (typeof answer !== 'number' || answer < 0 || answer > 1)
+    throw new Error('MOCK_VALIDATION_FAILED: SLIDER answer 는 0~1 숫자입니다.');
+  const distance = Math.abs(answer - expected.answer);
+  return {
+    correct: distance <= expected.tolerance,
+    expected: expected.answer,
+    explanation: expected.explanation,
+    closeness: Math.max(0, Math.round(100 - distance * 100)),
   };
 };
 
@@ -394,6 +489,8 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           : state.activeReview.get(id(options, 'reviewItemId'));
       const scored = quizId
         ? (scoreFirstLessonAnswer(quizId, input.answer) ??
+          scoreChosungAnswer(quizId, input.answer) ??
+          scoreSliderAnswer(quizId, input.answer) ??
           scoreOtherLessonAnswer(quizId, input.answer))
         : null;
       if (!scored) throw new Error(`MOCK_QUIZ_NOT_FOUND: quizId=${quizId ?? 'unknown'}`);
@@ -407,6 +504,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         attemptId: 1,
         isCorrect: scored.correct,
         correctAnswer: { answer: scored.expected },
+        ...('closeness' in scored ? { closeness: scored.closeness } : {}),
         explanation: scored.explanation ?? '내용을 잘 이해했어요.',
         streakDays: 2,
         ...(apiId === 'API-502' ? { excludedUntil: null } : {}),
@@ -504,7 +602,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({
         ...room,
         housing: { ...room.housing, isPublic: mockVisibility.get() },
-        placements: state.placements,
+        placements: state.placements.map(contractPlacement),
       });
     case 'API-703': {
       const housing = {
@@ -543,7 +641,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         ...item,
         placed: state.placements.some((placement) => placement.inventoryId === item.inventoryId),
       }));
-      return response({ placements: state.placements });
+      return response({ placements: state.placements.map(contractPlacement) });
     }
     case 'API-801':
       return response(
@@ -589,7 +687,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           placementId: selected.housingId * 10 + index,
           inventoryId: `social-${selected.housingId}-${index}`,
           area: 'INTERIOR' as const,
-          transform: { x, y, rotation: 0, layer: index },
+          transform: { x, y, flippedX: false, layer: index },
           itemId,
           optionId: option.optionId,
           option: option.option,
@@ -631,31 +729,35 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({
         items: empty
           ? []
-          : shopItems.filter(
-              (item) =>
-                !options.query ||
-                !('itemType' in options.query) ||
-                item.itemType === options.query.itemType,
-            ),
+          : shopItems
+              .filter(
+                (item) =>
+                  !options.query ||
+                  !('itemType' in options.query) ||
+                  item.itemType === options.query.itemType,
+              )
+              .map(shopContractItem),
       });
     case 'API-902': {
       const item =
         shopItems.find((value) => value.itemId === id(options, 'itemId')) ?? shopItems[0];
-      return response({ item, options: item.options });
+      const contractItem = shopContractItem(item);
+      return response({ item: contractItem, options: contractItem.options });
     }
     case 'API-903': {
-      const selections = Array.isArray(input.items) ? input.items : [];
+      const selections = (Array.isArray(input.items) ? input.items : []).flatMap((selection) => {
+        const quantity = body(selection).quantity;
+        return Array.from({ length: typeof quantity === 'number' ? quantity : 1 }, () => selection);
+      });
       const purchased = selections.flatMap((selection, index) => {
         const chosen = body(selection);
         const item = shopItems.find((value) => value.itemId === chosen.itemId);
         const option = item?.options.find((value) => value.optionId === chosen.optionId);
         if (!item || !option || !item.unlocked) return [];
-        if (state.wallet[option.currency === 'STAR' ? 'star' : 'stardust'] < option.price)
-          return [];
+        if (state.wallet.stardust < option.price) return [];
         state.wallet = {
           ...state.wallet,
-          [option.currency === 'STAR' ? 'star' : 'stardust']:
-            state.wallet[option.currency === 'STAR' ? 'star' : 'stardust'] - option.price,
+          stardust: state.wallet.stardust - option.price,
         };
         const owned = {
           inventoryId: `mock-purchase-${state.inventory.length + index + 1}`,
@@ -672,7 +774,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         option.owned = true;
         return [owned];
       });
-      return response({ inventoryItems: purchased, wallet: state.wallet });
+      return response({ inventoryItems: groupedInventory(purchased), wallet: state.wallet });
     }
     case 'API-904':
       return response(state.wallet);
@@ -714,11 +816,13 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({
         items: empty
           ? []
-          : state.inventory.filter(
-              (item) =>
-                !options.query ||
-                !('itemType' in options.query) ||
-                item.itemType === options.query.itemType,
+          : groupedInventory(
+              state.inventory.filter(
+                (item) =>
+                  !options.query ||
+                  !('itemType' in options.query) ||
+                  item.itemType === options.query.itemType,
+              ),
             ),
       });
   }

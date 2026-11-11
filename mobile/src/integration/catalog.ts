@@ -45,6 +45,7 @@ export const catalog = {
   'API-905': ['GET', '/users/me/rewards', '보상 내역 조회', 'guest'],
   'API-906': ['GET', '/constellations', '별자리 조회', 'guest'],
   'API-907': ['GET', '/users/me/inventory', '인벤토리', 'guest'],
+  'API-908': ['GET', '/users/me/artworks', '학습 그림 기록', 'deferred'],
 } as const;
 export type ApiId = keyof typeof catalog;
 export type EnabledApiId = {

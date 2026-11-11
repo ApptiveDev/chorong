@@ -443,6 +443,47 @@ export const firstLessonContents: Content[] = firstLessonSteps.map((step, index)
       : null,
   };
 });
+// CHOSUNG 목업. 서버 응답처럼 v2 명세 모양(interactionType/config)으로 두고 adapter 가 변환한다.
+// 정답은 응답에 넣지 않고 mockApi 채점(chosungMockAnswers)에만 둔다.
+export const chosungMockQuizId = 222;
+const chosungMockContent = {
+  contentId: 2204,
+  order: 4,
+  segmentId: 'a',
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: chosungMockQuizId,
+    interactionType: 'CHOSUNG',
+    question: '물이 데워져 수증기가 되어 하늘로 올라가는 현상은?',
+    instruction: '초성을 보고 낱말을 입력하세요.',
+    quizOrder: 2,
+    config: { hint: 'ㅈㅂ' },
+  },
+} as unknown as Content;
+
+// SLIDER 목업. 정답 위치·허용 오차는 응답에 넣지 않고 mockApi 채점(sliderMockAnswers)에만 둔다.
+export const sliderMockQuizId = 212;
+const sliderMockContent = {
+  contentId: 2104,
+  order: 4,
+  segmentId: 'a',
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: sliderMockQuizId,
+    interactionType: 'SLIDER',
+    question: '지구가 한 바퀴 자전하는 데\n걸리는 시간은?',
+    quizOrder: 2,
+    config: {
+      ticks: ['0시간', '12시간', '하루(24시간)', '36시간'],
+      hint: '막대를 놓으면 제출돼요.',
+    },
+  },
+} as unknown as Content;
+
 export const lessons: Lesson[] = [
   {
     lessonId: 11,
@@ -468,22 +509,28 @@ export const lessons: Lesson[] = [
     courseId: 2,
     title: '낮과 밤',
     description: '지구의 자전을 배웁니다.',
-    contents: pages(21, [
-      '지구는 하루에 한 바퀴 돕니다.',
-      '태양을 향한 쪽은 낮입니다.',
-      '반대쪽은 밤입니다.',
-    ]),
+    contents: [
+      ...pages(21, [
+        '지구는 하루에 한 바퀴 돕니다.',
+        '태양을 향한 쪽은 낮입니다.',
+        '반대쪽은 밤입니다.',
+      ]),
+      sliderMockContent,
+    ],
   },
   {
     lessonId: 22,
     courseId: 2,
     title: '비가 오는 날',
     description: '물의 순환을 배웁니다.',
-    contents: pages(22, [
-      '물이 증발해 구름이 됩니다.',
-      '구름 속 물방울이 모이면 비가 옵니다.',
-      '비는 다시 강과 바다로 흘러갑니다.',
-    ]),
+    contents: [
+      ...pages(22, [
+        '물이 증발해 구름이 됩니다.',
+        '구름 속 물방울이 모이면 비가 옵니다.',
+        '비는 다시 강과 바다로 흘러갑니다.',
+      ]),
+      chosungMockContent,
+    ],
   },
   {
     lessonId: 31,
@@ -510,7 +557,7 @@ export const me: Me = {
   nickname: '초롱이',
   status: 'ACTIVE',
   providers: ['EMAIL'],
-  wallet: { star: 120, stardust: 180 },
+  wallet: { stardust: 180, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
   progress: { completedLessons: 1, totalLessons: 15 },
   housing: { isPublic: true, likeCount: 4 },
   onboardingCompleted: true,
