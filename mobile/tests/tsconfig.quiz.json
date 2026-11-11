@@ -14,6 +14,7 @@
     "../src/lib/api.ts",
     "../src/lib/quiz.ts",
     "../src/lib/quiz-state.ts",
+    "../src/integration/contract.ts",
     "../src/types/quiz.ts"
   ]
 }

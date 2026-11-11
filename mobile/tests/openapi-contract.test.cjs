@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 
 test('API 목록은 OpenAPI 0.3.0의 경로·메서드·operationId와 일치한다', () => {
-  const spec = readFileSync(resolve(__dirname, '../../docs/openapi2.yaml'), 'utf8');
+  const spec = readFileSync(resolve(__dirname, '../../docs/openapi.yaml'), 'utf8');
   const catalog = readFileSync(resolve(__dirname, '../src/integration/catalog.ts'), 'utf8');
   const operations = [];
   let path;
