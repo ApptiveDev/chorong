@@ -318,6 +318,23 @@ test('housing save and batch purchase send PDF bodies and purchase key unchanged
   });
   assert.equal(calls[1].headers.get('Idempotency-Key'), 'purchase-key-1');
 });
+test('purchase rejected for balance keeps the server code so the room shows the shortage modal', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  c.http.defaults.adapter = async (config) => {
+    if (config.url === '/shop/purchases') fail(config, 402, 'INSUFFICIENT_BALANCE');
+    throw new Error(`unexpected ${config.url}`);
+  };
+  await assert.rejects(
+    api.room.purchase([{ itemId: 11, optionId: 12 }], 'purchase-key-2'),
+    (error) => error.code === 'INSUFFICIENT_BALANCE' && error.status === 402,
+  );
+  c.http.defaults.adapter = async (config) => fail(config, 409, 'ALREADY_OWNED');
+  await assert.rejects(
+    api.room.purchase([{ itemId: 11, optionId: 12 }], 'purchase-key-3'),
+    (error) => error.code === 'ALREADY_OWNED',
+  );
+});
 test('guest uses one stable UUID, no authorization; tokens never enter snapshots or traces', async () => {
   const { c, api, entries } = setup();
   const requests = [];

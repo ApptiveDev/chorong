@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
+
+const SCENE_BORDER = 8;
+const TOOL_MARGIN = 4;
+const TOOLS_WIDTH = 68;
+const TOOLS_HEIGHT = 32;
+const MENU_WIDTH = 120;
+const MENU_HEIGHT = 79;
+const SELECTED_BLUE = '#38acff';
 
 export type RoomSceneItem = {
   key: string;
@@ -24,6 +31,7 @@ export function RoomScene({
   onToggleLayer,
   layerMenu = false,
   onChangeLayer,
+  onClearSelection,
 }: {
   items: RoomSceneItem[];
   editable?: boolean;
@@ -35,9 +43,29 @@ export function RoomScene({
   onToggleLayer?: () => void;
   layerMenu?: boolean;
   onChangeLayer?: (front: boolean) => void;
+  // 편집 중 빈 곳을 누르면 선택을 해제한다.
+  onClearSelection?: () => void;
 }) {
   const [size, setSize] = useState({ width: 330, height: 342 });
   const selectedItem = items.find((item) => item.key === selectedKey);
+  // 절대 위치 자식은 테두리(8) 안쪽 기준이다. 편집 도구가 장면 밖으로 잘리지 않게 이 크기로 위치를 제한한다.
+  const inner = {
+    width: Math.max(0, size.width - SCENE_BORDER * 2),
+    height: Math.max(0, size.height - SCENE_BORDER * 2),
+  };
+  const clamp = (value: number, length: number, limit: number) =>
+    Math.min(Math.max(TOOL_MARGIN, value), Math.max(TOOL_MARGIN, limit - length - TOOL_MARGIN));
+  const centerX = (selectedItem?.x ?? 0) * inner.width;
+  const centerY = (selectedItem?.y ?? 0) * inner.height;
+  // Figma U01_1(656:2997): 아이템(80) 중심 기준 도구 묶음 (+6, -88), 순서 메뉴 (+7, -50).
+  const toolsPosition = {
+    left: clamp(centerX + 6, TOOLS_WIDTH, inner.width),
+    top: clamp(centerY - 88, TOOLS_HEIGHT, inner.height),
+  };
+  const menuPosition = {
+    left: clamp(centerX + 7, MENU_WIDTH, inner.width),
+    top: clamp(centerY - 50, MENU_HEIGHT, inner.height),
+  };
   return (
     <View
       style={s.scene}
@@ -53,6 +81,9 @@ export function RoomScene({
         <Text style={s.windowStars}>✦ · ✧</Text>
         <View style={s.moon} />
       </View>
+      {editable && onClearSelection ? (
+        <Pressable accessible={false} onPress={onClearSelection} style={StyleSheet.absoluteFill} />
+      ) : null}
       {[...items]
         .sort((a, b) => a.layer - b.layer)
         .map((item) => (
@@ -71,42 +102,48 @@ export function RoomScene({
         <RoomCat />
       </View>
       {editable && selectedItem && onRemove ? (
-        <View
-          style={[
-            s.selectionTools,
-            {
-              left: `${Math.min(0.77, Math.max(0.23, selectedItem.x)) * 100}%`,
-              top: `${Math.max(0.17, selectedItem.y - 0.12) * 100}%`,
-            },
-          ]}
-        >
-          <Text style={s.selectionLabel}>{selectedItem.pending ? '구매 예정' : '보유 아이템'}</Text>
+        // Figma 656:2999 button: 68×32, 배경 #F1F1F1, 테두리 0.8 #000, 모서리 16, 왼쪽 4 · 간격 8
+        <View style={[s.selectionTools, toolsPosition]}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="선택한 가구 회수"
+            accessibilityLabel={`${selectedItem.name} 배치에서 빼기`}
             onPress={onRemove}
-            style={s.toolButton}
+            hitSlop={6}
           >
-            <Ionicons name="close" size={18} color="#655174" />
+            <RemoveIcon />
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="가구 겹침 순서"
+            accessibilityLabel="겹침 순서 메뉴"
+            accessibilityState={{ expanded: layerMenu }}
             onPress={onToggleLayer}
-            style={s.toolButton}
+            hitSlop={8}
+            style={s.moreButton}
           >
-            <Ionicons name="ellipsis-horizontal" size={18} color="#655174" />
+            <MoreIcon />
           </Pressable>
         </View>
       ) : null}
       {editable && layerMenu && selectedItem && onChangeLayer ? (
-        <View style={s.layerMenu}>
-          <Pressable accessibilityRole="button" onPress={() => onChangeLayer(true)}>
-            <Text style={s.layerText}>맨 앞으로 보내기</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => onChangeLayer(false)}>
-            <Text style={s.layerText}>맨 뒤로 보내기</Text>
-          </Pressable>
+        // Figma 656:3009 Frame 153: 폭 120, 항목 높이 40, 배경 #F1F1F1, 테두리 1 #161616
+        <View style={[s.layerMenu, menuPosition]}>
+          {(
+            [
+              { front: true, label: '앞으로 보내기' },
+              { front: false, label: '뒤로 보내기' },
+            ] as const
+          ).map((entry) => (
+            <Pressable
+              key={entry.label}
+              accessibilityRole="button"
+              onPress={() => onChangeLayer(entry.front)}
+              style={[s.layerItem, entry.front ? s.layerItemTop : s.layerItemBottom]}
+            >
+              {({ pressed }) => (
+                <Text style={[s.layerText, pressed && s.layerTextPressed]}>{entry.label}</Text>
+              )}
+            </Pressable>
+          ))}
         </View>
       ) : null}
     </View>
@@ -380,6 +417,30 @@ export function FurnitureArt({
   );
 }
 
+// Figma 656:1530 button_X Variant2 (24×24, 원 #D9D9D9 · X #161616)
+function RemoveIcon() {
+  return (
+    <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+      <Rect width={24} height={24} rx={12} fill="#d9d9d9" />
+      <Path
+        d="M14.9911 8.13783C15.1696 7.95406 15.459 7.95406 15.6376 8.13783C15.816 8.32162 15.8161 8.61952 15.6376 8.80328L12.6465 11.8824L15.8661 15.1967C16.0446 15.3805 16.0446 15.6784 15.8661 15.8622C15.6876 16.046 15.3982 16.0459 15.2197 15.8622L12 12.5478L8.78033 15.8622C8.60182 16.046 8.31243 16.0459 8.1339 15.8622C7.95537 15.6784 7.95537 15.3805 8.1339 15.1967L11.3536 11.8824L8.36247 8.80328C8.18394 8.61951 8.18394 8.32161 8.36247 8.13783C8.541 7.95406 8.83038 7.95406 9.00891 8.13783L12 11.2169L14.9911 8.13783Z"
+        fill="#161616"
+      />
+    </Svg>
+  );
+}
+
+// Figma 656:1534 Frame 137 (점 3개, 20×4, #161616)
+function MoreIcon() {
+  return (
+    <Svg width={20} height={4} viewBox="0 0 20 4" fill="none">
+      <Circle cx={2} cy={2} r={2} fill="#161616" />
+      <Circle cx={10} cy={2} r={2} fill="#161616" />
+      <Circle cx={18} cy={2} r={2} fill="#161616" />
+    </Svg>
+  );
+}
+
 function RoomCat() {
   return (
     <Svg width={52} height={52} viewBox="0 0 64 64" accessibilityLabel="초롱이">
@@ -467,10 +528,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Figma 656:1512 가구 선택 pressed: 테두리 2 #38ACFF, 모서리 8
   furnitureSelected: {
     borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#765c92',
+    borderColor: SELECTED_BLUE,
     borderRadius: 8,
   },
   pendingDot: {
@@ -488,39 +549,30 @@ const s = StyleSheet.create({
   selectionTools: {
     position: 'absolute',
     zIndex: 2000,
-    transform: [{ translateX: -65 }, { translateY: -38 }],
+    width: TOOLS_WIDTH,
+    height: TOOLS_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e3d8ed',
-    borderRadius: 20,
-    paddingLeft: 9,
-    paddingRight: 3,
-    paddingVertical: 3,
+    gap: 8,
+    paddingLeft: 4,
+    paddingVertical: 4,
+    backgroundColor: '#f1f1f1',
+    borderWidth: 0.8,
+    borderColor: '#000000',
+    borderRadius: 16,
   },
-  selectionLabel: { color: '#897299', fontSize: 10 },
-  toolButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#f5f0f8',
-    alignItems: 'center',
+  moreButton: { width: 20, height: 24, alignItems: 'center', justifyContent: 'center' },
+  layerMenu: { position: 'absolute', zIndex: 2100, width: MENU_WIDTH },
+  layerItem: {
+    height: 40,
+    paddingHorizontal: 20,
     justifyContent: 'center',
-  },
-  layerMenu: {
-    position: 'absolute',
-    zIndex: 2100,
-    right: 14,
-    top: 8,
-    backgroundColor: '#fff',
+    backgroundColor: '#f1f1f1',
     borderWidth: 1,
-    borderColor: '#e4dce9',
-    borderRadius: 14,
-    padding: 7,
-    minWidth: 150,
-    gap: 3,
+    borderColor: '#161616',
   },
-  layerText: { color: '#655174', fontSize: 12, padding: 10 },
+  layerItemTop: { marginBottom: -1, borderTopLeftRadius: 8, borderTopRightRadius: 8 },
+  layerItemBottom: { borderBottomLeftRadius: 8, borderBottomRightRadius: 8 },
+  layerText: { color: '#424242', fontFamily: 'PretendardSemiBold', fontSize: 14 },
+  layerTextPressed: { color: '#aaaaaa' },
 });

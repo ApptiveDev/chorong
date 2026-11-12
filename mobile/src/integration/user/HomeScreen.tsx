@@ -4,31 +4,19 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
-import { housingVisibility, useHousingVisibility } from '../housingVisibility';
+import { housingVisibility } from '../housingVisibility';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { HousingDetail, InventoryItem } from '../models';
 import { UserStatus } from './Screen';
-import { PrivateConfirmModal, PublicConfirmModal } from './VisibilityConfirmModals';
+import {
+  shipColor as color,
+  StardustCount,
+  useVisibilityControl,
+  VisibilityBadge,
+} from './ShipStatus';
 
 // Figma D01_1 내 우주선 (547:2756)
-const color = {
-  base: '#161616',
-  fale: '#f1f1f1',
-  lght: '#aaaaaa',
-  yellow: '#ebc60f',
-  room: '#d9d9d9',
-  pressedText: '#8c8c8c',
-  offBackground: '#424242',
-};
-
-type VisibilityDialog = {
-  kind: 'public' | 'private';
-  // 헤더 '구경하기'에서 열었으면 공개 성공 뒤 구경하기 화면으로 이동한다.
-  thenBrowse: boolean;
-  requested: boolean;
-};
-
 export default function HomeScreen() {
   const { generation } = useIntegration();
   return <Home key={generation} />;
@@ -38,13 +26,11 @@ function Home() {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
-  const visibilityTask = useTask();
-  const isPublic = useHousingVisibility();
   const [room, setRoom] = useState<HousingDetail | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [starBalance, setStarBalance] = useState<number | null>(null);
-  const [dialog, setDialog] = useState<VisibilityDialog | null>(null);
-  const member = session.user?.status === 'ACTIVE';
+  const openBrowse = () => router.push({ pathname: '/social', params: { view: 'browse' } });
+  const visibility = useVisibilityControl(openBrowse);
 
   const load = () =>
     task.run(async () => {
@@ -65,40 +51,11 @@ function Home() {
     }, [session.ready, session.authenticated]),
   );
   const go = (path: string) => router.push(path as Href);
-  const openBrowse = () => router.push({ pathname: '/social', params: { view: 'browse' } });
 
   const pressBrowse = () => {
     // 비회원은 구경하기 화면의 기존 로그인 안내를 그대로 따른다.
-    if (!member) {
-      go('/social');
-      return;
-    }
-    if (isPublic === null || visibilityTask.busy) return;
-    if (isPublic) openBrowse();
-    else setDialog({ kind: 'public', thenBrowse: true, requested: false });
-  };
-
-  const pressVisibility = () => {
-    if (!member || isPublic === null || visibilityTask.busy) return;
-    setDialog({ kind: isPublic ? 'private' : 'public', thenBrowse: false, requested: false });
-  };
-
-  const closeDialog = () => {
-    if (visibilityTask.busy) return;
-    setDialog(null);
-  };
-
-  const confirmDialog = () => {
-    if (!dialog || visibilityTask.busy) return;
-    const { kind, thenBrowse } = dialog;
-    setDialog({ ...dialog, requested: true });
-    void visibilityTask.run(
-      () => housingVisibility.update(kind === 'public'),
-      () => {
-        setDialog(null);
-        if (thenBrowse && kind === 'public') openBrowse();
-      },
-    );
+    if (!visibility.member) go('/social');
+    else visibility.requestBrowse();
   };
 
   const sceneItems: RoomSceneItem[] =
@@ -114,10 +71,6 @@ function Home() {
         color: typeof option.color === 'string' ? option.color : undefined,
       };
     }) ?? [];
-
-  const visibilityKnown = isPublic !== null;
-  const visibilityDisabled = !member || !visibilityKnown || visibilityTask.busy;
-  const dialogError = dialog?.requested ? visibilityTask.error : null;
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
@@ -153,40 +106,12 @@ function Home() {
             <View style={s.ship}>
               <View style={s.shipColumn}>
                 <View style={s.shipBar}>
-                  <View
-                    style={s.stardust}
-                    accessible
-                    accessibilityLabel={`별가루 ${starBalance ?? '정보 없음'}`}
-                  >
-                    <StardustStar />
-                    <Text style={s.stardustText}>x {starBalance ?? '—'}</Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`내 우주선 공개 상태: ${
-                      visibilityKnown ? (isPublic ? '공개' : '비공개') : '확인 중'
-                    }`}
-                    accessibilityState={{ disabled: visibilityDisabled }}
-                    disabled={visibilityDisabled}
-                    onPress={pressVisibility}
-                    style={({ pressed }) => [
-                      s.visibility,
-                      isPublic ? s.visibilityOn : s.visibilityOff,
-                      pressed && isPublic && s.visibilityPressed,
-                    ]}
-                  >
-                    {({ pressed }) => (
-                      <Text
-                        style={[
-                          s.visibilityText,
-                          !isPublic && s.visibilityTextOff,
-                          pressed && isPublic && s.visibilityTextPressed,
-                        ]}
-                      >
-                        내 우주선 공개 상태
-                      </Text>
-                    )}
-                  </Pressable>
+                  <StardustCount value={starBalance} />
+                  <VisibilityBadge
+                    isPublic={visibility.isPublic}
+                    disabled={visibility.badgeDisabled}
+                    onPress={visibility.pressBadge}
+                  />
                 </View>
                 <View style={s.roomBox}>
                   <View style={s.sceneFit}>
@@ -213,21 +138,7 @@ function Home() {
           </View>
         ) : null}
       </View>
-
-      <PublicConfirmModal
-        visible={dialog?.kind === 'public'}
-        error={dialogError}
-        busy={visibilityTask.busy}
-        onCancel={closeDialog}
-        onConfirm={confirmDialog}
-      />
-      <PrivateConfirmModal
-        visible={dialog?.kind === 'private'}
-        error={dialogError}
-        busy={visibilityTask.busy}
-        onCancel={closeDialog}
-        onConfirm={confirmDialog}
-      />
+      {visibility.modals}
     </SafeAreaView>
   );
 }
@@ -260,20 +171,6 @@ function HeaderStar() {
         <Path
           d="M3.4641 0L4.22803 2.67683L6.9282 2L4.99197 4L6.9282 6L4.22803 5.32317L3.4641 8L2.70017 5.32317L0 6L1.93624 4L0 2L2.70017 2.67683L3.4641 0Z"
           fill={color.fale}
-        />
-      </Svg>
-    </View>
-  );
-}
-
-// Figma 547:2766 'Star 1' (16×16 칸, 원본 13.8564×16, #EBC60F)
-function StardustStar() {
-  return (
-    <View style={s.stardustStar}>
-      <Svg width={13.8564} height={16} viewBox="0 0 13.8564 16" fill="none">
-        <Path
-          d="M6.9282 0L8.45607 5.35366L13.8564 4L9.98393 8L13.8564 12L8.45607 10.6463L6.9282 16L5.40034 10.6463L0 12L3.87248 8L0 4L5.40034 5.35366L6.9282 0Z"
-          fill={color.yellow}
         />
       </Svg>
     </View>
@@ -318,42 +215,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  stardust: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  stardustStar: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
-  stardustText: {
-    color: color.yellow,
-    fontFamily: 'PretendardMedium',
-    fontSize: 16,
-    includeFontPadding: false,
-  },
-  // Figma 656:3852 Frame 162: Default(공개) · pressed(누름) · diasbled(비공개)
-  visibility: {
-    height: 24,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  visibilityOn: { backgroundColor: color.base, boxShadow: '0px 0px 4px 0px #f1f1f1' },
-  visibilityPressed: { boxShadow: '0px 0px 2px 0px #f1f1f1' },
-  visibilityOff: {
-    backgroundColor: color.offBackground,
-    borderWidth: 1,
-    borderColor: color.lght,
-  },
-  visibilityText: {
-    color: color.fale,
-    fontFamily: 'PretendardSemiBold',
-    fontSize: 10,
-    includeFontPadding: false,
-  },
-  visibilityTextPressed: { color: color.pressedText },
-  visibilityTextOff: { color: color.lght },
   roomBox: {
     width: '100%',
     aspectRatio: 312 / 300,
-    backgroundColor: color.room,
+    backgroundColor: color.mist,
     borderWidth: 1,
     borderColor: color.lght,
     borderRadius: 8,

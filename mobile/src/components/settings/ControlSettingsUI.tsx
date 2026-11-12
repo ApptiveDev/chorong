@@ -43,12 +43,13 @@ export function ControlSettingsScreen({
 
 // Figma '<' 글자(학교안심 별빛하늘 B 24px)를 윤곽선으로 내보낸 SVG. 설정·약관 화면 헤더 공용.
 // 원본의 #f1f1f1 2px 그림자 필터는 배경과 거의 구분되지 않고 플랫폼별 지원이 달라 생략했다.
-export function BackArrow() {
+// 어두운 배경(우주선 꾸미기 D02_1)에서는 color 에 #f1f1f1 을 넘긴다.
+export function BackArrow({ color = figma.base }: { color?: string }) {
   return (
     <Svg width={14} height={25} viewBox="0 0 14 25" fill="none">
       <Path
         d="M12.008 4.61603L5.192 12.056L12.008 19.496L9.584 22.112L2 14.024V10.088L9.584 2.00003L12.008 4.61603Z"
-        fill={figma.base}
+        fill={color}
       />
     </Svg>
   );
