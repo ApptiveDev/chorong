@@ -1,6 +1,6 @@
 import type { IntegrationClient } from './client';
 import * as m from './models';
-import { array, bool, nullable, num, object, str, unknownObject } from './schema';
+import { array, bool, nullable, num, object, optional, str, unknownObject } from './schema';
 
 export function createIntegrationApi(client: IntegrationClient) {
   const account = {
@@ -86,10 +86,13 @@ export function createIntegrationApi(client: IntegrationClient) {
         object({
           attemptId: num,
           isCorrect: bool,
-          correctAnswer: unknownObject,
-          explanation: str,
+          completed: bool,
+          correctAnswer: optional(nullable(unknownObject)),
+          explanation: optional(nullable(str)),
           streakDays: num,
           excludedUntil: nullable(str),
+          closeness: optional(num),
+          source: optional(str),
         }),
         { path: { reviewItemId }, body: { answer } },
       ),

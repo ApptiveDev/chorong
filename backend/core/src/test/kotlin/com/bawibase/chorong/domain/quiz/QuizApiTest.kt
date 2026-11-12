@@ -570,6 +570,22 @@ class QuizApiTest {
     }
 
     @Test
+    fun `invalid presentation blocks quiz lookup and submission`() {
+        val quiz = seed()
+        val managed = quizzes.findById(checkNotNull(quiz.id)).orElseThrow()
+        managed.config =
+            mapOf(
+                "options" to listOf("하나", "둘", "셋"),
+                "presentation" to mapOf("type" to "ZOOM_OUT", "mediaUrl" to "", "stages" to listOf(3, 1)),
+            )
+        quizzes.flush()
+        entityManager.clear()
+        assertEquals("QUIZ_DATA_INVALID", get("/api/quizzes/${quiz.id}", 409)["code"].asText())
+        assertEquals("QUIZ_DATA_INVALID", get("/api/quizzes?lessonId=101", 409)["code"].asText())
+        assertEquals("QUIZ_DATA_INVALID", submit(checkNotNull(quiz.id), """{"response":{"answer":1}}""", 409)["code"].asText())
+    }
+
+    @Test
     fun `a quiz without explanation is graded and omits the explanation`() {
         val fixture = fixtures().first { it["caseId"].asText() == "single" }.deepCopy<com.fasterxml.jackson.databind.node.ObjectNode>()
         fixture.remove("explanation")
@@ -730,6 +746,10 @@ class QuizApiTest {
             assertFalse("answer" in properties, name)
             assertFalse("tolerance" in properties, name)
         }
+        val presentation = resolve(schemas["SinglePresentation"])
+        assertTrue(resolve(schemas["SingleConfig"])["properties"].has("presentation"))
+        assertEquals(setOf("type"), presentation["required"].map { it.asText() }.toSet())
+        assertEquals(false, presentation["additionalProperties"].asBoolean())
         val responses =
             mapOf(
                 "OxUserResponse" to "answer",

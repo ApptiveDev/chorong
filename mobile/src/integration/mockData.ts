@@ -263,15 +263,12 @@ export const courses: CourseDetail[] = [
 
 const quiz = (quizId: number, question: string) => ({
   quizId,
-  type: 'MULTIPLE_CHOICE' as const,
+  interactionType: 'SINGLE' as const,
   question,
-  options: {
-    choices: [
-      { index: 0, label: '맞아요' },
-      { index: 1, label: '아니에요' },
-    ],
-  },
-  hint: null,
+  instruction: '하나를 고르세요.',
+  config: { options: ['맞아요', '아니에요'] },
+  difficulty: '기초',
+  quizOrder: 1,
 });
 const pages = (lessonId: number, subjects: string[]): Content[] =>
   subjects.map((body, index) => ({

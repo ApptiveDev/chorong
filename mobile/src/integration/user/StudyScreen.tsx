@@ -9,12 +9,11 @@ import type {
   QuizAnswer,
   AnswerResult,
 } from '../models';
-import { integrationApi as api, useMockApi } from '../runtime';
+import { integrationApi as api } from '../runtime';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
 import { QuizCard } from './QuizCard';
-import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 
 export default function StudyScreen() {
   const { generation } = useIntegration();
@@ -153,32 +152,17 @@ function Study() {
                   />
                 ) : null}
                 {current.contentType === 'QUIZ' && current.quiz ? (
-                  useMockApi ? (
-                    <LessonQuizWireframe
-                      key={current.contentId}
-                      lessonId={lessonId}
-                      quiz={current.quiz}
-                      disabled={answered.has(current.contentId)}
-                      submitLegacy={(answer: QuizAnswer) =>
-                        api.learning.answer(current.quiz!.quizId, answer, replay)
-                      }
-                      onAnswered={() =>
-                        setAnswered((previous) => new Set(previous).add(current.contentId))
-                      }
-                    />
-                  ) : (
-                    <QuizCard
-                      key={current.contentId}
-                      quiz={current.quiz}
-                      disabled={answered.has(current.contentId)}
-                      submit={(answer: QuizAnswer) =>
-                        api.learning.answer(current.quiz!.quizId, answer, replay)
-                      }
-                      onGraded={(_result: AnswerResult) =>
-                        setAnswered((previous) => new Set(previous).add(current.contentId))
-                      }
-                    />
-                  )
+                  <QuizCard
+                    key={current.contentId}
+                    quiz={current.quiz}
+                    disabled={answered.has(current.contentId)}
+                    submit={(answer: QuizAnswer) =>
+                      api.learning.answer(current.quiz!.quizId, answer, replay)
+                    }
+                    onGraded={(_result: AnswerResult) =>
+                      setAnswered((previous) => new Set(previous).add(current.contentId))
+                    }
+                  />
                 ) : null}
                 {current.contentType === 'QUIZ' && !current.quiz ? (
                   <Text style={styles.error}>퀴즈 내용을 불러오지 못했습니다.</Text>

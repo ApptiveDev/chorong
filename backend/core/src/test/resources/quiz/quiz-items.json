@@ -90,5 +90,70 @@
     "explanation": "제출 후 공개할 테스트 해설: chosung",
     "correctResponse": { "answer": "울트라마린" },
     "wrongResponse": { "answer": "코발트" }
+  },
+  {
+    "caseId": "single-audio",
+    "question": "소리를 듣고 악기를 고르세요.",
+    "instruction": "소리를 듣고 하나를 고르세요.",
+    "interactionType": "SINGLE",
+    "config": { "options": ["피아노", "바이올린"], "presentation": { "type": "AUDIO", "mediaUrl": "https://example.com/piano.mp3" } },
+    "answer": { "answer": 0 },
+    "quizOrder": 8,
+    "difficulty": "기초",
+    "explanation": "피아노 소리입니다.",
+    "correctResponse": { "answer": 0 },
+    "wrongResponse": { "answer": 1 }
+  },
+  {
+    "caseId": "single-tile",
+    "question": "타일을 벗기고 그림을 맞혀 보세요.",
+    "instruction": "타일을 벗기세요.",
+    "interactionType": "SINGLE",
+    "config": { "options": ["고양이", "강아지"], "presentation": { "type": "TILE", "mediaUrl": "https://example.com/cat.png", "rows": 3, "columns": 4, "stages": [1, 3, 6, 11, 12] } },
+    "answer": { "answer": 0 },
+    "quizOrder": 9,
+    "difficulty": "기초",
+    "explanation": "고양이입니다.",
+    "correctResponse": { "answer": 0 },
+    "wrongResponse": { "answer": 1 }
+  },
+  {
+    "caseId": "single-zoom",
+    "question": "그림을 보고 맞혀 보세요.",
+    "instruction": "축소하여 보세요.",
+    "interactionType": "SINGLE",
+    "config": { "options": ["나무", "구름"], "presentation": { "type": "ZOOM_OUT", "mediaUrl": "https://example.com/tree.png", "stages": [4, 3, 2, 1] } },
+    "answer": { "answer": 0 },
+    "quizOrder": 10,
+    "difficulty": "기초",
+    "explanation": "나무입니다.",
+    "correctResponse": { "answer": 0 },
+    "wrongResponse": { "answer": 1 }
+  },
+  {
+    "caseId": "single-sharpen",
+    "question": "선명해지는 그림을 보고 맞혀 보세요.",
+    "instruction": "그림을 선명하게 하세요.",
+    "interactionType": "SINGLE",
+    "config": { "options": ["달", "해"], "presentation": { "type": "SHARPEN", "mediaUrl": "https://example.com/moon.png", "stages": [24, 12, 4, 0] } },
+    "answer": { "answer": 0 },
+    "quizOrder": 11,
+    "difficulty": "기초",
+    "explanation": "달입니다.",
+    "correctResponse": { "answer": 0 },
+    "wrongResponse": { "answer": 1 }
+  },
+  {
+    "caseId": "single-inline",
+    "question": "문장에서 틀린 낱말을 고르세요.",
+    "instruction": "낱말을 누르세요.",
+    "interactionType": "SINGLE",
+    "config": { "options": ["지구는", "태양의", "주위를", "돌지", "않는다"] , "presentation": { "type": "INLINE_WORD" } },
+    "answer": { "answer": 4 },
+    "quizOrder": 12,
+    "difficulty": "기초",
+    "explanation": "지구는 태양 주위를 돕니다.",
+    "correctResponse": { "answer": 4 },
+    "wrongResponse": { "answer": 0 }
   }
 ]

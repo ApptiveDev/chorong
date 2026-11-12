@@ -20,7 +20,7 @@ export type OAuthCredential = {
   authorizationCode?: string;
 };
 export type QuizAnswer =
-  { index: number } | { texts: string[] } | { value: boolean } | { order: number[] };
+  { answer: number | string | boolean } | { answers: number[] } | { pairs: string[][] };
 export type PageQuery = { cursor?: string; size?: number };
 export type ReportReason = 'INAPPROPRIATE_NAME' | 'ABUSE' | 'SPAM' | 'OTHER';
 export const status = enumeration('GUEST', 'ACTIVE', 'WITHDRAWN');
@@ -76,10 +76,12 @@ export const courseDetail = object({
 });
 export const quiz = object({
   quizId: num,
-  type: enumeration('MULTIPLE_CHOICE', 'FILL_BLANK', 'OX', 'ORDERING'),
+  interactionType: enumeration('OX', 'SINGLE', 'MULTI', 'BLANK', 'SLIDER', 'MATCH', 'CHOSUNG'),
   question: str,
-  options: nullable(unknownObject),
-  hint: nullable(str),
+  instruction: str,
+  config: unknownObject,
+  difficulty: optional(str),
+  quizOrder: optional(num),
 });
 export const content = object({
   contentId: num,
@@ -116,9 +118,12 @@ export const lessonStart = object({
 export const answerResult = object({
   attemptId: num,
   isCorrect: bool,
-  correctAnswer: unknownObject,
-  explanation: str,
+  completed: optional(bool),
+  correctAnswer: optional(nullable(unknownObject)),
+  explanation: optional(nullable(str)),
   streakDays: num,
+  closeness: optional(num),
+  source: optional(str),
 });
 export const reward = object({
   type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION'),
