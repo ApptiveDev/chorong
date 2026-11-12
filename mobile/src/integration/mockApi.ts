@@ -665,13 +665,18 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-801':
       return response(
         {
+          // 서버처럼 차단한 사용자는 빼고 보낸다. 서버는 하우징 ID 로 소유자 user_id 를 쓴다.
           housings: empty
             ? []
-            : [...socialCards].sort((a, b) =>
-                options.query && 'sort' in options.query && options.query.sort === 'popular'
-                  ? b.likeCount - a.likeCount
-                  : a.housingId - b.housingId,
-              ),
+            : socialCards
+                .filter(
+                  (card) => !state.blockedUsers.some((user) => user.userId === card.housingId),
+                )
+                .sort((a, b) =>
+                  options.query && 'sort' in options.query && options.query.sort === 'popular'
+                    ? b.likeCount - a.likeCount
+                    : a.housingId - b.housingId,
+                ),
         },
         true,
       );

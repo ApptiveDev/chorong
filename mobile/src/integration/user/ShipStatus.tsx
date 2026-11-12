@@ -32,6 +32,43 @@ export function StarIcon({ fill }: { fill: string }) {
   );
 }
 
+// Figma 651:1361 헤더 '내 우주선 • 구경하기'. 선택 탭(Frame 133 pressed)은 #F1F1F1 24, 나머지(default)는 #AAAAAA 23.
+// Figma 는 선택 탭에 Pretendard ExtraBold 를 쓰지만 앱에 폰트 파일이 없어 Bold 로 대체한다.
+export function ShipTabsHeader({
+  active,
+  onMine,
+  onBrowse,
+}: {
+  active: 'mine' | 'browse';
+  onMine?: () => void;
+  onBrowse?: () => void;
+}) {
+  const tab = (key: 'mine' | 'browse', label: string, onPress?: () => void) => (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active === key }}
+      onPress={active === key ? undefined : onPress}
+      style={s.headerTab}
+    >
+      <Text style={active === key ? s.headerSelected : s.headerDefault}>{label}</Text>
+    </Pressable>
+  );
+  return (
+    <View style={s.header} accessibilityRole="tablist">
+      {tab('mine', '내 우주선', onMine)}
+      <View style={s.headerStar}>
+        <Svg width={6.9282} height={8} viewBox="0 0 6.9282 8" fill="none">
+          <Path
+            d="M3.4641 0L4.22803 2.67683L6.9282 2L4.99197 4L6.9282 6L4.22803 5.32317L3.4641 8L2.70017 5.32317L0 6L1.93624 4L0 2L2.70017 2.67683L3.4641 0Z"
+            fill={shipColor.fale}
+          />
+        </Svg>
+      </View>
+      {tab('browse', '구경하기', onBrowse)}
+    </View>
+  );
+}
+
 export function StardustCount({ value }: { value: number | null }) {
   return (
     <View style={s.stardust} accessible accessibilityLabel={`별가루 ${value ?? '정보 없음'}`}>
@@ -127,6 +164,27 @@ export function useVisibilityControl(onBrowse: () => void) {
 }
 
 const s = StyleSheet.create({
+  header: {
+    height: 32,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTab: { height: 32, justifyContent: 'center' },
+  headerSelected: {
+    color: shipColor.fale,
+    fontFamily: 'PretendardBold',
+    fontSize: 24,
+    includeFontPadding: false,
+  },
+  headerDefault: {
+    color: shipColor.lght,
+    fontFamily: 'PretendardBold',
+    fontSize: 23,
+    includeFontPadding: false,
+  },
+  headerStar: { width: 8, height: 8, alignItems: 'center', justifyContent: 'center' },
   star: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   stardust: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   stardustText: {

@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
 import { RoomScene } from '../../components/house/RoomScene';
 import { housingVisibility } from '../housingVisibility';
 import { integrationApi as api } from '../runtime';
@@ -12,6 +11,7 @@ import { UserStatus } from './Screen';
 import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
 import {
   shipColor as color,
+  ShipTabsHeader,
   StardustCount,
   useVisibilityControl,
   VisibilityBadge,
@@ -66,24 +66,7 @@ function Home() {
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <View style={s.page}>
         <View style={s.top}>
-          <View style={s.header} accessibilityRole="tablist">
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: true }}
-              style={s.headerTab}
-            >
-              <Text style={s.headerSelected}>내 우주선</Text>
-            </Pressable>
-            <HeaderStar />
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: false }}
-              onPress={pressBrowse}
-              style={s.headerTab}
-            >
-              <Text style={s.headerDefault}>구경하기</Text>
-            </Pressable>
-          </View>
+          <ShipTabsHeader active="mine" onBrowse={pressBrowse} />
 
           <View style={s.headerGap} />
 
@@ -161,47 +144,11 @@ function HomeAction({
   );
 }
 
-// Figma 656:1705 'Star 1' (8×8 칸, 원본 6.9282×8, #F1F1F1)
-function HeaderStar() {
-  return (
-    <View style={s.headerStar}>
-      <Svg width={6.9282} height={8} viewBox="0 0 6.9282 8" fill="none">
-        <Path
-          d="M3.4641 0L4.22803 2.67683L6.9282 2L4.99197 4L6.9282 6L4.22803 5.32317L3.4641 8L2.70017 5.32317L0 6L1.93624 4L0 2L2.70017 2.67683L3.4641 0Z"
-          fill={color.fale}
-        />
-      </Svg>
-    </View>
-  );
-}
-
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: color.base },
   // 위 묶음(헤더·우주선)과 아래 버튼을 양 끝에 붙인다. 버튼과 하단 내비게이션 사이 32.
   page: { flex: 1, minHeight: 0, paddingTop: 32, justifyContent: 'space-between' },
   top: { flexShrink: 1, minHeight: 0 },
-  header: {
-    height: 32,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTab: { height: 32, justifyContent: 'center' },
-  // Figma는 Pretendard ExtraBold. 앱에 ExtraBold 폰트 파일이 없어 Bold로 대체한다.
-  headerSelected: {
-    color: color.fale,
-    fontFamily: 'PretendardBold',
-    fontSize: 24,
-    includeFontPadding: false,
-  },
-  headerDefault: {
-    color: color.lght,
-    fontFamily: 'PretendardBold',
-    fontSize: 23,
-    includeFontPadding: false,
-  },
-  headerStar: { width: 8, height: 8, alignItems: 'center', justifyContent: 'center' },
   // Figma 헤더와 우주선 묶음 사이 120. 화면이 짧으면 줄어든다.
   headerGap: { height: 120, flexShrink: 1, minHeight: 16 },
   ship: { paddingHorizontal: 40, alignItems: 'center' },

@@ -15,7 +15,6 @@ import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene'
 import { useIntegration, useTask } from '../hooks';
 import { housingVisibility, useHousingVisibility } from '../housingVisibility';
 import {
-  type HousingCard,
   type HousingDetail,
   type HousingVisit,
   type InventoryItem,
@@ -23,6 +22,7 @@ import {
   type ShopItem,
 } from '../models';
 import { integrationApi as api } from '../runtime';
+import { BrowseView } from './BrowseView';
 import { UserScreen, UserStatus } from './Screen';
 
 const reportReasons: { value: ReportReason; label: string }[] = [
@@ -31,7 +31,6 @@ const reportReasons: { value: ReportReason; label: string }[] = [
   { value: 'SPAM', label: '스팸' },
   { value: 'OTHER', label: '기타' },
 ];
-const browseSort = 'recent';
 
 export default function SocialScreen() {
   const session = useIntegration();
@@ -43,21 +42,16 @@ export default function SocialScreen() {
   const fromBrowseTab = view === 'browse';
   const sharedPublic = useHousingVisibility();
   const [own, setOwn] = useState<HousingDetail | null>(null);
-  const [cards, setCards] = useState<HousingCard[]>([]);
-  const [visit, setVisit] = useState<HousingVisit | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
-  const [index, setIndex] = useState(0);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [showOwn, setShowOwn] = useState(true);
-  const [dialog, setDialog] = useState<'login' | 'public' | 'private' | 'menu' | 'report' | null>(
-    null,
-  );
-  const [reason, setReason] = useState<ReportReason>('OTHER');
-  const [detail, setDetail] = useState('');
+  const [dialog, setDialog] = useState<'login' | 'public' | 'private' | null>(null);
   const [notice, setNotice] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const member = session.user?.status === 'ACTIVE';
   const isPublic = sharedPublic ?? own?.housing.isPublic ?? true;
+  // 구경 목록·좋아요·신고·차단은 BrowseView(Figma D01_2)가 맡는다. 여기서는 내 우주선과 접근 제어만 다룬다.
+  const browsing = !showOwn && member && isPublic;
 
   const load = () =>
     void task.run(async () => {
@@ -70,20 +64,6 @@ export default function SocialScreen() {
       housingVisibility.set(myRoom.housing.isPublic);
       setInventory(owned.items);
       setShopItems(shop.items);
-      if (session.user?.status !== 'ACTIVE' || !myRoom.housing.isPublic) {
-        setCards([]);
-        setCursor(null);
-        setVisit(null);
-        setLoaded(true);
-        return;
-      }
-      const page = await api.social.explore({ sort: browseSort, size: 20 });
-      setCards(page.data.housings);
-      setCursor(page.meta.nextCursor);
-      setIndex(0);
-      setVisit(
-        page.data.housings.length ? await api.social.visit(page.data.housings[0].housingId) : null,
-      );
       setLoaded(true);
     });
   useFocusEffect(
@@ -102,7 +82,7 @@ export default function SocialScreen() {
     else setDialog((current) => (current === 'login' ? null : current));
   }, [session.ready, session.user?.status]);
   const browse = () => {
-    if (session.user?.status !== 'ACTIVE') {
+    if (!member) {
       setDialog('login');
       return;
     }
@@ -112,45 +92,6 @@ export default function SocialScreen() {
     }
     setShowOwn(false);
     setNotice('');
-  };
-
-  const next = () => {
-    if (!cards.length) return;
-    void task.run(async () => {
-      let nextCards = cards;
-      if (index + 1 >= cards.length && cursor) {
-        const page = await api.social.explore({ sort: browseSort, size: 20, cursor });
-        nextCards = [...cards, ...page.data.housings];
-        setCards(nextCards);
-        setCursor(page.meta.nextCursor);
-      }
-      const nextIndex = index + 1 < nextCards.length ? index + 1 : 0;
-      setVisit(await api.social.visit(nextCards[nextIndex].housingId));
-      setIndex(nextIndex);
-      setShowOwn(false);
-      setNotice('');
-    });
-  };
-  const like = () => {
-    if (!visit) return;
-    void task.run(async () => {
-      const state = visit.likedByMe
-        ? await api.social.unlike(visit.housing.housingId)
-        : await api.social.like(visit.housing.housingId);
-      setVisit({
-        ...visit,
-        likedByMe: state.likedByMe,
-        housing: { ...visit.housing, likeCount: state.likeCount },
-      });
-    });
-  };
-  const report = () => {
-    if (!visit) return;
-    void task.run(async () => {
-      await api.social.report(visit.housing.housingId, reason, detail.trim() || undefined);
-      setDialog(null);
-      setNotice('신고를 접수했습니다.');
-    });
   };
   const changeVisibility = (value: boolean) => {
     void task.run(async () => {
@@ -165,28 +106,20 @@ export default function SocialScreen() {
       setDialog(null);
       setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
       setShowOwn(!value);
-      if (value) {
-        const page = await api.social.explore({ sort: browseSort, size: 20 });
-        setCards(page.data.housings);
-        setCursor(page.meta.nextCursor);
-        setIndex(0);
-        setVisit(
-          page.data.housings.length
-            ? await api.social.visit(page.data.housings[0].housingId)
-            : null,
-        );
-      } else {
-        setCards([]);
-        setCursor(null);
-        setVisit(null);
-      }
     });
   };
+  const leave = () => (fromBrowseTab ? router.navigate('/') : router.back());
 
-  const name = showOwn ? '내 우주선' : visit?.housing.name;
-  const placements = showOwn ? (own?.placements ?? []) : visit ? visit.placements : [];
-  const count = showOwn ? (own?.housing.likeCount ?? 0) : (visit?.housing.likeCount ?? 0);
-  const sceneItems: RoomSceneItem[] = placements
+  if (browsing)
+    return (
+      <BrowseView
+        shopItems={shopItems}
+        onMyShip={() => (fromBrowseTab ? router.navigate('/') : setShowOwn(true))}
+      />
+    );
+
+  const count = own?.housing.likeCount ?? 0;
+  const sceneItems: RoomSceneItem[] = (own?.placements ?? [])
     .filter((placement) => placement.area === 'INTERIOR')
     .map((placement) => ({
       key: placement.inventoryId,
@@ -206,79 +139,38 @@ export default function SocialScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="뒤로"
-            onPress={() =>
-              fromBrowseTab ? router.navigate('/') : showOwn ? router.back() : setShowOwn(true)
-            }
+            onPress={leave}
             style={s.socialBack}
           >
             <Ionicons name="chevron-back" size={25} color="#282636" />
           </Pressable>
           <Text style={s.socialTitle} numberOfLines={1}>
-            {name ?? '다른 우주선'}
+            내 우주선
           </Text>
-          {!showOwn && visit ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="신고 또는 차단"
-              onPress={() => setDialog('menu')}
-              style={s.socialMenu}
-            >
-              <Ionicons name="ellipsis-horizontal" size={23} color="#655174" />
-            </Pressable>
-          ) : (
-            <View style={s.socialMenu} />
-          )}
+          <View style={s.socialMenu} />
         </View>
         <View style={s.socialMiddle}>
-          {name && (isPublic || showOwn) ? (
+          {loaded ? (
             <>
               <View style={[s.socialScene, screenHeight < 750 && s.socialSceneShort]}>
                 <RoomScene items={sceneItems} />
               </View>
-              {showOwn ? (
-                <View style={s.publicStatus}>
-                  <Text style={s.socialMuted}>{isPublic ? '공개' : '비공개'}</Text>
-                  <Text style={s.socialMuted}>♡ {count}</Text>
-                </View>
-              ) : null}
+              <View style={s.publicStatus}>
+                <Text style={s.socialMuted}>{isPublic ? '공개' : '비공개'}</Text>
+                <Text style={s.socialMuted}>♡ {count}</Text>
+              </View>
               <View style={s.socialBottom}>
-                {!showOwn ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: task.busy }}
-                    disabled={task.busy}
-                    onPress={like}
-                    style={[s.likeButton, visit?.likedByMe && s.likedButton]}
-                  >
-                    <Text style={s.likeText}>
-                      {visit?.likedByMe ? '♥' : '♡'} {count}
-                    </Text>
-                  </Pressable>
-                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityState={{ disabled: task.busy }}
                   disabled={task.busy}
-                  onPress={showOwn ? browse : next}
+                  onPress={browse}
                   style={s.socialPrimary}
                 >
-                  <Text style={s.socialPrimaryText}>
-                    {showOwn ? '다른 우주선 구경하기' : '다음 우주선'}
-                  </Text>
+                  <Text style={s.socialPrimaryText}>다른 우주선 구경하기</Text>
                 </Pressable>
               </View>
             </>
-          ) : loaded ? (
-            <View style={s.socialEmpty}>
-              <Text style={s.socialMuted}>지금은 구경할 우주선이 없어요.</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setShowOwn(true)}
-                style={s.socialPrimary}
-              >
-                <Text style={s.socialPrimaryText}>내 우주선으로 돌아가기</Text>
-              </Pressable>
-            </View>
           ) : null}
           <View style={s.socialStatus}>
             <UserStatus task={task} />
@@ -341,65 +233,6 @@ export default function SocialScreen() {
                   style={s.primaryButton}
                 >
                   <Text style={s.primaryText}>비공개로 전환하기</Text>
-                </Pressable>
-              </>
-            ) : dialog === 'menu' ? (
-              <>
-                <Text style={s.dialogTitle}>우주선 메뉴</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setDialog('report')}
-                  style={s.outlineButton}
-                >
-                  <Text style={s.outlineText}>신고</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled
-                  accessibilityState={{ disabled: true }}
-                  style={[s.outlineButton, s.disabled]}
-                >
-                  <Text style={s.outlineText}>차단</Text>
-                </Pressable>
-                <Text style={s.caption}>
-                  방문 응답에 사용자 ID가 없어 차단은 연결 대기 중입니다.
-                </Text>
-              </>
-            ) : dialog === 'report' ? (
-              <>
-                <Text style={s.dialogTitle}>신고</Text>
-                <Text style={s.dialogText}>
-                  대상: {visit?.ownerNickname} · {visit?.housing.name}
-                </Text>
-                <View style={s.reasons}>
-                  {reportReasons.map((entry) => (
-                    <Pressable
-                      key={entry.value}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: reason === entry.value }}
-                      onPress={() => setReason(entry.value)}
-                      style={[s.reason, reason === entry.value && s.reasonSelected]}
-                    >
-                      <Text style={s.small}>{entry.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <TextInput
-                  accessibilityLabel="신고 내용"
-                  placeholder="신고 내용 (선택)"
-                  value={detail}
-                  onChangeText={setDetail}
-                  multiline
-                  style={s.input}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: task.busy }}
-                  disabled={task.busy}
-                  onPress={report}
-                  style={s.primaryButton}
-                >
-                  <Text style={s.primaryText}>신고 접수</Text>
                 </Pressable>
               </>
             ) : null}
