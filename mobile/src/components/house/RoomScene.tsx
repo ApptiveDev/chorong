@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
+import { HousingGrid } from './HousingGrid';
+import {
+  dragTarget,
+  FURNITURE_ART,
+  FURNITURE_BOX,
+  furnitureScale,
+  type Point,
+  type Size,
+  toPixels,
+} from './placementGrid';
 
 const SCENE_BORDER = 8;
 const TOOL_MARGIN = 4;
@@ -23,10 +33,10 @@ export type RoomSceneItem = {
 export function RoomScene({
   items,
   editable = false,
+  showGrid = editable,
   selectedKey,
   onSelect,
   onMove,
-  onInvalidDrop,
   onRemove,
   onToggleLayer,
   layerMenu = false,
@@ -35,10 +45,12 @@ export function RoomScene({
 }: {
   items: RoomSceneItem[];
   editable?: boolean;
+  // 꾸미기·상점 배치 화면에서만 격자를 그린다. 조회 화면은 기본값(editable=false)으로 숨긴다.
+  showGrid?: boolean;
   selectedKey?: string | null;
   onSelect?: (key: string) => void;
+  // x·y 는 그리드에 스냅한 저장 좌표(0~1)다.
   onMove?: (key: string, x: number, y: number) => void;
-  onInvalidDrop?: () => void;
   onRemove?: () => void;
   onToggleLayer?: () => void;
   layerMenu?: boolean;
@@ -47,12 +59,16 @@ export function RoomScene({
   onClearSelection?: () => void;
 }) {
   const [size, setSize] = useState({ width: 330, height: 342 });
+  const [dragPreview, setDragPreview] = useState<Point | null>(null);
   const selectedItem = items.find((item) => item.key === selectedKey);
-  // 절대 위치 자식은 테두리(8) 안쪽 기준이다. 편집 도구가 장면 밖으로 잘리지 않게 이 크기로 위치를 제한한다.
+  // 절대 위치 자식은 테두리(8) 안쪽 기준이다. 가구 좌표·격자·편집 도구 위치를 모두 이 크기로 계산한다.
   const inner = {
     width: Math.max(0, size.width - SCENE_BORDER * 2),
     height: Math.max(0, size.height - SCENE_BORDER * 2),
   };
+  // 가구 크기를 장면 폭에 비례시켜 화면 크기가 달라도 같은 배치로 보이게 한다.
+  const furnitureBox = FURNITURE_BOX * furnitureScale(inner);
+  const previewPixels = dragPreview ? toPixels(dragPreview, inner) : null;
   const clamp = (value: number, length: number, limit: number) =>
     Math.min(Math.max(TOOL_MARGIN, value), Math.max(TOOL_MARGIN, limit - length - TOOL_MARGIN));
   const centerX = (selectedItem?.x ?? 0) * inner.width;
@@ -84,18 +100,38 @@ export function RoomScene({
       {editable && onClearSelection ? (
         <Pressable accessible={false} onPress={onClearSelection} style={StyleSheet.absoluteFill} />
       ) : null}
+      {showGrid ? <HousingGrid size={inner} /> : null}
+      {previewPixels ? (
+        // 손을 떼면 가구가 놓일 격자점. 가구보다 아래에 그린다.
+        <View
+          pointerEvents="none"
+          style={[
+            s.dropPreview,
+            {
+              left: previewPixels.left - furnitureBox / 2,
+              top: previewPixels.top - furnitureBox / 2,
+              width: furnitureBox,
+              height: furnitureBox,
+            },
+          ]}
+        >
+          <View style={s.dropPreviewDot} />
+        </View>
+      ) : null}
+      {/* 같은 layer 는 배열 순서(서버 응답의 placementId 순)를 유지한다. */}
       {[...items]
         .sort((a, b) => a.layer - b.layer)
         .map((item) => (
           <DraggableItem
             key={item.key}
             item={item}
-            sceneSize={size}
+            inner={inner}
+            boxSize={furnitureBox}
             editable={editable}
             selected={selectedKey === item.key}
             onSelect={onSelect}
             onMove={onMove}
-            onInvalidDrop={onInvalidDrop}
+            onPreview={setDragPreview}
           />
         ))}
       <View style={s.cat} pointerEvents="none">
@@ -150,60 +186,85 @@ export function RoomScene({
   );
 }
 
+const DRAG_THRESHOLD = 5;
+
 function DraggableItem({
   item,
-  sceneSize,
+  inner,
+  boxSize,
   editable,
   selected,
   onSelect,
   onMove,
-  onInvalidDrop,
+  onPreview,
 }: {
   item: RoomSceneItem;
-  sceneSize: { width: number; height: number };
+  inner: Size;
+  boxSize: number;
   editable: boolean;
   selected: boolean;
   onSelect?: (key: string) => void;
   onMove?: (key: string, x: number, y: number) => void;
-  onInvalidDrop?: () => void;
+  onPreview?: (point: Point | null) => void;
 }) {
   const offset = useRef(new Animated.ValueXY()).current;
-  const latest = useRef({ item, sceneSize, editable, onSelect, onMove, onInvalidDrop });
+  const latest = useRef({ item, inner, editable, onSelect, onMove, onPreview });
   useEffect(() => {
-    latest.current = { item, sceneSize, editable, onSelect, onMove, onInvalidDrop };
-  }, [item, sceneSize, editable, onSelect, onMove, onInvalidDrop]);
+    latest.current = { item, inner, editable, onSelect, onMove, onPreview };
+  }, [item, inner, editable, onSelect, onMove, onPreview]);
+  // 미리보기 격자점이 바뀔 때만 상위 상태를 갱신한다.
+  const previewRef = useRef<Point | null>(null);
+  const setPreview = (point: Point | null) => {
+    const previous = previewRef.current;
+    if (
+      previous === point ||
+      (previous && point && previous.x === point.x && previous.y === point.y)
+    )
+      return;
+    previewRef.current = point;
+    latest.current.onPreview?.(point);
+  };
+  // 저장 좌표가 바뀌어 새 위치로 그려지면 손을 뗄 때 남겨 둔 이동량을 지운다. 같은 커밋에서 처리해 깜빡이지 않는다.
+  useLayoutEffect(() => {
+    offset.setValue({ x: 0, y: 0 });
+  }, [item.x, item.y, inner.width, inner.height]);
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => latest.current.editable,
       onMoveShouldSetPanResponder: () => latest.current.editable,
       onPanResponderGrant: () => latest.current.onSelect?.(latest.current.item.key),
+      // 드래그 중에는 손가락을 그대로 따라가고, 놓일 격자점은 미리보기로 보여준다.
       onPanResponderMove: (_, gesture) => {
         offset.setValue({ x: gesture.dx, y: gesture.dy });
+        if (Math.hypot(gesture.dx, gesture.dy) <= DRAG_THRESHOLD) return;
+        const { item: current, inner: size } = latest.current;
+        setPreview(dragTarget(current, gesture, size));
       },
       onPanResponderRelease: (_, gesture) => {
-        const {
-          item: current,
-          sceneSize: size,
-          onMove: move,
-          onInvalidDrop: invalid,
-        } = latest.current;
-        if (Math.hypot(gesture.dx, gesture.dy) > 5) {
-          const x = Math.round((current.x + gesture.dx / size.width) * 50) / 50;
-          const y = Math.round((current.y + gesture.dy / size.height) * 50) / 50;
-          if (
-            x < 34 / size.width ||
-            x > 1 - 34 / size.width ||
-            y < 0.43 ||
-            y > 1 - 34 / size.height
-          )
-            invalid?.();
-          else move?.(current.key, x, y);
+        const { item: current, inner: size, onMove: move } = latest.current;
+        setPreview(null);
+        if (Math.hypot(gesture.dx, gesture.dy) <= DRAG_THRESHOLD) {
+          offset.setValue({ x: 0, y: 0 });
+          return;
         }
+        // 손을 떼면 가장 가까운 유효 격자점에 맞춘다. 범위 밖이면 가장 가까운 유효 칸으로 옮긴다.
+        const target = dragTarget(current, gesture, size);
+        if (target.x === current.x && target.y === current.y) {
+          offset.setValue({ x: 0, y: 0 });
+          return;
+        }
+        const from = toPixels(current, size);
+        const to = toPixels(target, size);
+        offset.setValue({ x: to.left - from.left, y: to.top - from.top });
+        move?.(current.key, target.x, target.y);
+      },
+      onPanResponderTerminate: () => {
+        setPreview(null);
         offset.setValue({ x: 0, y: 0 });
       },
-      onPanResponderTerminate: () => offset.setValue({ x: 0, y: 0 }),
     }),
   ).current;
+  const scale = boxSize / FURNITURE_BOX;
   return (
     <Animated.View
       {...pan.panHandlers}
@@ -212,14 +273,24 @@ function DraggableItem({
       accessibilityLabel={editable ? `${item.name} 선택 및 이동` : undefined}
       style={[
         s.furniture,
-        { left: `${item.x * 100}%`, top: `${item.y * 100}%`, zIndex: item.layer + 2 },
+        {
+          left: `${item.x * 100}%`,
+          top: `${item.y * 100}%`,
+          width: boxSize,
+          height: boxSize,
+          zIndex: item.layer + 2,
+        },
         selected && s.furnitureSelected,
         {
-          transform: [{ translateX: -32 }, { translateY: -32 }, ...offset.getTranslateTransform()],
+          transform: [
+            { translateX: -boxSize / 2 },
+            { translateY: -boxSize / 2 },
+            ...offset.getTranslateTransform(),
+          ],
         },
       ]}
     >
-      <FurnitureArt name={item.name} color={item.color} />
+      <FurnitureArt name={item.name} color={item.color} size={FURNITURE_ART * scale} />
       {item.pending ? <View style={s.pendingDot} /> : null}
     </Animated.View>
   );
@@ -523,11 +594,21 @@ const s = StyleSheet.create({
   },
   furniture: {
     position: 'absolute',
-    width: 65,
-    height: 65,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  dropPreview: {
+    position: 'absolute',
+    zIndex: 1,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: SELECTED_BLUE,
+    borderRadius: 8,
+    backgroundColor: 'rgba(56, 172, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dropPreviewDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: SELECTED_BLUE },
   // Figma 656:1512 가구 선택 pressed: 테두리 2 #38ACFF, 모서리 8
   furnitureSelected: {
     borderWidth: 2,

@@ -12,6 +12,13 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FurnitureArt, RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import {
+  bringToFront,
+  initialPoint,
+  type LayerEntry,
+  nextLayer,
+  sendToBack,
+} from '../../components/house/placementGrid';
 import { BackArrow } from '../../components/settings/ControlSettingsUI';
 import { useIntegration, useTask } from '../hooks';
 import type { HousingDetail, InventoryItem, PlacementInput, ShopItem } from '../models';
@@ -78,11 +85,12 @@ const colorMatches = (option: Record<string, unknown>, key: ColorKey) => {
   const choice = colorChoices.find((entry) => entry.key === key);
   return Boolean(value && choice?.pattern.test(value));
 };
-const nextTransform = (count: number): PlacementInput['transform'] => ({
-  x: 0.36 + (count % 3) * 0.14,
-  y: Math.min(0.86, 0.55 + Math.floor(count / 3) * 0.08),
+// 새 가구는 유효 격자점에 두고 맨 앞 layer(최대 9)를 준다.
+// rotation 은 프론트 모델 필드일 뿐 API-702 요청에는 보내지 않는다(contract.placementRequest).
+const nextTransform = (count: number, layers: number[]): PlacementInput['transform'] => ({
+  ...initialPoint(count),
   rotation: 0,
-  layer: count + 1,
+  layer: nextLayer(layers),
 });
 
 // 바텀시트 높이(Figma): 내 아이템 접힘 404 · 펼침 532, 상점은 색상 줄(28 + 간격 16)만큼 더 높다.
@@ -338,6 +346,10 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     })),
   ];
 
+  const usedLayers = (placed: PlacementInput[], planned: PendingItem[]) => [
+    ...placed.map((item) => item.transform.layer),
+    ...planned.map((item) => item.transform.layer),
+  ];
   const addOwned = (item: InventoryItem) => {
     if (placedIds.has(item.inventoryId)) return;
     setDraft((items) => [
@@ -345,7 +357,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       {
         inventoryId: item.inventoryId,
         area: 'INTERIOR',
-        transform: nextTransform(items.length + pending.length),
+        transform: nextTransform(items.length + pending.length, usedLayers(items, pending)),
       },
     ]);
     setSelectedKey(item.inventoryId);
@@ -391,7 +403,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         option: choice.option,
         currency: choice.currency,
         price: choice.price,
-        transform: nextTransform(draft.length + items.length),
+        transform: nextTransform(draft.length + items.length, usedLayers(draft, items)),
       },
     ]);
     setSelectedKey(key);
@@ -421,17 +433,14 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     setSelectedKey(null);
     setLayerMenu(false);
   };
+  // 맨 앞으로·맨 뒤로. API-702 layer 범위(0~9) 안에서 대상만 다른 가구와 다른 값을 갖게 한다.
   const changeLayer = (front: boolean) => {
     if (!selectedKey) return;
-    const ordered = [
+    const entries: LayerEntry[] = [
       ...draft.map((item) => ({ key: item.inventoryId, layer: item.transform.layer })),
       ...pending.map((item) => ({ key: item.key, layer: item.transform.layer })),
-    ]
-      .sort((a, b) => a.layer - b.layer)
-      .filter((item) => item.key !== selectedKey);
-    if (front) ordered.push({ key: selectedKey, layer: 0 });
-    else ordered.unshift({ key: selectedKey, layer: 0 });
-    const layers = new Map(ordered.map((item, index) => [item.key, index]));
+    ];
+    const layers = front ? bringToFront(entries, selectedKey) : sendToBack(entries, selectedKey);
     setDraft((items) =>
       items.map((item) => ({
         ...item,
@@ -645,6 +654,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
               <RoomScene
                 items={sceneItems}
                 editable
+                showGrid
                 selectedKey={selectedKey}
                 onSelect={(key) => {
                   setSelectedKey(key);
@@ -656,7 +666,6 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
                   setLayerMenu(false);
                 }}
                 onMove={moveItem}
-                onInvalidDrop={() => setNotice('가구는 우주선 안에 놓아주세요.')}
                 onRemove={removeSelected}
                 onToggleLayer={() => setLayerMenu((value) => !value)}
                 layerMenu={layerMenu}
