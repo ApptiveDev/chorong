@@ -390,7 +390,8 @@ function Study() {
           <UserStatus task={task} />
         </View>
       ) : (
-        <UserStatus task={task} />
+        // 콘텐츠 완료 보고 중 스피너가 흐름에 끼어 화면 전체가 내려갔다 올라오지 않게 띄워서 표시한다.
+        <UserStatus task={task} floatingBusy />
       )}
       {replay && !lessonDone ? (
         <Text

@@ -15,7 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackArrow } from '../../components/settings/ControlSettingsUI';
 import Svg, { Path } from 'react-native-svg';
 import { AppButton } from '../../components/AppButton';
@@ -35,7 +35,6 @@ type ButtonKind = 'logout' | 'withdraw';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const session = useIntegration();
   const task = useTask();
   const inputRef = useRef<TextInput>(null);
@@ -167,7 +166,8 @@ export default function ProfileScreen() {
             {
               // 헤더 상단 여백: Safe Area 아래 32 (우주선 관리하기·알림과 동일).
               paddingTop: 32,
-              paddingBottom: Math.max(0, 52 - insets.bottom),
+              // 하단 내비게이션 바(Safe Area) 위로 52 를 띄운다.
+              paddingBottom: 52,
             },
           ]}
         >

@@ -1,14 +1,12 @@
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackArrow } from './settings/ControlSettingsUI';
 
 export function SettingsHeader({ title, onBack }: { title: string; onBack?: () => void }) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
 
   return (
-    <View style={[s.header, { paddingTop: Math.max(0, 32 - insets.top) }]}>
+    <View style={s.header}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="뒤로가기"
@@ -36,6 +34,8 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    // Safe Area 아래 32. 우주선 관리하기·알림(ControlSettingsUI)과 같은 값.
+    paddingTop: 32,
     paddingHorizontal: 32,
     marginBottom: 60,
   },
