@@ -23,6 +23,7 @@ import { client, integrationApi as api, useMockApi } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Me } from '../models';
 import { nicknameValidationError } from './profileNickname';
+import { SessionConfirmModal } from './SessionConfirmModal';
 
 const providerLabels: Record<string, string> = {
   EMAIL: '이메일 로그인',
@@ -43,6 +44,7 @@ export default function ProfileScreen() {
   const [nicknameOpen, setNicknameOpen] = useState(false);
   const [editError, setEditError] = useState('');
   const [action, setAction] = useState<Action>(null);
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
   const member = session.authenticated && session.user?.status === 'ACTIVE';
@@ -100,6 +102,16 @@ export default function ProfileScreen() {
       return result;
     });
   };
+  const closeLogout = () => {
+    if (task.busy) return;
+    setLogoutOpen(false);
+    setAction(null);
+  };
+  const closeWithdraw = () => {
+    if (task.busy) return;
+    setWithdrawOpen(false);
+    setAction(null);
+  };
   const finish = (kind: ButtonKind) => {
     if (task.busy) return;
     setAction(kind);
@@ -112,6 +124,7 @@ export default function ProfileScreen() {
         setEndingSession(false);
         throw error;
       }
+      if (kind === 'logout') setLogoutOpen(false);
       setWithdrawOpen(false);
       const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
       if (platform || useMockApi) {
@@ -240,22 +253,22 @@ export default function ProfileScreen() {
             </View>
           </View>
           <View style={s.bottomActions}>
-            {action === 'logout' && taskError ? (
-              <Text accessibilityRole="alert" style={s.error}>
-                {taskError}
-              </Text>
-            ) : null}
             <AppButton
               title="로그아웃"
               variant="light"
               loading={task.busy}
-              onPress={() => finish('logout')}
+              onPress={() => {
+                if (task.busy) return;
+                setAction(null);
+                setLogoutOpen(true);
+              }}
             />
             <AppButton
               title="회원탈퇴"
               variant="danger"
               loading={task.busy}
               onPress={() => {
+                if (task.busy) return;
                 setAction(null);
                 setWithdrawOpen(true);
               }}
@@ -323,47 +336,28 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-      <Modal
+      <SessionConfirmModal
+        visible={logoutOpen}
+        title="로그아웃 할까요 ?"
+        notice="로그아웃하면 일부 기능을 이용할 수 없어요."
+        confirmLabel="로그아웃"
+        error={action === 'logout' ? taskError : null}
+        busy={task.busy}
+        onCancel={closeLogout}
+        onConfirm={() => finish('logout')}
+      />
+      <SessionConfirmModal
         visible={withdrawOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          if (!task.busy) setWithdrawOpen(false);
-        }}
-      >
-        <View style={s.overlay}>
-          <View style={s.modal}>
-            <Text style={s.modalTitle}>회원탈퇴</Text>
-            <Text style={s.modalCopy}>
-              탈퇴하면 로그인할 수 없고 인증 수단이 해제됩니다. 계정 삭제는 90일 뒤 예정되며 복구가
-              제한될 수 있습니다.
-            </Text>
-            {action === 'withdraw' && taskError ? (
-              <Text accessibilityRole="alert" style={s.error}>
-                {taskError}
-              </Text>
-            ) : null}
-            <View style={s.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={task.busy}
-                onPress={() => setWithdrawOpen(false)}
-                style={s.modalCancel}
-              >
-                <Text style={s.modalCancelText}>취소</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={task.busy}
-                onPress={() => finish('withdraw')}
-                style={s.modalConfirm}
-              >
-                <Text style={s.modalConfirmText}>탈퇴하기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="회원 탈퇴"
+        notice={
+          '탈퇴하면 학습 기록, 별가루, 꾸민 우주선은 다시 이용할 수 없어요.\n탈퇴는 되돌릴 수 없어요.'
+        }
+        confirmLabel="탈퇴 요청"
+        error={action === 'withdraw' ? taskError : null}
+        busy={task.busy}
+        onCancel={closeWithdraw}
+        onConfirm={() => finish('withdraw')}
+      />
     </SafeAreaView>
   );
 }
@@ -535,35 +529,4 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
-  modal: { width: '100%', maxWidth: 354, borderRadius: 4, backgroundColor: '#f1f1f1', padding: 24 },
-  modalTitle: { color: '#161616', fontFamily: 'PretendardBold', fontSize: 20, lineHeight: 25 },
-  modalCopy: {
-    color: '#161616',
-    fontFamily: 'PretendardRegular',
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 12,
-  },
-  modalActions: { flexDirection: 'row', gap: 8, marginTop: 24 },
-  modalCancel: {
-    flex: 1,
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#161616',
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalCancelText: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 14 },
-  modalConfirm: {
-    flex: 1,
-    height: 44,
-    backgroundColor: '#f92669',
-    borderWidth: 1,
-    borderColor: '#161616',
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalConfirmText: { color: '#f1f1f1', fontFamily: 'PretendardRegular', fontSize: 14 },
 });

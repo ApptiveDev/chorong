@@ -1,6 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Modal,
   Pressable,
@@ -86,9 +86,11 @@ export default function SocialScreen() {
       );
       setLoaded(true);
     });
-  useEffect(() => {
-    if (session.ready && session.authenticated) load();
-  }, [session.ready, session.user?.status]);
+  useFocusEffect(
+    useCallback(() => {
+      if (session.ready && session.authenticated) load();
+    }, [session.ready, session.authenticated, session.user?.status]),
+  );
   useEffect(() => {
     if (!session.ready) return;
     if (session.user?.status === 'GUEST') setDialog('login');

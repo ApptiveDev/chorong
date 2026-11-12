@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'expo-router';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import {
   ControlSettingRow,
@@ -11,6 +11,7 @@ import { useIntegration, useTask } from '../../src/integration/hooks';
 import { mockVisibility } from '../../src/integration/mockVisibility';
 import type { BlockedUser, Me } from '../../src/integration/models';
 import { integrationApi as api, useMockApi } from '../../src/integration/runtime';
+import { SessionConfirmModal } from '../../src/integration/user/SessionConfirmModal';
 
 // Figma S03_1 · 우주선 관리 (497:454)
 export default function UniverseSettings() {
@@ -21,7 +22,9 @@ export default function UniverseSettings() {
   const [users, setUsers] = useState<BlockedUser[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [confirmPrivate, setConfirmPrivate] = useState(false);
+  const [visibilityRequested, setVisibilityRequested] = useState(false);
   const [unblockUser, setUnblockUser] = useState<BlockedUser | null>(null);
+  const [unblockRequested, setUnblockRequested] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
   const mockPublic = useSyncExternalStore(
     mockVisibility.subscribe,
@@ -46,7 +49,9 @@ export default function UniverseSettings() {
     if (member) void load();
   }, [member]);
 
-  const changeVisibility = (value: boolean) =>
+  const changeVisibility = (value: boolean) => {
+    if (task.busy) return;
+    if (!value) setVisibilityRequested(true);
     void task.run(async () => {
       const housing = await api.room.update({ isPublic: value });
       setMe((current) =>
@@ -56,7 +61,15 @@ export default function UniverseSettings() {
       );
       if (useMockApi) mockVisibility.set(housing.isPublic);
       setDialogVisible(false);
+      setVisibilityRequested(false);
     });
+  };
+
+  const closeVisibility = () => {
+    if (task.busy) return;
+    setDialogVisible(false);
+    setVisibilityRequested(false);
+  };
 
   const loadMore = () =>
     void task.run(async () => {
@@ -66,15 +79,28 @@ export default function UniverseSettings() {
       setCursor(page.meta.nextCursor);
     });
 
-  const unblock = () =>
+  const closeUnblock = () => {
+    if (task.busy) return;
+    setDialogVisible(false);
+    setUnblockUser(null);
+    setUnblockRequested(false);
+  };
+
+  const unblock = () => {
+    if (task.busy || !unblockUser) return;
+    const userId = unblockUser.userId;
+    setUnblockRequested(true);
     void task.run(async () => {
-      if (!unblockUser) return;
-      await api.social.unblock(unblockUser.userId);
+      await api.social.unblock(userId);
+      setUsers((current) => current.filter((user) => user.userId !== userId));
+      setDialogVisible(false);
+      setUnblockUser(null);
+      setUnblockRequested(false);
       const page = await api.social.blocks({ size: 20 });
       setUsers(page.data.users);
       setCursor(page.meta.nextCursor);
-      setDialogVisible(false);
     });
+  };
 
   return (
     <ControlSettingsScreen title="우주선 관리하기" onBack={() => router.replace('/more')}>
@@ -84,9 +110,11 @@ export default function UniverseSettings() {
           value={isPublic}
           disabled={!me || task.busy}
           onPress={() => {
+            if (!me || task.busy) return;
             if (!isPublic) return changeVisibility(true);
             setUnblockUser(null);
             setConfirmPrivate(true);
+            setVisibilityRequested(false);
             setDialogVisible(true);
           }}
         />
@@ -114,8 +142,10 @@ export default function UniverseSettings() {
                   disabled={task.busy}
                   hitSlop={10}
                   onPress={() => {
+                    if (task.busy) return;
                     setConfirmPrivate(false);
                     setUnblockUser(user);
+                    setUnblockRequested(false);
                     setDialogVisible(true);
                   }}
                 >
@@ -138,45 +168,33 @@ export default function UniverseSettings() {
         {session.ready && !member ? (
           <Text style={s.notice}>로그인하면 우주선을 관리할 수 있습니다.</Text>
         ) : null}
-        {task.error ? <Text style={s.error}>{task.error}</Text> : null}
+        {task.error && !unblockUser ? <Text style={s.error}>{task.error}</Text> : null}
       </ScrollView>
 
-      <Modal
-        visible={dialogVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDialogVisible(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.dialog}>
-            <Text style={s.dialogTitle}>
-              {confirmPrivate ? '우주선을 비공개로 바꿀까요?' : '차단을 해제할까요?'}
-            </Text>
-            <Text style={s.dialogCopy}>
-              {confirmPrivate
-                ? '다른 별지기에게 보이지 않고, 다른 우주선도 구경할 수 없어요.'
-                : '이 사용자의 우주선이 다시 구경 목록에 나타날 수 있어요.'}
-            </Text>
-            <View style={s.actions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setDialogVisible(false)}
-                style={s.secondary}
-              >
-                <Text style={s.actionText}>취소</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={task.busy}
-                onPress={() => (confirmPrivate ? changeVisibility(false) : unblock())}
-                style={s.primary}
-              >
-                <Text style={s.actionText}>{confirmPrivate ? '비공개로 변경' : '해제'}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <SessionConfirmModal
+        visible={dialogVisible && confirmPrivate}
+        title="우주선 공개를 해제할까요?"
+        notice="우주선 공개를 해제하면 다른 우주선을 구경할 수 없어요."
+        noticeWeight="medium"
+        scrollable
+        confirmLabel="해제하기"
+        error={visibilityRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeVisibility}
+        onConfirm={() => changeVisibility(false)}
+      />
+      <SessionConfirmModal
+        visible={dialogVisible && !confirmPrivate && !!unblockUser}
+        title="차단을 해제할까요?"
+        notice="해제한 사용자는 다시 구경 목록에 나올 수 있어요."
+        noticeWeight="medium"
+        scrollable
+        confirmLabel="해제하기"
+        error={unblockRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeUnblock}
+        onConfirm={unblock}
+      />
     </ControlSettingsScreen>
   );
 }
@@ -245,18 +263,4 @@ const s = StyleSheet.create({
   more: { paddingTop: 12, color: figma.base, fontFamily: 'PretendardMedium', fontSize: 14 },
   notice: { marginTop: 16, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
   error: { marginTop: 16, color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 14 },
-  overlay: { flex: 1, backgroundColor: '#16161666', justifyContent: 'center', padding: 32 },
-  dialog: { backgroundColor: figma.fale, borderRadius: 8, padding: 24, gap: 16 },
-  dialogTitle: { color: figma.base, fontFamily: 'PretendardBold', fontSize: 20 },
-  dialogCopy: { color: figma.base, fontFamily: 'PretendardRegular', fontSize: 14, lineHeight: 20 },
-  actions: { flexDirection: 'row', gap: 12 },
-  secondary: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: figma.base,
-  },
-  primary: { flex: 1, alignItems: 'center', padding: 12, backgroundColor: '#70e2f1' },
-  actionText: { color: figma.base, fontFamily: 'PretendardMedium', fontSize: 14 },
 });
