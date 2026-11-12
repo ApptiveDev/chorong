@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -13,7 +13,7 @@ import {
 import { TopDownRoom } from '../../components/house/TopDownRoom';
 import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
 import { useIntegration, useTask } from '../hooks';
-import { mockVisibility } from '../mockVisibility';
+import { housingVisibility, useHousingVisibility } from '../housingVisibility';
 import {
   type HousingCard,
   type HousingDetail,
@@ -22,7 +22,7 @@ import {
   type ReportReason,
   type ShopItem,
 } from '../models';
-import { integrationApi as api, useMockApi } from '../runtime';
+import { integrationApi as api } from '../runtime';
 import { UserScreen, UserStatus } from './Screen';
 
 const reportReasons: { value: ReportReason; label: string }[] = [
@@ -38,11 +38,10 @@ export default function SocialScreen() {
   const task = useTask();
   const router = useRouter();
   const { height: screenHeight } = useWindowDimensions();
-  const mockPublic = useSyncExternalStore(
-    mockVisibility.subscribe,
-    mockVisibility.get,
-    mockVisibility.get,
-  );
+  // 내 우주선 헤더의 '구경하기'로 들어오면 view=browse. 내 우주선 미리보기를 건너뛰고 바로 구경한다.
+  const { view } = useLocalSearchParams<{ view?: string }>();
+  const fromBrowseTab = view === 'browse';
+  const sharedPublic = useHousingVisibility();
   const [own, setOwn] = useState<HousingDetail | null>(null);
   const [cards, setCards] = useState<HousingCard[]>([]);
   const [visit, setVisit] = useState<HousingVisit | null>(null);
@@ -58,7 +57,7 @@ export default function SocialScreen() {
   const [detail, setDetail] = useState('');
   const [notice, setNotice] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const isPublic = useMockApi ? mockPublic : (own?.housing.isPublic ?? true);
+  const isPublic = sharedPublic ?? own?.housing.isPublic ?? true;
 
   const load = () =>
     void task.run(async () => {
@@ -68,6 +67,7 @@ export default function SocialScreen() {
         api.room.shop(),
       ]);
       setOwn(myRoom);
+      housingVisibility.set(myRoom.housing.isPublic);
       setInventory(owned.items);
       setShopItems(shop.items);
       if (session.user?.status !== 'ACTIVE' || !myRoom.housing.isPublic) {
@@ -90,6 +90,11 @@ export default function SocialScreen() {
     useCallback(() => {
       if (session.ready && session.authenticated) load();
     }, [session.ready, session.authenticated, session.user?.status]),
+  );
+  useFocusEffect(
+    useCallback(() => {
+      if (fromBrowseTab) setShowOwn(false);
+    }, [fromBrowseTab]),
   );
   useEffect(() => {
     if (!session.ready) return;
@@ -149,7 +154,7 @@ export default function SocialScreen() {
   };
   const changeVisibility = (value: boolean) => {
     void task.run(async () => {
-      const housing = await api.room.update({ isPublic: value });
+      const housing = await housingVisibility.update(value);
       setOwn(
         (current) =>
           current && {
@@ -157,7 +162,6 @@ export default function SocialScreen() {
             housing: { ...current.housing, name: housing.name, isPublic: housing.isPublic },
           },
       );
-      if (useMockApi) mockVisibility.set(housing.isPublic);
       setDialog(null);
       setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
       setShowOwn(!value);
@@ -202,7 +206,9 @@ export default function SocialScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="뒤로"
-            onPress={() => (showOwn ? router.back() : setShowOwn(true))}
+            onPress={() =>
+              fromBrowseTab ? router.navigate('/') : showOwn ? router.back() : setShowOwn(true)
+            }
             style={s.socialBack}
           >
             <Ionicons name="chevron-back" size={25} color="#282636" />

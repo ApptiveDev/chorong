@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -8,10 +8,14 @@ import {
   figma,
 } from '../../src/components/settings/ControlSettingsUI';
 import { useIntegration, useTask } from '../../src/integration/hooks';
-import { mockVisibility } from '../../src/integration/mockVisibility';
+import { housingVisibility, useHousingVisibility } from '../../src/integration/housingVisibility';
 import type { BlockedUser, Me } from '../../src/integration/models';
-import { integrationApi as api, useMockApi } from '../../src/integration/runtime';
+import { integrationApi as api } from '../../src/integration/runtime';
 import { SessionConfirmModal } from '../../src/integration/user/SessionConfirmModal';
+import {
+  PrivateConfirmModal,
+  PublicConfirmModal,
+} from '../../src/integration/user/VisibilityConfirmModals';
 
 // Figma S03_1 · 우주선 관리 (497:454)
 export default function UniverseSettings() {
@@ -27,12 +31,8 @@ export default function UniverseSettings() {
   const [unblockUser, setUnblockUser] = useState<BlockedUser | null>(null);
   const [unblockRequested, setUnblockRequested] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
-  const mockPublic = useSyncExternalStore(
-    mockVisibility.subscribe,
-    mockVisibility.get,
-    mockVisibility.get,
-  );
-  const isPublic = useMockApi ? mockPublic : (me?.housing.isPublic ?? false);
+  const sharedPublic = useHousingVisibility();
+  const isPublic = sharedPublic ?? me?.housing.isPublic ?? false;
   const member = session.ready && session.user?.status === 'ACTIVE';
 
   const load = () =>
@@ -42,6 +42,7 @@ export default function UniverseSettings() {
         api.social.blocks({ size: 20 }),
       ]);
       setMe(account);
+      housingVisibility.set(account.housing.isPublic);
       setUsers(page.data.users);
       setCursor(page.meta.nextCursor);
     });
@@ -54,13 +55,12 @@ export default function UniverseSettings() {
     if (task.busy) return;
     setVisibilityRequested(true);
     void task.run(async () => {
-      const housing = await api.room.update({ isPublic: value });
+      const housing = await housingVisibility.update(value);
       setMe((current) =>
         current
           ? { ...current, housing: { ...current.housing, isPublic: housing.isPublic } }
           : current,
       );
-      if (useMockApi) mockVisibility.set(housing.isPublic);
       setDialogVisible(false);
       setConfirmPublic(false);
       setVisibilityRequested(false);
@@ -175,27 +175,15 @@ export default function UniverseSettings() {
         {task.error && !unblockUser ? <Text style={s.error}>{task.error}</Text> : null}
       </ScrollView>
 
-      <SessionConfirmModal
+      <PublicConfirmModal
         visible={dialogVisible && confirmPublic}
-        title="우주선을 공개하고 구경할까요?"
-        notice={'다른 사용자에게 내 우주선이 보여요.\n공개 여부는 제어실에서 바꿀 수 있어요.'}
-        noticeWeight="medium"
-        publicVisibility
-        scrollable
-        cancelLabel="나중에"
-        confirmLabel="공개하고 구경"
         error={visibilityRequested ? task.error : null}
         busy={task.busy}
         onCancel={closeVisibility}
         onConfirm={() => changeVisibility(true)}
       />
-      <SessionConfirmModal
+      <PrivateConfirmModal
         visible={dialogVisible && confirmPrivate}
-        title="우주선 공개를 해제할까요?"
-        notice="우주선 공개를 해제하면 다른 우주선을 구경할 수 없어요."
-        noticeWeight="medium"
-        scrollable
-        confirmLabel="해제하기"
         error={visibilityRequested ? task.error : null}
         busy={task.busy}
         onCancel={closeVisibility}
