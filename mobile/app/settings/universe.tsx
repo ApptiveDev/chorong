@@ -22,6 +22,7 @@ export default function UniverseSettings() {
   const [users, setUsers] = useState<BlockedUser[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [confirmPrivate, setConfirmPrivate] = useState(false);
+  const [confirmPublic, setConfirmPublic] = useState(false);
   const [visibilityRequested, setVisibilityRequested] = useState(false);
   const [unblockUser, setUnblockUser] = useState<BlockedUser | null>(null);
   const [unblockRequested, setUnblockRequested] = useState(false);
@@ -51,7 +52,7 @@ export default function UniverseSettings() {
 
   const changeVisibility = (value: boolean) => {
     if (task.busy) return;
-    if (!value) setVisibilityRequested(true);
+    setVisibilityRequested(true);
     void task.run(async () => {
       const housing = await api.room.update({ isPublic: value });
       setMe((current) =>
@@ -61,6 +62,7 @@ export default function UniverseSettings() {
       );
       if (useMockApi) mockVisibility.set(housing.isPublic);
       setDialogVisible(false);
+      setConfirmPublic(false);
       setVisibilityRequested(false);
     });
   };
@@ -68,6 +70,7 @@ export default function UniverseSettings() {
   const closeVisibility = () => {
     if (task.busy) return;
     setDialogVisible(false);
+    setConfirmPublic(false);
     setVisibilityRequested(false);
   };
 
@@ -111,9 +114,9 @@ export default function UniverseSettings() {
           disabled={!me || task.busy}
           onPress={() => {
             if (!me || task.busy) return;
-            if (!isPublic) return changeVisibility(true);
             setUnblockUser(null);
-            setConfirmPrivate(true);
+            setConfirmPrivate(isPublic);
+            setConfirmPublic(!isPublic);
             setVisibilityRequested(false);
             setDialogVisible(true);
           }}
@@ -144,6 +147,7 @@ export default function UniverseSettings() {
                   onPress={() => {
                     if (task.busy) return;
                     setConfirmPrivate(false);
+                    setConfirmPublic(false);
                     setUnblockUser(user);
                     setUnblockRequested(false);
                     setDialogVisible(true);
@@ -171,6 +175,20 @@ export default function UniverseSettings() {
         {task.error && !unblockUser ? <Text style={s.error}>{task.error}</Text> : null}
       </ScrollView>
 
+      <SessionConfirmModal
+        visible={dialogVisible && confirmPublic}
+        title="우주선을 공개하고 구경할까요?"
+        notice={'다른 사용자에게 내 우주선이 보여요.\n공개 여부는 제어실에서 바꿀 수 있어요.'}
+        noticeWeight="medium"
+        publicVisibility
+        scrollable
+        cancelLabel="나중에"
+        confirmLabel="공개하고 구경"
+        error={visibilityRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeVisibility}
+        onConfirm={() => changeVisibility(true)}
+      />
       <SessionConfirmModal
         visible={dialogVisible && confirmPrivate}
         title="우주선 공개를 해제할까요?"
