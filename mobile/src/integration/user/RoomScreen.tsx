@@ -24,13 +24,9 @@ import {
   InsufficientStardustModal,
   PurchaseConfirmModal,
 } from './HousingConfirmModals';
-import {
-  shipColor as color,
-  StarIcon,
-  StardustCount,
-  useVisibilityControl,
-  VisibilityBadge,
-} from './ShipStatus';
+import { housingVisibility, useHousingVisibility } from '../housingVisibility';
+import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
+import { shipColor as color, StarIcon, StardustCount, VisibilityBadge } from './ShipStatus';
 
 // Figma D02_1 우주선 꾸미기 · 내 아이템 (547:2672) · D02_3 상점 · 목록 올림 (651:1070)
 type CatalogTab = 'owned' | 'shop';
@@ -108,7 +104,8 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
-  const visibility = useVisibilityControl();
+  const isPublic = useHousingVisibility();
+  const [infoOpen, setInfoOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [catalogTab, setCatalogTab] = useState<CatalogTab>(initialTab);
@@ -234,6 +231,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         api.room.shop(),
       ]);
       setRoom(housing);
+      housingVisibility.set(housing.housing.isPublic);
       setInventory(owned.items);
       setWallet(balance);
       setShopItems(store.items);
@@ -637,9 +635,9 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
           <View style={s.shipBar}>
             <StardustCount value={wallet?.stardust ?? null} />
             <VisibilityBadge
-              isPublic={visibility.isPublic}
-              disabled={visibility.badgeDisabled}
-              onPress={visibility.pressBadge}
+              isPublic={isPublic}
+              disabled={!room}
+              onPress={() => setInfoOpen(true)}
             />
           </View>
           <View style={s.roomBox}>
@@ -877,7 +875,15 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         onCancel={() => setExitOpen(false)}
         onConfirm={discardAndLeave}
       />
-      {visibility.modals}
+      {/* 편집 중인 배치가 아니라 서버에 저장된 배치를 보여준다. 편집 상태는 건드리지 않는다. */}
+      <ShipInfoPopup
+        visible={infoOpen}
+        nickname={session.user?.nickname ?? null}
+        isPublic={isPublic}
+        likeCount={room?.housing.likeCount ?? null}
+        items={savedSceneItems(room, inventory)}
+        onClose={() => setInfoOpen(false)}
+      />
     </SafeAreaView>
   );
 }

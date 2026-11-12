@@ -3,12 +3,13 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { RoomScene } from '../../components/house/RoomScene';
 import { housingVisibility } from '../housingVisibility';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { HousingDetail, InventoryItem } from '../models';
 import { UserStatus } from './Screen';
+import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
 import {
   shipColor as color,
   StardustCount,
@@ -29,6 +30,7 @@ function Home() {
   const [room, setRoom] = useState<HousingDetail | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [starBalance, setStarBalance] = useState<number | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
   const openBrowse = () => router.push({ pathname: '/social', params: { view: 'browse' } });
   const visibility = useVisibilityControl(openBrowse);
 
@@ -58,19 +60,7 @@ function Home() {
     else visibility.requestBrowse();
   };
 
-  const sceneItems: RoomSceneItem[] =
-    room?.placements.map((placement) => {
-      const owned = inventory.find((item) => item.inventoryId === placement.inventoryId);
-      const option = (owned?.option ?? placement.option) as Record<string, unknown>;
-      return {
-        key: placement.inventoryId,
-        name: owned?.name ?? '배치 아이템',
-        x: placement.transform.x,
-        y: placement.transform.y,
-        layer: placement.transform.layer,
-        color: typeof option.color === 'string' ? option.color : undefined,
-      };
-    }) ?? [];
+  const sceneItems = savedSceneItems(room, inventory);
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
@@ -109,8 +99,8 @@ function Home() {
                   <StardustCount value={starBalance} />
                   <VisibilityBadge
                     isPublic={visibility.isPublic}
-                    disabled={visibility.badgeDisabled}
-                    onPress={visibility.pressBadge}
+                    disabled={!room}
+                    onPress={() => setInfoOpen(true)}
                   />
                 </View>
                 <View style={s.roomBox}>
@@ -139,6 +129,14 @@ function Home() {
         ) : null}
       </View>
       {visibility.modals}
+      <ShipInfoPopup
+        visible={infoOpen}
+        nickname={session.user?.nickname ?? null}
+        isPublic={visibility.isPublic}
+        likeCount={room?.housing.likeCount ?? null}
+        items={sceneItems}
+        onClose={() => setInfoOpen(false)}
+      />
     </SafeAreaView>
   );
 }

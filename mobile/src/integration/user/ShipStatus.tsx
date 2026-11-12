@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useIntegration, useTask } from '../hooks';
 import { housingVisibility, useHousingVisibility } from '../housingVisibility';
-import { PrivateConfirmModal, PublicConfirmModal } from './VisibilityConfirmModals';
+import { PublicConfirmModal } from './VisibilityConfirmModals';
 
 // 내 우주선(D01_1)·우주선 꾸미기(D02_1)가 함께 쓰는 별가루 표시와 공개 상태 버튼.
 export const shipColor = {
@@ -41,7 +41,8 @@ export function StardustCount({ value }: { value: number | null }) {
   );
 }
 
-// Figma 656:3852 Frame 162: Default(공개) · pressed(누름) · diasbled(비공개 모양, 누를 수 있음)
+// Figma 656:3852 Frame 162: Default(공개) · pressed(누름) · diasbled(비공개 모양, 누를 수 있음).
+// 공개 설정을 바꾸지 않는다. 누르면 내 우주선 정보 팝업(M06_1)을 연다.
 export function VisibilityBadge({
   isPublic,
   disabled,
@@ -80,31 +81,19 @@ export function VisibilityBadge({
   );
 }
 
-type VisibilityDialog = {
-  kind: 'public' | 'private';
-  // 헤더 '구경하기'에서 열었으면 공개 성공 뒤 구경하기 화면으로 이동한다.
-  thenBrowse: boolean;
-  requested: boolean;
-};
-
-// 공개 상태 버튼과 확인 모달 연결. 상태는 모달에서 확정하고 API가 성공했을 때만 바뀐다.
-export function useVisibilityControl(onBrowse?: () => void) {
+// 헤더 '구경하기' 접근 제어. 공개면 바로 구경하기로, 비공개면 공개하기 모달을 띄우고
+// 공개 API 가 성공했을 때만 구경하기로 보낸다. (공개 상태 버튼은 정보 팝업만 연다. ShipInfoPopup 참고)
+export function useVisibilityControl(onBrowse: () => void) {
   const session = useIntegration();
   const task = useTask();
   const isPublic = useHousingVisibility();
-  const [dialog, setDialog] = useState<VisibilityDialog | null>(null);
+  const [dialog, setDialog] = useState<{ requested: boolean } | null>(null);
   const member = session.user?.status === 'ACTIVE';
-  const badgeDisabled = !member || isPublic === null || task.busy;
-
-  const pressBadge = () => {
-    if (badgeDisabled) return;
-    setDialog({ kind: isPublic ? 'private' : 'public', thenBrowse: false, requested: false });
-  };
 
   const requestBrowse = () => {
     if (!member || isPublic === null || task.busy) return;
-    if (isPublic) onBrowse?.();
-    else setDialog({ kind: 'public', thenBrowse: true, requested: false });
+    if (isPublic) onBrowse();
+    else setDialog({ requested: false });
   };
 
   const close = () => {
@@ -114,38 +103,27 @@ export function useVisibilityControl(onBrowse?: () => void) {
 
   const confirm = () => {
     if (!dialog || task.busy) return;
-    const { kind, thenBrowse } = dialog;
-    setDialog({ ...dialog, requested: true });
+    setDialog({ requested: true });
     void task.run(
-      () => housingVisibility.update(kind === 'public'),
+      () => housingVisibility.update(true),
       () => {
         setDialog(null);
-        if (thenBrowse && kind === 'public') onBrowse?.();
+        onBrowse();
       },
     );
   };
 
-  const error = dialog?.requested ? task.error : null;
   const modals = (
-    <>
-      <PublicConfirmModal
-        visible={dialog?.kind === 'public'}
-        error={error}
-        busy={task.busy}
-        onCancel={close}
-        onConfirm={confirm}
-      />
-      <PrivateConfirmModal
-        visible={dialog?.kind === 'private'}
-        error={error}
-        busy={task.busy}
-        onCancel={close}
-        onConfirm={confirm}
-      />
-    </>
+    <PublicConfirmModal
+      visible={dialog !== null}
+      error={dialog?.requested ? task.error : null}
+      busy={task.busy}
+      onCancel={close}
+      onConfirm={confirm}
+    />
   );
 
-  return { isPublic, member, badgeDisabled, pressBadge, requestBrowse, modals };
+  return { isPublic, member, requestBrowse, modals };
 }
 
 const s = StyleSheet.create({
