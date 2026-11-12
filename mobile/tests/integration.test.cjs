@@ -1502,7 +1502,7 @@ test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', a
   }
 });
 
-test('목업 레슨 시작은 명세대로 처음 시작할 때만 에너지 1개를 쓴다', () => {
+test('목업 레슨 시작은 처음 시작할 때만 에너지를 쓰고, 에너지 없이 마치면 별가루를 주지 않는다', () => {
   const original = JSON.parse(JSON.stringify(mockSnapshot()));
   try {
     const fresh = {
@@ -1522,6 +1522,19 @@ test('목업 레슨 시작은 명세대로 처음 시작할 때만 에너지 1�
     assert.equal(restoreMockSnapshot({ ...fresh, wallet: { ...fresh.wallet, energy: 0 } }), true);
     start();
     assert.equal(mockApi('API-904', {}).data.data.energy, 0);
+
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const contents = mockApi('API-403', { path: { lessonId: 21 } }).data.data.contents;
+    let result;
+    for (const content of contents)
+      result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion.stardustSkipped, true);
+    assert.equal(
+      result.completion.rewards.some((item) => item.type === 'WALLET'),
+      false,
+    );
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
   } finally {
     restoreMockSnapshot(original);
   }

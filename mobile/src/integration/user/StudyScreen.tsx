@@ -81,7 +81,7 @@ function Study() {
   // 온보딩 '첫 학습 시작하기'로 들어온 비회원(GUEST)의 첫 학습. 완료 후 로그인 유도 모달을 띄운다.
   const { user } = useIntegration();
   const [loginOpen, setLoginOpen] = useState(false);
-  // 첫 학습 시작 전 에너지. 완료 응답의 지갑 에너지와 비교해 실제로 쓴 만큼만 표시한다.
+  // 레슨 시작 전 에너지. 완료 응답의 지갑 에너지와 비교해 실제로 쓴 만큼만 표시한다.
   const [energyBefore, setEnergyBefore] = useState<number | null>(null);
   const [quizFooter, setQuizFooter] = useState<{
     quizId: number;
@@ -108,13 +108,11 @@ function Study() {
   useEffect(() => {
     let active = true;
     void task.run(async () => {
-      if (params.fromWelcome === 'true') {
-        try {
-          const balance = await api.benefits.wallet();
-          if (active && typeof balance.energy === 'number') setEnergyBefore(balance.energy);
-        } catch {
-          // 에너지 표시는 선택 정보라 조회 실패와 관계없이 학습을 시작한다.
-        }
+      try {
+        const balance = await api.benefits.wallet();
+        if (active && typeof balance.energy === 'number') setEnergyBefore(balance.energy);
+      } catch {
+        // 에너지 표시는 선택 정보라 조회 실패와 관계없이 학습을 시작한다.
       }
       const data = await api.learning.start(lessonId, replay);
       if (!active) return data;
@@ -327,11 +325,11 @@ function Study() {
         ?.amount ?? 0)
     : 0;
   const firstWelcomeStudy = params.fromWelcome === 'true' && user?.status === 'GUEST';
+  // 명세 LessonCompleteResponse.stardustSkipped: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
+  const stardustSkipped = reward?.stardustSkipped === true;
   const energyAfter = reward?.wallet.energy;
   const energySpent =
-    firstWelcomeStudy && energyBefore !== null && typeof energyAfter === 'number'
-      ? energyBefore - energyAfter
-      : 0;
+    energyBefore !== null && typeof energyAfter === 'number' ? energyBefore - energyAfter : 0;
   const completionView = Boolean(
     start && !start.reviewRequired && lessonDone && !showConstellation,
   );
@@ -478,7 +476,11 @@ function Study() {
                   <CompletionStar size={212 * completionScale} />
                 </View>
                 <Text style={[s.resultTitle, { top: completionTop(400) }]}>
-                  {firstWelcomeStudy ? '첫 별을 밝혔어요 !' : '별을 밝혔어요 !'}
+                  {stardustSkipped
+                    ? '별을 밝혔어요'
+                    : firstWelcomeStudy
+                      ? '첫 별을 밝혔어요 !'
+                      : '별을 밝혔어요 !'}
                 </Text>
                 <View style={[s.resultSubtitleUnderline, { top: completionTop(458) }]}>
                   <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
@@ -493,16 +495,29 @@ function Study() {
                     <Text style={s.rewardAmount}>별가루 +{stardustReward}</Text>
                   </View>
                 ) : null}
-                {firstWelcomeStudy ? (
-                  // Figma L06_1 첫 학습 완료(342:445): 별가루 아래에 사용한 에너지만 표시한다.
-                  energySpent > 0 ? (
-                    <View style={[s.energyRow, { top: completionTop(551) }]}>
-                      <EnergyIcon />
-                      <Text style={s.energyText}>에너지 -{energySpent}</Text>
-                    </View>
-                  ) : null
-                ) : constellationCompleted || wallet || refreshNotice.startsWith('완료 처리됨') ? (
-                  <View style={[s.completionDetails, { top: completionTop(556) }]}>
+                {stardustSkipped ? (
+                  // Figma L06_3 학습 완료 / 에너지 없음(656:3753): 레슨명 아래 28
+                  <Text style={[s.noEnergyText, { top: completionTop(505) }]}>
+                    이번에는 에너지가 없어 보상이 없어요
+                  </Text>
+                ) : null}
+                {/* Figma L06_1 첫 학습 완료(342:445)·L06_2 일반 학습 완료: 별가루 아래 12 에 사용한 에너지 */}
+                {energySpent > 0 ? (
+                  <View style={[s.energyRow, { top: completionTop(551) }]}>
+                    <EnergyIcon />
+                    <Text style={s.energyText}>에너지 -{energySpent}</Text>
+                  </View>
+                ) : null}
+                {firstWelcomeStudy || stardustSkipped ? null : constellationCompleted ||
+                  wallet ||
+                  refreshNotice.startsWith('완료 처리됨') ? (
+                  // 에너지 줄이 있으면 그 아래(551 + 20 + 12)로 내려 겹치지 않게 한다.
+                  <View
+                    style={[
+                      s.completionDetails,
+                      { top: completionTop(energySpent > 0 ? 583 : 556) },
+                    ]}
+                  >
                     {constellationCompleted ? (
                       <Text style={s.completionDetail}>별자리가 완성되었어요.</Text>
                     ) : null}
@@ -1111,6 +1126,15 @@ const s = StyleSheet.create({
   },
   rewardIcon: { width: 18, height: 20 },
   // Figma 656:2108: 아이콘·문구 간격 8, 높이 20, Pretendard Light 14 #e4e4e4, 1px #f1f1f1 그림자
+  noEnergyText: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    color: '#d9d9d9',
+    fontSize: 14,
+    fontFamily: 'PretendardMedium',
+    textAlign: 'center',
+  },
   energyRow: {
     position: 'absolute',
     left: 0,

@@ -143,9 +143,14 @@ const courseDone = (courseId: number) =>
     ?.lessons.every(
       (item) => item.status === 'COMPLETED' || state.rewardedLessons.has(item.lessonId),
     ) ?? false;
-const completion = (courseId?: number, newBadge = false) => ({
+// 에너지 0 으로 시작한 레슨. 명세(API-404): 완료해도 레슨 별가루를 주지 않는다(stardustSkipped).
+// 별 뱃지·코스 보상은 에너지와 무관하다. 목업 스냅샷에는 저장하지 않는다.
+const noEnergyLessons = new Set<number>();
+const completion = (courseId?: number, newBadge = false, stardustSkipped = false) => ({
   rewards: [
-    { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 },
+    ...(stardustSkipped
+      ? []
+      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]),
     ...(newBadge
       ? [
           { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 },
@@ -162,6 +167,7 @@ const completion = (courseId?: number, newBadge = false) => ({
   ],
   wallet: state.wallet,
   courseCompleted: courseId ? courseDone(courseId) : false,
+  ...(stardustSkipped ? { stardustSkipped: true } : {}),
 });
 const auth = () => ({
   accessToken: 'mock-access',
@@ -434,10 +440,11 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       const energy = state.wallet.energy ?? 0;
       if (
         !state.startedLessons.has(selected.lessonId) &&
-        !state.rewardedLessons.has(selected.lessonId) &&
-        energy > 0
-      )
-        state.wallet = { ...state.wallet, energy: energy - 1 };
+        !state.rewardedLessons.has(selected.lessonId)
+      ) {
+        if (energy > 0) state.wallet = { ...state.wallet, energy: energy - 1 };
+        else noEnergyLessons.add(selected.lessonId);
+      }
       state.startedLessons.add(selected.lessonId);
       const completedContents = selected.contents.filter((content) =>
         state.completed.has(content.contentId),
@@ -465,9 +472,12 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       const done =
         !!selected && selected.contents.every((content) => state.completed.has(content.contentId));
       let newBadge = false;
+      const stardustSkipped = !!selected && noEnergyLessons.has(selected.lessonId);
       if (done && selected && !state.rewardedLessons.has(selected.lessonId)) {
         state.rewardedLessons.add(selected.lessonId);
-        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+        noEnergyLessons.delete(selected.lessonId);
+        if (!stardustSkipped)
+          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
         if (
           courseDone(selected.courseId) &&
           !state.completedConstellations.has(selected.courseId)
@@ -487,7 +497,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                 ?.contentId ?? null),
         },
         lessonCompleted: done,
-        completion: done ? completion(selected?.courseId, newBadge) : null,
+        completion: done ? completion(selected?.courseId, newBadge, stardustSkipped) : null,
       });
     }
     case 'API-406':
