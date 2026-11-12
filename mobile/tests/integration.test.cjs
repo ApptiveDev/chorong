@@ -1501,3 +1501,28 @@ test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', a
     }
   }
 });
+
+test('목업 레슨 시작은 명세대로 처음 시작할 때만 에너지 1개를 쓴다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 5 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    const start = () => mockApi('API-404', { path: { lessonId: 21 }, body: { replay: false } });
+    start();
+    assert.equal(mockApi('API-904', {}).data.data.energy, 4);
+    start();
+    assert.equal(mockApi('API-904', {}).data.data.energy, 4);
+
+    assert.equal(restoreMockSnapshot({ ...fresh, wallet: { ...fresh.wallet, energy: 0 } }), true);
+    start();
+    assert.equal(mockApi('API-904', {}).data.data.energy, 0);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});

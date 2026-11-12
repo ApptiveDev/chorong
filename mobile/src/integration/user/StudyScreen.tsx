@@ -46,6 +46,8 @@ import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
 import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { HomeStars } from './CoursesScreen';
+import { FirstStudyLoginModal } from './FirstStudyLoginModal';
+import Svg, { Path, Rect } from 'react-native-svg';
 import type { RegisterQuizFooter } from './quizFooter';
 
 const completionStarSource = require('../../../assets/completion-star.png');
@@ -76,6 +78,11 @@ function Study() {
   const [lessonDone, setLessonDone] = useState(false),
     [reward, setReward] = useState<LessonCompleteResponse | null>(null);
   const [showConstellation, setShowConstellation] = useState(false);
+  // 온보딩 '첫 학습 시작하기'로 들어온 비회원(GUEST)의 첫 학습. 완료 후 로그인 유도 모달을 띄운다.
+  const { user } = useIntegration();
+  const [loginOpen, setLoginOpen] = useState(false);
+  // 첫 학습 시작 전 에너지. 완료 응답의 지갑 에너지와 비교해 실제로 쓴 만큼만 표시한다.
+  const [energyBefore, setEnergyBefore] = useState<number | null>(null);
   const [quizFooter, setQuizFooter] = useState<{
     quizId: number;
     enabled: boolean;
@@ -101,6 +108,14 @@ function Study() {
   useEffect(() => {
     let active = true;
     void task.run(async () => {
+      if (params.fromWelcome === 'true') {
+        try {
+          const balance = await api.benefits.wallet();
+          if (active && typeof balance.energy === 'number') setEnergyBefore(balance.energy);
+        } catch {
+          // 에너지 표시는 선택 정보라 조회 실패와 관계없이 학습을 시작한다.
+        }
+      }
       const data = await api.learning.start(lessonId, replay);
       if (!active) return data;
       loadedLessonId.current = lessonId;
@@ -311,6 +326,12 @@ function Study() {
     ? (reward?.rewards.filter((item) => item.type === 'WALLET' && item.currency === 'STARDUST')[1]
         ?.amount ?? 0)
     : 0;
+  const firstWelcomeStudy = params.fromWelcome === 'true' && user?.status === 'GUEST';
+  const energyAfter = reward?.wallet.energy;
+  const energySpent =
+    firstWelcomeStudy && energyBefore !== null && typeof energyAfter === 'number'
+      ? energyBefore - energyAfter
+      : 0;
   const completionView = Boolean(
     start && !start.reviewRequired && lessonDone && !showConstellation,
   );
@@ -456,7 +477,9 @@ function Study() {
                 <View style={[s.completionStarWrap, { top: completionTop(124) }]}>
                   <CompletionStar size={212 * completionScale} />
                 </View>
-                <Text style={[s.resultTitle, { top: completionTop(400) }]}>별을 밝혔어요 !</Text>
+                <Text style={[s.resultTitle, { top: completionTop(400) }]}>
+                  {firstWelcomeStudy ? '첫 별을 밝혔어요 !' : '별을 밝혔어요 !'}
+                </Text>
                 <View style={[s.resultSubtitleUnderline, { top: completionTop(458) }]}>
                   <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
                 </View>
@@ -470,7 +493,15 @@ function Study() {
                     <Text style={s.rewardAmount}>별가루 +{stardustReward}</Text>
                   </View>
                 ) : null}
-                {constellationCompleted || wallet || refreshNotice.startsWith('완료 처리됨') ? (
+                {firstWelcomeStudy ? (
+                  // Figma L06_1 첫 학습 완료(342:445): 별가루 아래에 사용한 에너지만 표시한다.
+                  energySpent > 0 ? (
+                    <View style={[s.energyRow, { top: completionTop(551) }]}>
+                      <EnergyIcon />
+                      <Text style={s.energyText}>에너지 -{energySpent}</Text>
+                    </View>
+                  ) : null
+                ) : constellationCompleted || wallet || refreshNotice.startsWith('완료 처리됨') ? (
                   <View style={[s.completionDetails, { top: completionTop(556) }]}>
                     {constellationCompleted ? (
                       <Text style={s.completionDetail}>별자리가 완성되었어요.</Text>
@@ -785,11 +816,13 @@ function Study() {
                         ? () => quizFooter?.onPress()
                         : lessonDone
                           ? () =>
-                              params.fromWelcome === 'true'
-                                ? leaveStudy()
-                                : constellationCompleted
-                                  ? setShowConstellation(true)
-                                  : leaveStudy()
+                              firstWelcomeStudy
+                                ? setLoginOpen(true)
+                                : params.fromWelcome === 'true'
+                                  ? leaveStudy()
+                                  : constellationCompleted
+                                    ? setShowConstellation(true)
+                                    : leaveStudy()
                           : replay && last
                             ? leaveStudy
                             : () => void advance()
@@ -895,6 +928,16 @@ function Study() {
           </View>
         </View>
       </Modal>
+      {firstWelcomeStudy ? (
+        <FirstStudyLoginModal
+          visible={loginOpen}
+          onLater={() => {
+            setLoginOpen(false);
+            leaveStudy();
+          }}
+          onDismiss={() => setLoginOpen(false)}
+        />
+      ) : null}
     </UserScreen>
   );
 }
@@ -931,6 +974,20 @@ function StudyAction({
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+// Figma 656:2109 에너지 아이콘(Group 25, 8×14)
+function EnergyIcon() {
+  return (
+    <Svg width={8} height={14} viewBox="0 0 8 14" fill="none">
+      <Path
+        d="M7 2C7.55228 2 8 2.44772 8 3V13C8 13.5523 7.55228 14 7 14H1C0.447715 14 1.61065e-08 13.5523 0 13V3C0 2.44772 0.447715 2 1 2H2V1C2 0.447715 2.44772 0 3 0H5C5.55228 0 6 0.447715 6 1V2H7Z"
+        fill="#E4E4E4"
+      />
+      <Rect x={1} y={11} width={6} height={2} fill="#161616" />
+      <Rect x={1} y={8} width={6} height={2} fill="#161616" />
+    </Svg>
   );
 }
 
@@ -1053,6 +1110,29 @@ const s = StyleSheet.create({
     gap: 8,
   },
   rewardIcon: { width: 18, height: 20 },
+  // Figma 656:2108: 아이콘·문구 간격 8, 높이 20, Pretendard Light 14 #e4e4e4, 1px #f1f1f1 그림자
+  energyRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  energyText: {
+    color: '#e4e4e4',
+    fontSize: 14,
+    fontFamily: 'PretendardLight',
+    ...(Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 1px #f1f1f1' } as TextStyle)
+      : {
+          textShadowColor: '#f1f1f1',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 1,
+        }),
+  },
   completionDetails: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: 3 },
   completionDetail: { color: '#aaa', fontSize: 12, fontFamily: 'PretendardLight' },
   completionBalance: {

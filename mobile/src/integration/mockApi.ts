@@ -429,6 +429,15 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response(lesson(id(options, 'lessonId')) ?? lessons[0]);
     case 'API-404': {
       const selected = lesson(id(options, 'lessonId')) ?? lessons[0];
+      // 명세(API-404): 레슨을 시작할 때 에너지 1개를 쓴다. 이어서 시작하거나
+      // 이미 별가루를 받은 레슨을 다시 하면 쓰지 않는다. 에너지가 0이면 줄이지 않는다.
+      const energy = state.wallet.energy ?? 0;
+      if (
+        !state.startedLessons.has(selected.lessonId) &&
+        !state.rewardedLessons.has(selected.lessonId) &&
+        energy > 0
+      )
+        state.wallet = { ...state.wallet, energy: energy - 1 };
       state.startedLessons.add(selected.lessonId);
       const completedContents = selected.contents.filter((content) =>
         state.completed.has(content.contentId),
