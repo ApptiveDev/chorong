@@ -64,7 +64,9 @@ export function FirstStudyLoginModal({
               <Text style={s.bullet}>{'>'}</Text>
               <View style={s.body}>
                 <Text style={[s.bodyText, s.bodyFirstLine]}>가입하면 처음 밝힌 별과</Text>
-                <Text style={s.bodyText}>첫 학습 기록을 저장할 수 있어요.</Text>
+                <Text style={s.bodyText} numberOfLines={1} adjustsFontSizeToFit>
+                  첫 학습 기록을 저장할 수 있어요.
+                </Text>
               </View>
             </View>
           </View>
@@ -156,10 +158,28 @@ const s = StyleSheet.create({
   copy: { width: '100%', gap: 28 },
   titleWrap: { width: '100%', alignItems: 'center', paddingVertical: 12 },
   title: { color: '#000000', fontFamily: 'PretendardSemiBold', fontSize: 24, textAlign: 'center' },
-  bodyRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingHorizontal: 20 },
-  bullet: { color: '#000000', fontFamily: 'KkakdugiRegular', fontSize: 14 },
-  body: { flexShrink: 1 },
-  bodyText: { color: '#000000', fontFamily: 'PretendardRegular', fontSize: 15 },
+  bodyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  bullet: {
+    flexShrink: 0,
+    color: '#000000',
+    fontFamily: 'KkakdugiRegular',
+    fontSize: 14,
+    lineHeight: 18,
+    includeFontPadding: false,
+  },
+  body: { width: 201, flexShrink: 1 },
+  bodyText: {
+    color: '#000000',
+    fontFamily: 'PretendardRegular',
+    fontSize: 15,
+    lineHeight: 18,
+    includeFontPadding: false,
+  },
   bodyFirstLine: { marginBottom: 4 },
   actions: { width: '100%', maxWidth: 300, alignItems: 'center', gap: 24 },
   buttons: { width: '100%', gap: 12 },

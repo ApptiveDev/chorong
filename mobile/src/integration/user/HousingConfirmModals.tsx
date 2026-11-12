@@ -53,6 +53,7 @@ function DialogButton({
   primary = false,
   bordered = true,
   disabled = false,
+  fitLabel = false,
   style,
   onPress,
 }: {
@@ -60,12 +61,14 @@ function DialogButton({
   primary?: boolean;
   bordered?: boolean;
   disabled?: boolean;
+  fitLabel?: boolean;
   style?: object;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
@@ -76,7 +79,11 @@ function DialogButton({
         style,
       ]}
     >
-      <Text style={[s.buttonText, primary && s.buttonTextPrimary]} numberOfLines={1}>
+      <Text
+        style={[s.buttonText, primary && s.buttonTextPrimary, fitLabel && s.fittedButtonText]}
+        numberOfLines={1}
+        adjustsFontSizeToFit={fitLabel}
+      >
         {label}
       </Text>
     </Pressable>
@@ -191,22 +198,30 @@ export function DiscardChangesModal({
     >
       <View style={s.discard}>
         <View style={s.discardMessage}>
-          <View style={s.titleOffset}>
-            <Text style={s.title}>변경을 취소하고 나갈까요?</Text>
+          <View style={s.discardHeading}>
+            <Text style={[s.title, s.discardTitle]} numberOfLines={1} adjustsFontSizeToFit>
+              변경을 취소하고 나갈까요?
+            </Text>
           </View>
           <View style={s.discardNotice}>
-            <Bullet />
-            <View style={s.discardLines}>
-              <Text style={s.copyMedium}>저장하지 않은 배치와 구매 예정 가구가</Text>
-              <Text style={s.copyMedium}>취소돼요.</Text>
+            <View style={s.discardNoticeInset} />
+            <View style={s.discardNoticeRow}>
+              <Bullet />
+              <View style={s.discardLines}>
+                <Text style={s.copyMedium} numberOfLines={1} adjustsFontSizeToFit>
+                  저장하지 않은 배치와 구매 예정 가구가
+                </Text>
+                <Text style={s.copyMedium}>취소돼요.</Text>
+              </View>
             </View>
           </View>
         </View>
-        <View style={s.actions}>
-          <DialogButton label="계속 꾸미기" style={s.buttonFixed} onPress={onCancel} />
+        <View style={[s.actions, s.discardActions]}>
+          <DialogButton label="계속 꾸미기" fitLabel style={s.buttonFixed} onPress={onCancel} />
           <DialogButton
             label="저장하지 않고 나가기"
             primary
+            fitLabel
             style={s.buttonFit}
             onPress={onConfirm}
           />
@@ -306,10 +321,11 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
   buttonTextPrimary: { color: color.fale },
+  fittedButtonText: { maxWidth: '100%', lineHeight: 20, includeFontPadding: false },
   buttonHalf: { width: 144, flexShrink: 1 },
   buttonFull: { width: '100%' },
   buttonFixed: { width: 144, flexShrink: 1 },
-  buttonFit: { flexShrink: 1, paddingHorizontal: 12 },
+  buttonFit: { width: 160, flexShrink: 0, paddingHorizontal: 12 },
   // 별가루 부족: 폭 300, 묶음 간격 20, 제목·안내 간격 16, 제목 위아래 8
   insufficient: { width: '100%', maxWidth: 300, gap: 20, alignItems: 'center' },
   insufficientMessage: { width: '100%', gap: 16, alignItems: 'center' },
@@ -321,17 +337,25 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     gap: 7,
   },
-  // 변경 취소: 묶음 간격 40, 제목·안내 간격 28, 안내 줄 폭 300(왼쪽 36), 줄 간격 4.
-  // Figma 는 오른쪽 45 여백을 두지만 글자 칸(246)이 그 여백을 넘어선다. 첫 줄이 한 줄에 들어가도록 오른쪽 여백은 두지 않는다.
-  discard: { alignItems: 'center', gap: 40 },
-  discardMessage: { gap: 28, alignItems: 'flex-start' },
+  discard: { width: '100%', alignItems: 'center', gap: 40 },
+  discardMessage: { width: '100%', gap: 28, alignItems: 'center' },
+  discardHeading: { width: '100%', alignItems: 'center', paddingVertical: 10 },
+  discardTitle: { maxWidth: '100%', lineHeight: 29, includeFontPadding: false },
   discardNotice: {
     width: 300,
     maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 7,
-    paddingLeft: 36,
   },
-  discardLines: { flexShrink: 1, gap: 4 },
+  // 좁은 화면에서는 안내문보다 왼쪽 여백을 먼저 줄인다.
+  discardNoticeInset: { flex: 1, maxWidth: 36 },
+  discardNoticeRow: {
+    width: 260,
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+  },
+  discardLines: { width: 246, flexShrink: 1, gap: 4 },
+  discardActions: { width: '100%' },
 });

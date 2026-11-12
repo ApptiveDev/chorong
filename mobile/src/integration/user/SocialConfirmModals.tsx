@@ -142,7 +142,9 @@ export function ReportModal({
         <Prompt text="신고 이유를 입력해주세요_" gap={8} />
       </View>
       <View style={s.reportBody}>
-        <Text style={s.caption14}>이 사용자의 우주선을 구경 목록에서 볼 수 없어요_</Text>
+        <Text style={s.caption14} numberOfLines={1} adjustsFontSizeToFit>
+          이 사용자의 우주선을 구경 목록에서 볼 수 없어요_
+        </Text>
         <View style={s.group}>
           <TextInput
             accessibilityLabel="신고 사유"
@@ -269,7 +271,14 @@ const s = StyleSheet.create({
   promptMedium: { fontFamily: 'PretendardMedium' },
   reportBody: { gap: 8 },
   group: { gap: 24 },
-  caption14: { color: color.tertiary, fontFamily: 'PretendardRegular', fontSize: 14 },
+  caption14: {
+    width: '100%',
+    color: color.tertiary,
+    fontFamily: 'PretendardRegular',
+    fontSize: 14,
+    lineHeight: 17,
+    includeFontPadding: false,
+  },
   caption13: { color: color.tertiary, fontFamily: 'PretendardRegular', fontSize: 13 },
   // Figma 293:7139 입력_01: 최소 높이 64, 안쪽 12, 테두리 #AAAAAA, 모서리 8
   input: {
