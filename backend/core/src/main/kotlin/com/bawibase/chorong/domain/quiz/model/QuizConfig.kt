@@ -20,10 +20,31 @@ class OxConfig : QuizConfig {
 }
 
 @Schema(requiredProperties = ["options"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 data class SingleConfig(
     @field:Schema(description = "보기 문구. 답안은 0부터 시작하는 순번으로 고른다.")
     val options: List<String>,
+    @field:Schema(description = "표시 방식. 생략하면 일반 선택 문제로 표시한다.", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    val presentation: SinglePresentation? = null,
 ) : QuizConfig
+
+enum class SinglePresentationType { AUDIO, TILE, ZOOM_OUT, SHARPEN, INLINE_WORD }
+
+@Schema(requiredProperties = ["type"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+data class SinglePresentation(
+    val type: SinglePresentationType,
+    @field:Schema(description = "AUDIO 음원 또는 이미지 공개 문제의 HTTP(S) 주소", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    val mediaUrl: String? = null,
+    @field:Schema(
+        description = "TILE은 공개 타일 수, ZOOM_OUT은 배율, SHARPEN은 흐림 반경. 앞에서 뒤로 진행한다.",
+        requiredMode = Schema.RequiredMode.NOT_REQUIRED,
+    )
+    val stages: List<Int>? = null,
+    @field:Schema(description = "TILE의 가로 타일 수", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    val columns: Int? = null,
+    @field:Schema(description = "TILE의 세로 타일 수", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    val rows: Int? = null,
+)
 
 /** 저장 구성. 정답은 answer 열에 따로 둔다. 조회 응답은 [MultiPublicConfig]로 내보낸다. */
 data class MultiConfig(

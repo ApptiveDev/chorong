@@ -14,12 +14,15 @@ import com.bawibase.chorong.domain.quiz.model.OxQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.OxUserResponse
 import com.bawibase.chorong.domain.quiz.model.QuizDefinition
 import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
+import com.bawibase.chorong.domain.quiz.model.SinglePresentation
+import com.bawibase.chorong.domain.quiz.model.SinglePresentationType
 import com.bawibase.chorong.domain.quiz.model.SingleQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderQuizDefinition
 import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.net.URI
 
 internal data class QuizGrade(
     val graded: Boolean,
@@ -46,6 +49,7 @@ class QuizGrader {
             }
 
             is SingleQuizDefinition -> {
+                quiz.config.presentation?.let(::validatePresentation)
                 index(quiz.config.options, quiz.answer.answer)
             }
 
@@ -142,6 +146,50 @@ class QuizGrader {
     private fun options(options: List<String>) {
         stored.ensure(options.size >= 2)
         options.forEach(stored::text)
+    }
+
+    private fun validatePresentation(presentation: SinglePresentation) {
+        val stages = presentation.stages
+        val rows = presentation.rows
+        val columns = presentation.columns
+        if (presentation.type == SinglePresentationType.INLINE_WORD) {
+            stored.ensure(presentation.mediaUrl == null && stages == null && rows == null && columns == null)
+            return
+        }
+        val media = presentation.mediaUrl
+        stored.ensure(!media.isNullOrBlank() && media == media.trim())
+        val uri = runCatching { URI(checkNotNull(media)) }.getOrNull()
+        stored.ensure(uri != null && uri.scheme in setOf("http", "https") && !uri.host.isNullOrBlank())
+        if (presentation.type == SinglePresentationType.AUDIO) {
+            stored.ensure(stages == null && rows == null && columns == null)
+            return
+        }
+        stored.ensure(stages != null && stages.isNotEmpty() && stages.size <= 64)
+        val values = checkNotNull(stages)
+        when (presentation.type) {
+            SinglePresentationType.TILE -> {
+                stored.ensure(rows != null && columns != null && rows in 2..8 && columns in 2..8)
+                val total = checkNotNull(rows) * checkNotNull(columns)
+                stored.ensure(values.all { it in 1..total } && values.zipWithNext().all { (a, b) -> a < b })
+                stored.ensure(values.last() == total)
+            }
+
+            SinglePresentationType.ZOOM_OUT -> {
+                stored.ensure(rows == null && columns == null)
+                stored.ensure(values.all { it in 1..8 } && values.zipWithNext().all { (a, b) -> a > b })
+                stored.ensure(values.last() == 1)
+            }
+
+            SinglePresentationType.SHARPEN -> {
+                stored.ensure(rows == null && columns == null)
+                stored.ensure(values.all { it in 0..32 } && values.zipWithNext().all { (a, b) -> a > b })
+                stored.ensure(values.last() == 0)
+            }
+
+            SinglePresentationType.AUDIO, SinglePresentationType.INLINE_WORD -> {
+                return
+            }
+        }
     }
 
     private inline fun <reified T : QuizUserResponse> response(crossinline grade: (T) -> QuizGrade): (QuizUserResponse) -> QuizGrade =

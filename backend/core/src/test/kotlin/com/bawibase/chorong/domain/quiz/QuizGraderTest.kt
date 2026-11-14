@@ -61,7 +61,20 @@ class QuizGraderTest {
 
     @TestFactory
     fun `every fixture grades its correct and wrong response`() =
-        listOf("ox", "single", "multi", "blank", "slider", "match", "chosung").flatMap { caseId ->
+        listOf(
+            "ox",
+            "single",
+            "multi",
+            "blank",
+            "slider",
+            "match",
+            "chosung",
+            "single-audio",
+            "single-tile",
+            "single-zoom",
+            "single-sharpen",
+            "single-inline",
+        ).flatMap { caseId ->
             val fixture = fixture(caseId)
             listOf(
                 dynamicTest("$caseId correct") {
@@ -155,6 +168,28 @@ class QuizGraderTest {
             Triple("single", """{"options":["하나"]}""", null),
             Triple("single", """{"options":["하나"," "]}""", null),
             Triple("single", null, """{"answer":3}"""),
+            Triple("single", """{"options":["a","b"],"presentation":{"type":"AUDIO","mediaUrl":""}}""", null),
+            Triple("single", """{"options":["a","b"],"presentation":{"type":"AUDIO","mediaUrl":"ftp://example.com/sound.mp3"}}""", null),
+            Triple(
+                "single",
+                """{"options":["a","b"],"presentation":{"type":"TILE","mediaUrl":"https://example.com/a.png","rows":3,"columns":4,"stages":[1,11]}}""",
+                null,
+            ),
+            Triple(
+                "single",
+                """{"options":["a","b"],"presentation":{"type":"ZOOM_OUT","mediaUrl":"https://example.com/a.png","stages":[1,3]}}""",
+                null,
+            ),
+            Triple(
+                "single",
+                """{"options":["a","b"],"presentation":{"type":"SHARPEN","mediaUrl":"https://example.com/a.png","stages":[3,-1]}}""",
+                null,
+            ),
+            Triple(
+                "single",
+                """{"options":["a","b"],"presentation":{"type":"INLINE_WORD","mediaUrl":"https://example.com/a.png"}}""",
+                null,
+            ),
             Triple("blank", """{"before":" ","after":"뒤","options":["a","b"]}""", """{"answer":0}"""),
             Triple("multi", null, """{"answers":[]}"""),
             Triple("multi", null, """{"answers":[1,1]}"""),
