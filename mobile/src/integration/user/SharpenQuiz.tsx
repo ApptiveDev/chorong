@@ -5,26 +5,17 @@
 // 차례로 투명하게 만든다. 흐림은 사본마다 한 번만 계산하고 움직이는 것은 투명도뿐이라
 // 네이티브 드라이버로 부드럽게 돌고 웹·iOS·Android 가 같은 방식으로 동작한다.
 // 서버의 stages(흐림 반경 목록)는 아직 쓰지 않는다(화면 규칙을 앱이 정한다).
-import { useEffect, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  Animated,
-  Easing,
-  Image,
-  Platform,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { useState } from 'react';
+import { Animated, Image, StyleSheet, View } from 'react-native';
 import { studyImageSource } from './lessonImagePreload';
 import { PresentedChoiceQuiz, type PresentedChoiceProps } from './PresentedChoiceQuiz';
 import { presentationImageUrl } from './presentationImage';
+import { useSlowReveal } from './slowReveal';
 
 // 위(가장 흐림)에서 아래(원본 바로 위) 순서의 흐림 반경.
 export const SHARPEN_BLUR_LAYERS = [24, 14, 8, 4, 1.5] as const;
-// 처음 흐림에서 원본이 될 때까지 걸리는 시간.
+// 처음 흐림에서 원본이 될 때까지 걸리는 시간. 채점 뒤 마무리 시간은 slowReveal 이 정한다.
 export const SHARPEN_DURATION_MS = 36000;
-// 채점 결과가 나온 뒤 남은 흐림을 걷어 내는 시간.
-export const SHARPEN_FINISH_MS = 800;
 
 export function SharpenQuiz(props: PresentedChoiceProps) {
   const url = presentationImageUrl(props.quiz, 'SHARPEN');
@@ -55,40 +46,14 @@ function SharpenImage({
   // 채점 결과가 나오면 원본까지 빠르게 마저 선명하게 한다.
   finish: boolean;
 }) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const current = useRef(0);
   const [loaded, setLoaded] = useState(false);
   const source = studyImageSource(url);
-
-  useEffect(() => {
-    if (!loaded) return;
-    let active = true;
-    const run = (toValue: number, duration: number, easing: (value: number) => number) =>
-      AccessibilityInfo.isReduceMotionEnabled()
-        .catch(() => false)
-        .then((reduceMotion) => {
-          if (!active) return;
-          // 동작 줄이기: 천천히 선명해지는 것은 문제 자체라 유지하고, 마무리만 즉시 끝낸다.
-          if (reduceMotion && finish) return progress.setValue(toValue);
-          Animated.timing(progress, {
-            toValue,
-            duration,
-            easing,
-            useNativeDriver: Platform.OS !== 'web',
-          }).start();
-        });
-    if (finish) void run(1, SHARPEN_FINISH_MS, Easing.out(Easing.cubic));
-    else if (!paused)
-      // 멈췄다 다시 시작하면(제출 실패) 남은 만큼만 같은 속도로 이어 간다.
-      void run(1, SHARPEN_DURATION_MS * (1 - current.current), Easing.linear);
-    return () => {
-      active = false;
-      // 네이티브 드라이버 중에는 리스너가 값을 받지 못하므로 멈출 때 받은 값으로 위치를 기억한다.
-      progress.stopAnimation((value) => {
-        current.current = value;
-      });
-    };
-  }, [loaded, paused, finish, progress]);
+  const progress = useSlowReveal({
+    started: loaded,
+    paused,
+    finish,
+    durationMs: SHARPEN_DURATION_MS,
+  });
 
   const count = SHARPEN_BLUR_LAYERS.length;
   return (

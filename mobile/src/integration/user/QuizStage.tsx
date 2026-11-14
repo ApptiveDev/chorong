@@ -8,16 +8,18 @@ import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
 import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
 import { AudioChoiceQuiz } from './AudioChoiceQuiz';
 import { SharpenQuiz } from './SharpenQuiz';
+import { ZoomOutQuiz } from './ZoomOutQuiz';
 import { TileRevealQuiz } from './TileRevealQuiz';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
 
-// SINGLE 표시 방식별 전용 화면. 여기 없는 방식(ZOOM_OUT·INLINE_WORD)은 일반 SINGLE 화면으로 보인다.
+// SINGLE 표시 방식별 전용 화면. 여기 없는 방식(INLINE_WORD)은 일반 SINGLE 화면으로 보인다.
 const PRESENTED_SCREENS = {
   AUDIO: AudioChoiceQuiz,
   TILE: TileRevealQuiz,
   SHARPEN: SharpenQuiz,
+  ZOOM_OUT: ZoomOutQuiz,
 } satisfies Partial<Record<SinglePresentation['type'], typeof AudioChoiceQuiz>>;
 type PresentedType = keyof typeof PRESENTED_SCREENS;
 const isPresentedType = (type: string | undefined): type is PresentedType =>

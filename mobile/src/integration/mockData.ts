@@ -557,6 +557,26 @@ const sharpenMockContent = {
     },
   },
 } as unknown as Content;
+// SINGLE 축소 그림 목업. 같은 레슨에서 점점 선명 다음 문항으로 둔다.
+export const zoomOutMockQuizId = 124;
+const zoomOutMockContent = {
+  contentId: 1207,
+  order: 7,
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: zoomOutMockQuizId,
+    interactionType: 'SINGLE',
+    question: '이것은  무엇일까요?',
+    instruction: '점점 줄어드는 사진을 보고 고르세요.',
+    quizOrder: 4,
+    config: {
+      options: ['핵융합', '핵분열', '연소'],
+      presentation: { type: 'ZOOM_OUT', mediaUrl: 'mock-study-fusion', stages: [6, 4, 2, 1] },
+    },
+  },
+} as unknown as Content;
 
 export const lessons: Lesson[] = [
   {
@@ -580,6 +600,7 @@ export const lessons: Lesson[] = [
       ]),
       tileMockContent,
       sharpenMockContent,
+      zoomOutMockContent,
     ],
   },
   {
