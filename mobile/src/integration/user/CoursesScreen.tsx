@@ -6,6 +6,7 @@ import { useIntegration, useTask } from '../hooks';
 import type { Course, CourseDetail } from '../models';
 import { UserScreen } from './Screen';
 import { LearningHome } from './LearningHome';
+import { useLessonStart } from './lessonStart';
 import {
   completedConstellations,
   constellationImage,
@@ -122,16 +123,9 @@ function Courses() {
         ...(recordDates[courseId] ? { completedOn: recordDates[courseId] } : {}),
       },
     });
+  const lessonStart = useLessonStart();
   const openLesson = () => {
-    if (nextLesson)
-      router.push({
-        pathname: '/learn/study/[lessonId]',
-        params: {
-          lessonId: String(nextLesson.lessonId),
-          title: nextLesson.title,
-          resume: nextLesson.status === 'IN_PROGRESS' ? 'true' : 'false',
-        },
-      });
+    if (nextLesson) void lessonStart.start(nextLesson);
   };
   const currentConstellation = currentCourse
     ? constellations?.find((item) => item.courseId === currentCourse.courseId)
@@ -249,6 +243,7 @@ function Courses() {
           onReview={() => router.push('/review-start')}
           onRetry={() => void load()}
         />
+        {lessonStart.modal}
         {joinModal}
       </>
     );

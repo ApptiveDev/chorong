@@ -18,6 +18,7 @@ import type { CourseDetail } from '../models';
 import { positiveId } from '../ui';
 import { UserStatus } from './Screen';
 import { SessionConfirmModal } from './SessionConfirmModal';
+import { useLessonStart } from './lessonStart';
 import { artColor as color, SparkStar } from './constellationArt';
 import { constellationCompletedOn, nextLessonOf } from './constellationRecord';
 import { loadConstellationDates } from './constellationDates';
@@ -80,17 +81,10 @@ export default function CourseScreen() {
     });
   };
   // 잠긴 레슨은 누를 수 없다. 열린 레슨은 레슨 소개 화면 없이 바로 학습을 시작한다(홈 '다음 학습'과 같은 진입).
+  const lessonStart = useLessonStart();
   const openLesson = (lesson: Lesson) => {
     if (lesson.status === 'COMPLETED') setReplayTarget(lesson);
-    else if (lesson.status !== 'LOCKED')
-      router.push({
-        pathname: '/learn/study/[lessonId]',
-        params: {
-          lessonId: String(lesson.lessonId),
-          title: lesson.title,
-          resume: lesson.status === 'IN_PROGRESS' ? 'true' : 'false',
-        },
-      });
+    else if (lesson.status !== 'LOCKED') void lessonStart.start(lesson);
   };
   const next = course ? nextLessonOf(course.lessons) : null;
   const rowWidth = Math.min(332, width - 70);
@@ -152,6 +146,7 @@ export default function CourseScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      {lessonStart.modal}
       {/* Figma 알림창_선택지 2개_가로(656:4299) */}
       <SessionConfirmModal
         visible={!!replayTarget}
