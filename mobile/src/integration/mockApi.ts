@@ -1,6 +1,7 @@
 import type { EnabledApiId } from './catalog';
 import type { MockResponder } from './client';
 import {
+  chosungCountMockQuizId,
   chosungMockQuizId,
   sliderMockQuizId,
   courses,
@@ -295,11 +296,19 @@ const scoreOtherLessonAnswer = (quizId: number, raw: unknown) => {
   };
 };
 
-// 서버 채점 대역. 명세대로 공백을 빼고 비교하고 correctAnswer 는 { answer: 문자열 } 로 돌려준다.
+// 서버 채점 대역. 서버(QuizGrader.chosung)처럼 인정 정답 목록과 공백을 빼고 비교하고
+// correctAnswer 는 첫 정답 문자열 { answer: 문자열 } 로 돌려준다.
 const chosungMockAnswers = new Map([
   [
     chosungMockQuizId,
-    { answer: '증발', explanation: '물이 데워져 수증기가 되는 현상을 증발이라고 해요.' },
+    { answers: ['증발'], explanation: '물이 데워져 수증기가 되는 현상을 증발이라고 해요.' },
+  ],
+  [
+    chosungCountMockQuizId,
+    {
+      answers: ['전체 개수'],
+      explanation: '마지막에 말한 수가 전체 개수예요.\n셋까지 셌다면 모두 세 개예요.',
+    },
   ],
 ]);
 const scoreChosungAnswer = (quizId: number, raw: unknown) => {
@@ -308,8 +317,10 @@ const scoreChosungAnswer = (quizId: number, raw: unknown) => {
   const answer = body(raw).answer;
   const normalize = (value: string) => value.replace(/\s/g, '');
   return {
-    correct: typeof answer === 'string' && normalize(answer) === normalize(expected.answer),
-    expected: expected.answer,
+    correct:
+      typeof answer === 'string' &&
+      expected.answers.some((accepted) => normalize(accepted) === normalize(answer)),
+    expected: expected.answers[0],
     explanation: expected.explanation,
   };
 };

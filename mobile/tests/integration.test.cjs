@@ -1262,6 +1262,64 @@ test('mock CHOSUNG lesson grades on the mock server, then completes the lesson',
   assert.equal(reviewed.isCorrect, true);
 });
 
+test('mock CHOSUNG with a spaced hint grades every accepted spelling on the mock server', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const start = await api.learning.start(31, false);
+  const chosung = start.contents.find((content) => content.quiz?.type === 'CHOSUNG');
+  assert.equal(chosung.contentId, 3104);
+  assert.deepEqual(chosung.quiz.options, { hint: 'ㅈㅊ ㄱㅅ' });
+  // 기존 객관식 문항은 그대로 남는다.
+  assert.equal(start.contents.filter((content) => content.quiz).length, 2);
+
+  const wrong = await api.learning.answer(chosung.quiz.quizId, { texts: ['전체수'] }, true);
+  assert.equal(wrong.isCorrect, false);
+  assert.equal(wrong.correctAnswer.answer, '전체 개수');
+  assert.match(wrong.explanation, /\n/);
+  for (const texts of [['전체개수'], ['전체 개수']]) {
+    const right = await api.learning.answer(chosung.quiz.quizId, { texts }, true);
+    assert.equal(right.isCorrect, true);
+  }
+});
+
+const chosungInput = require('../.expo/integration-tests/user/chosungInput');
+
+test('CHOSUNG slot count comes from the hint without spaces', () => {
+  assert.equal(chosungInput.chosungSlotCount('ㅎㅇㅎ'), 3);
+  assert.equal(chosungInput.chosungSlotCount(' ㅈㅊ  ㄱㅅ '), 4);
+  assert.equal(chosungInput.chosungHintLabel('ㅎㅇㅎ'), 'ㅎ ㅇ ㅎ');
+  assert.equal(chosungInput.chosungHintLabel('ㅈㅊ ㄱㅅ'), 'ㅈ ㅊ   ㄱ ㅅ');
+});
+
+test('CHOSUNG auto submit waits until every slot holds a finished syllable', () => {
+  const filled = chosungInput.isChosungInputFilled;
+  // 핵융합 입력 과정: 마지막 글자 조합 중(ㅎ)에는 제출하지 않는다.
+  assert.equal(filled('핵융', 3), false);
+  assert.equal(filled('핵융ㅎ', 3), false);
+  // 하 는 완성 글자라 칸이 찼다고 본다. 받침이 붙을 수 있어 화면은 CHOSUNG_SETTLE_MS 동안 더 기다린다.
+  assert.equal(filled('핵융하', 3), true);
+  assert.equal(filled('핵융합', 3), true);
+  // 조합형(첫가끝) 낱자와 넘치는 입력은 제출하지 않는다.
+  assert.equal(filled('핵융하', 3), false);
+  assert.equal(filled('핵융합이', 3), false);
+  // 공백은 서버처럼 빼고 센다.
+  assert.equal(filled('전체 개수', 4), true);
+  assert.equal(filled('전체 개ㅅ', 4), false);
+  assert.equal(filled('', 0), false);
+  assert.ok(chosungInput.CHOSUNG_SETTLE_MS > 0);
+});
+
 const slider = require('../.expo/integration-tests/user/sliderQuizState');
 
 test('SLIDER config maps string ticks and optional hint; answer is a 0~1 position', async () => {

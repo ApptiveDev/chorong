@@ -466,6 +466,24 @@ const chosungMockContent = {
     config: { hint: 'ㅈㅂ' },
   },
 } as unknown as Content;
+// 띄어쓰기가 있는 힌트 목업. 화면은 낱말별로 초성을 묶어 보여 주고 칸 수는 공백을 빼고 센다.
+export const chosungCountMockQuizId = 312;
+const chosungCountMockContent = {
+  contentId: 3104,
+  order: 4,
+  segmentId: 'a',
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: chosungCountMockQuizId,
+    interactionType: 'CHOSUNG',
+    question: '물건을 하나씩 셀 때 마지막에 말한 수가 알려 주는 것은?',
+    instruction: '초성을 보고 낱말을 입력하세요.',
+    quizOrder: 2,
+    config: { hint: 'ㅈㅊ ㄱㅅ' },
+  },
+} as unknown as Content;
 
 // SLIDER 목업. 정답 위치·허용 오차는 응답에 넣지 않고 mockApi 채점(sliderMockAnswers)에만 둔다.
 export const sliderMockQuizId = 212;
@@ -541,11 +559,14 @@ export const lessons: Lesson[] = [
     courseId: 3,
     title: '하나씩 세기',
     description: '물건의 개수를 셉니다.',
-    contents: pages(31, [
-      '물건 하나마다 수를 하나씩 말합니다.',
-      '마지막에 말한 수가 전체 개수입니다.',
-      '물건을 하나씩 세어 봅니다.',
-    ]),
+    contents: [
+      ...pages(31, [
+        '물건 하나마다 수를 하나씩 말합니다.',
+        '마지막에 말한 수가 전체 개수입니다.',
+        '물건을 하나씩 세어 봅니다.',
+      ]),
+      chosungCountMockContent,
+    ],
   },
   ...newTopics.map((topic) => ({
     lessonId: topic.courseId * 10 + 1,

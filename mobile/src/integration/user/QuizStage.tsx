@@ -62,7 +62,8 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
     slider,
     mockRange,
     instant,
-    selfAdvancing: fillBlank || matching || singleChoice || multiChoice,
+    // CHOSUNG 은 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
+    selfAdvancing: fillBlank || matching || singleChoice || multiChoice || chosung,
   };
 }
 
@@ -72,6 +73,7 @@ export function quizScrollContentStyle(kind: QuizStageKind, scale: number) {
   if (kind.singleChoice) return s.singleChoiceScrollContent;
   if (kind.multiChoice) return s.multiChoiceScrollContent;
   if (kind.slider || kind.mockRange) return s.sliderScrollContent;
+  if (kind.chosung) return s.chosungScrollContent;
   return [
     s.quizScrollContent,
     { paddingHorizontal: 36 * scale },
@@ -125,6 +127,7 @@ export function QuizStageQuiz({
       <ChosungQuiz
         key={typedKey}
         quiz={quiz}
+        scale={scale}
         disabled={disabled}
         submit={submit}
         onGraded={onGraded}
@@ -235,5 +238,7 @@ const s = StyleSheet.create({
   singleChoiceScrollContent: { flexGrow: 1 },
   multiChoiceScrollContent: { flexGrow: 1 },
   sliderScrollContent: { flexGrow: 1 },
+  // 해설 시트가 화면 폭 전체를 쓰도록 안쪽 여백은 ChosungQuiz 가 정한다.
+  chosungScrollContent: { flexGrow: 1 },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
 });
