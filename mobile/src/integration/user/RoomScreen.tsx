@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import {
   Animated,
-  Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,15 +10,35 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FurnitureArt, RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import {
+  bringToFront,
+  initialPoint,
+  type LayerEntry,
+  nextLayer,
+  sendToBack,
+} from '../../components/house/placementGrid';
+import { BackArrow } from '../../components/settings/ControlSettingsUI';
 import { useIntegration, useTask } from '../hooks';
 import type { HousingDetail, InventoryItem, PlacementInput, ShopItem } from '../models';
 import { integrationApi as api, randomUuid } from '../runtime';
 import { storage } from '../storage';
-import { UserScreen, UserStatus } from './Screen';
+import { UserStatus } from './Screen';
+import { IntegrationError } from '../client';
+import {
+  DiscardChangesModal,
+  InsufficientStardustModal,
+  PurchaseConfirmModal,
+} from './HousingConfirmModals';
+import { housingVisibility, useHousingVisibility } from '../housingVisibility';
+import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
+import { shipColor as color, StarIcon, StardustCount, VisibilityBadge } from './ShipStatus';
 
+// Figma D02_1 우주선 꾸미기 · 내 아이템 (547:2672) · D02_3 상점 · 목록 올림 (651:1070)
 type CatalogTab = 'owned' | 'shop';
 type Filter = 'ALL' | 'plant' | 'rug' | 'chair' | 'lamp' | 'desk' | 'shelf' | 'bed';
+type ColorKey = (typeof colorChoices)[number]['key'];
 type Wallet = { stardust: number };
 type PendingItem = {
   key: string;
@@ -32,9 +51,17 @@ type PendingItem = {
   price: number;
   transform: PlacementInput['transform'];
 };
+type OwnedGroup = {
+  key: string;
+  name: string;
+  option: Record<string, unknown>;
+  items: InventoryItem[];
+  placed: number;
+};
 
 const optionColor = (value: Record<string, unknown>) =>
   typeof value.color === 'string' ? value.color : undefined;
+// 카테고리는 API 필드가 없어 기존처럼 아이템 이름으로 구분한다(itemType 은 FURNITURE·OBJECT 뿐).
 const furnitureKinds = [
   { key: 'plant', label: '화분', pattern: /화분|plant/i },
   { key: 'rug', label: '러그', pattern: /러그|rug/i },
@@ -45,19 +72,35 @@ const furnitureKinds = [
   { key: 'bed', label: '침대', pattern: /침대|bed/i },
 ] as const;
 const furnitureKind = (name: string) => furnitureKinds.find((kind) => kind.pattern.test(name))?.key;
+// Figma 651:1079 색상 버튼 5개. 옵션 JSON 의 color 문자열(한글 목업 · 영문 서버 값)을 계열로 묶는다.
 const colorChoices = [
-  { name: '크림', hex: '#d9bf99' },
-  { name: '세이지', hex: '#a9b9ac' },
-  { name: '라벤더', hex: '#b9afd0' },
-  { name: '로즈', hex: '#d1a29d' },
-  { name: '블루', hex: '#929db2' },
+  { key: 'pink', label: '분홍', hex: '#ff7289', pattern: /로즈|분홍|핑크|빨강|rose|pink|red/i },
+  { key: 'yellow', label: '노랑', hex: '#fdf395', pattern: /노랑|크림|yellow|cream/i },
+  { key: 'green', label: '초록', hex: '#95b781', pattern: /세이지|초록|green|sage/i },
+  { key: 'blue', label: '파랑', hex: '#92a5e1', pattern: /블루|파랑|blue/i },
+  { key: 'purple', label: '보라', hex: '#ccaed9', pattern: /라벤더|보라|purple|lavender/i },
 ] as const;
-const nextTransform = (count: number): PlacementInput['transform'] => ({
-  x: 0.36 + (count % 3) * 0.14,
-  y: Math.min(0.86, 0.55 + Math.floor(count / 3) * 0.08),
+const colorMatches = (option: Record<string, unknown>, key: ColorKey) => {
+  const value = optionColor(option);
+  const choice = colorChoices.find((entry) => entry.key === key);
+  return Boolean(value && choice?.pattern.test(value));
+};
+// 새 가구는 유효 격자점에 두고 맨 앞 layer(최대 9)를 준다.
+// rotation 은 프론트 모델 필드일 뿐 API-702 요청에는 보내지 않는다(contract.placementRequest).
+const nextTransform = (count: number, layers: number[]): PlacementInput['transform'] => ({
+  ...initialPoint(count),
   rotation: 0,
-  layer: count + 1,
+  layer: nextLayer(layers),
 });
+
+// 바텀시트 높이(Figma): 내 아이템 접힘 404 · 펼침 532, 상점은 색상 줄(28 + 간격 16)만큼 더 높다.
+const SHEET_COLLAPSED = 404;
+const SHEET_EXPANDED = 532;
+const COLOR_ROW = 44;
+const SHEET_PADDING_BOTTOM = 28;
+const HEADER_BLOCK = 32 + 29; // 상단 32 + 헤더 29
+const SHIP_TOP_GAP = 28;
+const SHIP_BAR = 24 + 11;
 
 export default function RoomScreen() {
   const { mode } = useLocalSearchParams<{ mode: string }>();
@@ -69,9 +112,13 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
-  const { height: screenHeight } = useWindowDimensions();
+  const isPublic = useHousingVisibility();
+  const [infoOpen, setInfoOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [catalogTab, setCatalogTab] = useState<CatalogTab>(initialTab);
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [colorFilter, setColorFilter] = useState<ColorKey | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [room, setRoom] = useState<HousingDetail | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -83,13 +130,81 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const [layerMenu, setLayerMenu] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
+  const [insufficientOpen, setInsufficientOpen] = useState(false);
+  const [shortfall, setShortfall] = useState(0);
   const [notice, setNotice] = useState('');
   const [showEditHint, setShowEditHint] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [purchaseRetryOnly, setPurchaseRetryOnly] = useState(false);
   const purchaseKey = useRef<string | null>(null);
-  const drawerHeight = useRef(new Animated.Value(232)).current;
-  const expandedHeight = Math.min(530, screenHeight * 0.72);
+  const leaveAllowed = useRef(false);
+  const navigation = useNavigation();
+  // 첫 배치 전에는 화면 높이로 추정해 상자 크기가 튀지 않게 한다.
+  const [shipAreaHeight, setShipAreaHeight] = useState(screenHeight - insets.top - HEADER_BLOCK);
+
+  // 화면이 짧으면 시트와 간격을 줄여 우주선이 가려지지 않게 한다.
+  const shortScreen = screenHeight < 750;
+  const sheetExtra = Math.max(SHEET_PADDING_BOTTOM, insets.bottom + 8) - SHEET_PADDING_BOTTOM;
+  const sheetMax = Math.max(0, screenHeight - insets.top - HEADER_BLOCK - 8);
+  const collapsedBase = Math.min(SHEET_COLLAPSED, Math.round(screenHeight * 0.47)) + sheetExtra;
+  const colorExtra = catalogTab === 'shop' ? COLOR_ROW : 0;
+  const collapsedHeight = Math.min(sheetMax, collapsedBase + colorExtra);
+  const expandedHeight = Math.max(
+    collapsedHeight,
+    Math.min(sheetMax, SHEET_EXPANDED + sheetExtra + colorExtra),
+  );
+  const shipReserve = collapsedBase + (shortScreen ? 20 : 46);
+  const shipAvailable = shipAreaHeight - SHIP_TOP_GAP - shipReserve - SHIP_BAR;
+  const shipWidth = Math.max(
+    160,
+    Math.min(312, screenWidth - 90, Math.max(0, shipAvailable) * (312 / 300)),
+  );
+
+  const drawerHeight = useRef(new Animated.Value(collapsedHeight)).current;
+  const dragStart = useRef(collapsedHeight);
+  const sheetLimits = useRef({ collapsedHeight, expandedHeight });
+  sheetLimits.current = { collapsedHeight, expandedHeight };
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const animateSheet = (toValue: number) =>
+    Animated.spring(drawerHeight, {
+      toValue,
+      useNativeDriver: false,
+      damping: 24,
+      stiffness: 220,
+      overshootClamping: true,
+    }).start();
+  const animateSheetRef = useRef(animateSheet);
+  animateSheetRef.current = animateSheet;
+
+  // 핸들·탭 줄에서만 세로 드래그를 받는다. 목록 스크롤과 우주선 아이템 드래그와 영역이 겹치지 않는다.
+  const sheetPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        drawerHeight.stopAnimation((value) => {
+          dragStart.current = value;
+        });
+      },
+      onPanResponderMove: (_, gesture) => {
+        const { collapsedHeight: min, expandedHeight: max } = sheetLimits.current;
+        drawerHeight.setValue(Math.min(max, Math.max(min, dragStart.current - gesture.dy)));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const { collapsedHeight: min, expandedHeight: max } = sheetLimits.current;
+        const height = Math.min(max, Math.max(min, dragStart.current - gesture.dy));
+        const open = gesture.vy < -0.5 ? true : gesture.vy > 0.5 ? false : height > (min + max) / 2;
+        setExpanded(open);
+        animateSheetRef.current(open ? max : min);
+      },
+      onPanResponderTerminate: () => {
+        const { collapsedHeight: min, expandedHeight: max } = sheetLimits.current;
+        animateSheetRef.current(expandedRef.current ? max : min);
+      },
+    }),
+  ).current;
 
   useEffect(() => {
     let active = true;
@@ -112,12 +227,8 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   }, []);
 
   useEffect(() => {
-    Animated.timing(drawerHeight, {
-      toValue: expanded ? expandedHeight : 232,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
-  }, [drawerHeight, expanded, expandedHeight]);
+    animateSheet(expanded ? expandedHeight : collapsedHeight);
+  }, [expanded, expandedHeight, collapsedHeight]);
 
   const load = () =>
     task.run(async () => {
@@ -128,6 +239,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         api.room.shop(),
       ]);
       setRoom(housing);
+      housingVisibility.set(housing.housing.isPublic);
       setInventory(owned.items);
       setWallet(balance);
       setShopItems(store.items);
@@ -148,19 +260,43 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const placedIds = new Set(draft.map((item) => item.inventoryId));
   const selectedPending = pending.find((item) => item.key === selectedKey);
   const selectedShopItem = shopItems.find((item) => item.itemId === selectedPending?.itemId);
+  const stardustOptions = (item: ShopItem) =>
+    item.options.filter((option) => option.currency === 'STARDUST');
+  // 색상 필터가 있으면 그 색 옵션을, 없으면 첫 별가루 옵션을 고른다.
+  const shopChoice = (item: ShopItem) => {
+    const options = stardustOptions(item);
+    return (
+      (colorFilter && options.find((option) => colorMatches(option.option, colorFilter))) ||
+      options[0]
+    );
+  };
   const visibleOwned = inventory.filter(
     (item) => filter === 'ALL' || furnitureKind(item.name) === filter,
   );
+  // 같은 아이템·옵션 사본을 한 칸으로 묶어 '배치 수/보유 수'로 보여준다.
+  const ownedGroups = visibleOwned.reduce<OwnedGroup[]>((groups, item) => {
+    const key = `${item.itemId}:${item.optionId}`;
+    const group = groups.find((entry) => entry.key === key);
+    const placed = placedIds.has(item.inventoryId) ? 1 : 0;
+    if (group) {
+      group.items.push(item);
+      group.placed += placed;
+    } else {
+      groups.push({ key, name: item.name, option: item.option, items: [item], placed });
+    }
+    return groups;
+  }, []);
   const visibleShop = shopItems.filter(
     (item) =>
       (filter === 'ALL' || furnitureKind(item.name) === filter) &&
-      item.options.some((option) => option.currency === 'STARDUST'),
+      stardustOptions(item).some(
+        (option) => !colorFilter || colorMatches(option.option, colorFilter),
+      ),
   );
   const totalStardust = pending.reduce(
     (sum, item) => sum + (item.currency === 'STARDUST' ? item.price : 0),
     0,
   );
-  const insufficient = totalStardust > (wallet?.stardust ?? 0);
   const savedDraft =
     room?.placements.map(({ inventoryId, area, transform }) => ({
       inventoryId,
@@ -168,6 +304,23 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       transform,
     })) ?? [];
   const dirty = pending.length > 0 || JSON.stringify(draft) !== JSON.stringify(savedDraft);
+  // 하드웨어·라우터 뒤로 가기도 같은 확인을 거친다. 저장 성공·변경 취소 뒤에는 그대로 보낸다.
+  const guard = useRef({ dirty, busy: task.busy });
+  guard.current = { dirty, busy: task.busy };
+  useEffect(
+    () =>
+      navigation.addListener('beforeRemove', (event) => {
+        if (leaveAllowed.current) return;
+        if (guard.current.busy) {
+          event.preventDefault();
+          return;
+        }
+        if (!guard.current.dirty) return;
+        event.preventDefault();
+        setExitOpen(true);
+      }),
+    [navigation],
+  );
   const sceneItems: RoomSceneItem[] = [
     ...draft
       .filter((item) => item.area === 'INTERIOR')
@@ -193,6 +346,10 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     })),
   ];
 
+  const usedLayers = (placed: PlacementInput[], planned: PendingItem[]) => [
+    ...placed.map((item) => item.transform.layer),
+    ...planned.map((item) => item.transform.layer),
+  ];
   const addOwned = (item: InventoryItem) => {
     if (placedIds.has(item.inventoryId)) return;
     setDraft((items) => [
@@ -200,17 +357,18 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       {
         inventoryId: item.inventoryId,
         area: 'INTERIOR',
-        transform: nextTransform(items.length + pending.length),
+        transform: nextTransform(items.length + pending.length, usedLayers(items, pending)),
       },
     ]);
     setSelectedKey(item.inventoryId);
+    setLayerMenu(false);
     setExpanded(false);
     setNotice('');
   };
   const addShop = (item: ShopItem) => {
     if (purchaseRetryOnly || task.busy) return;
     if (!item.unlocked || !item.options.length) return;
-    const choice = item.options.find((option) => option.currency === 'STARDUST');
+    const choice = shopChoice(item);
     if (!choice) return;
     const alreadyPending = pending.find((entry) => entry.optionId === choice.optionId);
     if (alreadyPending) {
@@ -228,6 +386,11 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       addOwned(available);
       return;
     }
+    // 서버는 이미 가진 옵션의 재구매를 ALREADY_OWNED 로 거절한다. 구매 예정에 넣지 않는다.
+    if (choice.owned || inventory.some((owned) => owned.optionId === choice.optionId)) {
+      setNotice('이미 보유한 아이템이에요. 내 아이템에서 배치하세요.');
+      return;
+    }
     const key = `pending-${randomUuid()}`;
     setPending((items) => [
       ...items,
@@ -240,10 +403,11 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         option: choice.option,
         currency: choice.currency,
         price: choice.price,
-        transform: nextTransform(draft.length + items.length),
+        transform: nextTransform(draft.length + items.length, usedLayers(draft, items)),
       },
     ]);
     setSelectedKey(key);
+    setLayerMenu(false);
     setExpanded(false);
     setNotice('');
   };
@@ -269,17 +433,14 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     setSelectedKey(null);
     setLayerMenu(false);
   };
+  // 맨 앞으로·맨 뒤로. API-702 layer 범위(0~9) 안에서 대상만 다른 가구와 다른 값을 갖게 한다.
   const changeLayer = (front: boolean) => {
     if (!selectedKey) return;
-    const ordered = [
+    const entries: LayerEntry[] = [
       ...draft.map((item) => ({ key: item.inventoryId, layer: item.transform.layer })),
       ...pending.map((item) => ({ key: item.key, layer: item.transform.layer })),
-    ]
-      .sort((a, b) => a.layer - b.layer)
-      .filter((item) => item.key !== selectedKey);
-    if (front) ordered.push({ key: selectedKey, layer: 0 });
-    else ordered.unshift({ key: selectedKey, layer: 0 });
-    const layers = new Map(ordered.map((item, index) => [item.key, index]));
+    ];
+    const layers = front ? bringToFront(entries, selectedKey) : sendToBack(entries, selectedKey);
     setDraft((items) =>
       items.map((item) => ({
         ...item,
@@ -338,9 +499,65 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       ),
     );
   };
+  // 색상 버튼: 상점 목록을 그 색으로 거른다. 구매 예정 아이템을 선택 중이면 기존처럼 그 색 옵션으로 바꾼다.
+  const pressColor = (key: ColorKey) => {
+    const next = colorFilter === key ? null : key;
+    setColorFilter(next);
+    if (!next || !selectedPending || purchaseRetryOnly) return;
+    const choice = selectedShopItem?.options.find(
+      (option) => option.currency === 'STARDUST' && colorMatches(option.option, next),
+    );
+    if (choice && choice.optionId !== selectedPending.optionId) changeOption(choice.optionId);
+  };
+  const toggleSheet = () => setExpanded((value) => !value);
+  // 웹 새로고침·직접 진입처럼 뒤로 갈 기록이 없으면 내 우주선 탭으로 보낸다.
+  const exit = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  };
   const leave = () => {
+    if (task.busy) return;
     if (dirty) setExitOpen(true);
-    else router.back();
+    else exit();
+  };
+  // 변경 취소: 마지막으로 저장된 배치로 되돌리고 구매 예정을 비운 뒤 나간다. 서버에는 요청하지 않는다.
+  const discardAndLeave = () => {
+    setExitOpen(false);
+    setDraft(savedDraft);
+    setPending([]);
+    setSelectedKey(null);
+    setLayerMenu(false);
+    purchaseKey.current = null;
+    setPurchaseRetryOnly(false);
+    leaveAllowed.current = true;
+    exit();
+  };
+  // 최신 별가루를 다시 읽는다. 실패하면 갖고 있던 값을 쓴다(사전 안내용, 최종 판단은 구매 응답).
+  const latestStardust = async () => {
+    try {
+      const latest = await api.benefits.wallet();
+      setWallet(latest);
+      return latest.stardust;
+    } catch {
+      return wallet?.stardust ?? null;
+    }
+  };
+  const showInsufficient = (stardust: number | null) => {
+    const missing = stardust === null ? totalStardust : totalStardust - stardust;
+    setShortfall(missing > 0 ? missing : totalStardust);
+    setInsufficientOpen(true);
+  };
+  const openCheckout = () => {
+    // 직전 구매 결과를 모르는 재시도는 잔액이 이미 차감됐을 수 있어 사전 검사를 건너뛴다.
+    if (purchaseRetryOnly) {
+      setCheckoutOpen(true);
+      return;
+    }
+    void task.run(async () => {
+      const stardust = await latestStardust();
+      if (stardust !== null && totalStardust > stardust) showInsufficient(stardust);
+      else setCheckoutOpen(true);
+    });
   };
   const save = () => {
     setCheckoutOpen(false);
@@ -348,10 +565,21 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       let placements = draft;
       if (pending.length) {
         setPurchaseRetryOnly(true);
-        const result = await api.room.purchase(
-          pending.map((item) => ({ itemId: item.itemId, optionId: item.optionId })),
-          purchaseKey.current ?? (purchaseKey.current = randomUuid()),
-        );
+        let result: Awaited<ReturnType<typeof api.room.purchase>>;
+        try {
+          result = await api.room.purchase(
+            pending.map((item) => ({ itemId: item.itemId, optionId: item.optionId })),
+            purchaseKey.current ?? (purchaseKey.current = randomUuid()),
+          );
+        } catch (error) {
+          if (!(error instanceof IntegrationError && error.code === 'INSUFFICIENT_BALANCE'))
+            throw error;
+          // 서버가 구매 전체를 거절했다(결제 없음). 키를 버리고 배치·구매 예정은 그대로 둔다.
+          purchaseKey.current = null;
+          setPurchaseRetryOnly(false);
+          showInsufficient(await latestStardust());
+          return;
+        }
         purchaseKey.current = null;
         setPurchaseRetryOnly(false);
         setWallet(result.wallet);
@@ -383,479 +611,496 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       const saved = await api.room.save(placements);
       setRoom((current) => current && { ...current, placements: saved.placements });
       setNotice('배치를 저장했습니다.');
-      router.back();
+      leaveAllowed.current = true;
+      exit();
       return saved;
     });
   };
 
+  const saveDisabled = !dirty || task.busy || !loaded;
+  const gridWidth = Math.min(352, screenWidth - 52);
+  const cardWidth = Math.floor((gridWidth - 16) / 3);
+
   return (
-    <UserScreen title="꾸미기" scroll={false} showTitle={false}>
-      <View style={s.page}>
-        <View style={s.header}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="뒤로"
-            onPress={leave}
-            style={s.back}
-          >
-            <Ionicons name="chevron-back" size={24} color="#282636" />
-          </Pressable>
-          <Text style={s.headerTitle}>꾸미기</Text>
-          <View style={s.wallet}>
-            <Text style={s.walletText}>✦ {wallet?.stardust ?? '—'}</Text>
-          </View>
-        </View>
-        <View style={s.middle}>
-          <View style={[s.sceneWrap, screenHeight < 750 && s.sceneWrapShort]}>
-            <RoomScene
-              items={sceneItems}
-              editable
-              selectedKey={selectedKey}
-              onSelect={(key) => {
-                setSelectedKey(key);
-                setLayerMenu(false);
-              }}
-              onMove={moveItem}
-              onInvalidDrop={() => setNotice('가구는 우주선 안에 놓아주세요.')}
-              onRemove={removeSelected}
-              onToggleLayer={() => setLayerMenu((value) => !value)}
-              layerMenu={layerMenu}
-              onChangeLayer={changeLayer}
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
+      <View style={s.header}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="뒤로가기"
+          onPress={leave}
+          hitSlop={12}
+          style={s.back}
+        >
+          <BackArrow color={color.fale} />
+        </Pressable>
+        <Text style={s.headerTitle}>우주선 꾸미기</Text>
+      </View>
+
+      <View
+        style={[s.shipArea, { paddingBottom: shipReserve }]}
+        onLayout={(event) => setShipAreaHeight(event.nativeEvent.layout.height)}
+      >
+        <View style={[s.shipColumn, { width: shipWidth }]}>
+          <View style={s.shipBar}>
+            <StardustCount value={wallet?.stardust ?? null} />
+            <VisibilityBadge
+              isPublic={isPublic}
+              disabled={!room}
+              onPress={() => setInfoOpen(true)}
             />
           </View>
-          <Animated.View style={[s.drawer, { height: drawerHeight }]}>
-            <View style={s.handle} />
-            <View style={s.drawerHeader}>
-              <View style={s.drawerTabs}>
-                {(['owned', 'shop'] as const).map((tab) => (
-                  <Pressable
-                    key={tab}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: catalogTab === tab }}
-                    onPress={() => setCatalogTab(tab)}
-                    style={[s.drawerTab, catalogTab === tab && s.drawerTabActive]}
-                  >
-                    <Text style={[s.drawerTabText, catalogTab === tab && s.drawerTabTextActive]}>
-                      {tab === 'owned' ? '내 아이템' : '상점'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Pressable accessibilityRole="button" onPress={() => setExpanded((value) => !value)}>
-                <Text style={s.expandText}>{expanded ? '목록 접기 ⌄' : '목록 펼치기 ⌃'}</Text>
-              </Pressable>
+          <View style={s.roomBox}>
+            <View style={s.sceneFit}>
+              <RoomScene
+                items={sceneItems}
+                editable
+                showGrid
+                selectedKey={selectedKey}
+                onSelect={(key) => {
+                  setSelectedKey(key);
+                  setLayerMenu(false);
+                  setExpanded(false);
+                }}
+                onClearSelection={() => {
+                  setSelectedKey(null);
+                  setLayerMenu(false);
+                }}
+                onMove={moveItem}
+                onRemove={removeSelected}
+                onToggleLayer={() => setLayerMenu((value) => !value)}
+                layerMenu={layerMenu}
+                onChangeLayer={changeLayer}
+              />
             </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={s.filtersScroll}
-              contentContainerStyle={s.filters}
+          </View>
+        </View>
+      </View>
+
+      <Animated.View
+        style={[
+          s.sheet,
+          {
+            height: drawerHeight,
+            paddingBottom: SHEET_PADDING_BOTTOM + sheetExtra,
+          },
+        ]}
+      >
+        <View {...sheetPan.panHandlers} style={s.dragZone}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? '목록 접기' : '목록 펼치기'}
+            accessibilityState={{ expanded }}
+            onPress={toggleSheet}
+            hitSlop={{ top: 16, bottom: 8, left: 40, right: 40 }}
+            style={s.handleTouch}
+          >
+            <View style={expanded ? s.handleExpanded : s.handleCollapsed} />
+          </Pressable>
+          <View style={[s.content, s.tabs]} accessibilityRole="tablist">
+            {(['owned', 'shop'] as const).map((tab) => (
+              <Pressable
+                key={tab}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: catalogTab === tab }}
+                onPress={() => setCatalogTab(tab)}
+                style={[s.tab, catalogTab === tab && s.tabActive]}
+              >
+                <Text style={[s.tabText, catalogTab === tab && s.tabTextActive]}>
+                  {tab === 'owned' ? '내 아이템' : '상점'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={s.content}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={s.filtersScroll}
+            contentContainerStyle={s.filters}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="전체 보기"
+              accessibilityState={{ selected: filter === 'ALL' }}
+              onPress={() => setFilter('ALL')}
+              style={[s.filterAll, filter === 'ALL' && s.filterAllActive]}
             >
-              {([{ key: 'ALL', label: '전체' }, ...furnitureKinds] as const).map((entry) => (
+              <Text style={[s.filterAllText, filter === 'ALL' && s.filterAllTextActive]}>All</Text>
+            </Pressable>
+            <View style={s.filterKinds}>
+              {furnitureKinds.map((entry) => (
                 <Pressable
                   key={entry.key}
                   accessibilityRole="button"
                   accessibilityLabel={`${entry.label}만 보기`}
                   accessibilityState={{ selected: filter === entry.key }}
-                  onPress={() => setFilter(entry.key as Filter)}
-                  style={[s.filter, filter === entry.key && s.filterActive]}
+                  onPress={() => setFilter(entry.key)}
+                  style={[s.filterKind, filter === entry.key && s.filterKindActive]}
                 >
-                  {entry.key === 'ALL' ? (
-                    <Text style={s.filterText}>{entry.label}</Text>
-                  ) : (
-                    <FurnitureArt name={entry.label} color="크림" size={26} />
-                  )}
+                  <FurnitureArt name={entry.label} color="크림" size={26} />
                 </Pressable>
               ))}
-            </ScrollView>
-            {catalogTab === 'shop' ? (
-              <View style={s.colors}>
-                <View style={s.colorRow}>
-                  {colorChoices.map((color) => {
-                    const choice = selectedShopItem?.options.find(
-                      (option) =>
-                        optionColor(option.option) === color.name && option.currency === 'STARDUST',
-                    );
-                    const active = selectedPending?.optionId === choice?.optionId;
-                    return (
-                      <Pressable
-                        key={color.name}
-                        accessibilityRole="button"
-                        accessibilityLabel={color.name}
-                        accessibilityState={{ selected: active, disabled: !choice }}
-                        disabled={!choice || purchaseRetryOnly}
-                        onPress={() => choice && changeOption(choice.optionId)}
-                        style={[
-                          s.colorChip,
-                          active && s.colorChipActive,
-                          !choice && s.colorUnavailable,
-                        ]}
-                      >
-                        <View style={[s.colorSwatch, { backgroundColor: color.hex }]} />
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <Text style={s.colorText}>
-                  {optionColor(selectedPending?.option ?? {}) ?? '색상'}
-                </Text>
-              </View>
-            ) : null}
-            <ScrollView style={s.productsScroll} contentContainerStyle={s.products}>
-              {catalogTab === 'owned'
-                ? visibleOwned.map((item) => (
-                    <Product
-                      key={item.inventoryId}
-                      name={item.name}
-                      color={optionColor(item.option)}
-                      caption={placedIds.has(item.inventoryId) ? '배치됨' : `보유 1 · 가능 1`}
-                      disabled={placedIds.has(item.inventoryId)}
-                      onPress={() => addOwned(item)}
-                    />
-                  ))
-                : visibleShop.map((item) => (
-                    <Product
-                      key={item.itemId}
-                      name={item.name}
-                      color={optionColor(
-                        item.options.find((option) => option.currency === 'STARDUST')?.option ?? {},
-                      )}
-                      caption={
-                        item.unlocked
-                          ? `✦ ${Math.min(...item.options.filter((option) => option.currency === 'STARDUST').map((option) => option.price))}`
-                          : (item.unlockHint ?? '잠김')
-                      }
-                      disabled={
-                        !item.unlocked || !item.options.length || purchaseRetryOnly || task.busy
-                      }
-                      onPress={() => addShop(item)}
-                    />
-                  ))}
-              {loaded && (catalogTab === 'owned' ? !visibleOwned.length : !visibleShop.length) ? (
-                <Text style={s.empty}>
-                  {catalogTab === 'owned'
-                    ? '보유한 아이템이 없어요.'
-                    : '판매 중인 아이템이 없어요.'}
-                </Text>
-              ) : null}
-              {!loaded ? <Text style={s.empty}>아이템을 불러오는 중</Text> : null}
-            </ScrollView>
-          </Animated.View>
+            </View>
+          </ScrollView>
+          {catalogTab === 'shop' ? (
+            <View style={s.colors}>
+              {colorChoices.map((entry) => {
+                const active = colorFilter === entry.key;
+                return (
+                  <Pressable
+                    key={entry.key}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${entry.label} 계열만 보기`}
+                    accessibilityState={{ selected: active }}
+                    onPress={() => pressColor(entry.key)}
+                    style={[s.colorChip, { backgroundColor: entry.hex }, active && s.colorActive]}
+                  />
+                );
+              })}
+            </View>
+          ) : null}
         </View>
-        <View style={s.checkout}>
+
+        <ScrollView
+          style={s.productsScroll}
+          contentContainerStyle={[s.products, { width: gridWidth }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {catalogTab === 'owned'
+            ? ownedGroups.map((group) => {
+                const next = group.items.find((item) => !placedIds.has(item.inventoryId));
+                return (
+                  <Product
+                    key={group.key}
+                    width={cardWidth}
+                    name={group.name}
+                    color={optionColor(group.option)}
+                    caption={`${group.placed}/${group.items.length}`}
+                    accessibilityCaption={`보유 ${group.items.length}개 중 ${group.placed}개 배치`}
+                    disabled={!next}
+                    onPress={() => next && addOwned(next)}
+                  />
+                );
+              })
+            : visibleShop.map((item) => {
+                const choice = shopChoice(item);
+                return (
+                  <Product
+                    key={item.itemId}
+                    width={cardWidth}
+                    name={item.name}
+                    color={optionColor(choice?.option ?? {})}
+                    price={item.unlocked ? choice?.price : undefined}
+                    caption={
+                      item.unlocked ? (choice?.owned ? '보유' : '') : (item.unlockHint ?? '잠김')
+                    }
+                    accessibilityCaption={
+                      item.unlocked
+                        ? `별가루 ${choice?.price ?? 0}${choice?.owned ? ', 보유' : ''}`
+                        : (item.unlockHint ?? '잠김')
+                    }
+                    disabled={
+                      !item.unlocked || !item.options.length || purchaseRetryOnly || task.busy
+                    }
+                    onPress={() => addShop(item)}
+                  />
+                );
+              })}
+          {loaded && (catalogTab === 'owned' ? !ownedGroups.length : !visibleShop.length) ? (
+            <Text style={s.empty}>
+              {catalogTab === 'owned' ? '보유한 아이템이 없어요.' : '판매 중인 아이템이 없어요.'}
+            </Text>
+          ) : null}
+          {!loaded && !task.error ? <Text style={s.empty}>아이템을 불러오는 중</Text> : null}
+        </ScrollView>
+
+        <View style={[s.content, s.footer]}>
           {notice ? <Text style={s.notice}>{notice}</Text> : null}
           <UserStatus task={task} />
           {task.error && !loaded ? (
-            <Pressable accessibilityRole="button" onPress={() => void load()} style={s.secondary}>
-              <Text style={s.secondaryText}>다시 불러오기</Text>
+            <Pressable accessibilityRole="button" onPress={() => void load()} hitSlop={8}>
+              <Text style={s.retryText}>다시 불러오기</Text>
             </Pressable>
           ) : null}
+          {/* Figma 651:1267 Frame 85: Default · pressed · disabled */}
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ disabled: !dirty || task.busy || !loaded }}
-            disabled={!dirty || task.busy || !loaded}
-            onPress={() => (pending.length ? setCheckoutOpen(true) : save())}
-            style={[s.primary, (!dirty || task.busy || !loaded) && s.disabled]}
+            accessibilityLabel={
+              pending.length ? `구매하고 배치 저장, 별가루 ${totalStardust}` : '배치 저장'
+            }
+            accessibilityState={{ disabled: saveDisabled }}
+            disabled={saveDisabled}
+            onPress={() => (pending.length ? openCheckout() : save())}
+            style={({ pressed }) => [
+              s.primary,
+              pressed && s.primaryPressed,
+              saveDisabled && s.primaryDisabled,
+            ]}
           >
-            <Text style={s.primaryText}>
-              {pending.length ? `구매하고 배치 저장 · ✦ ${totalStardust}` : '배치 저장'}
-            </Text>
+            {({ pressed }) => {
+              const tone = saveDisabled ? color.tertiary : pressed ? color.lght : color.fale;
+              return (
+                <View style={s.primaryContent}>
+                  <Text style={[s.primaryText, { color: tone }]}>
+                    {pending.length ? '구매하고 배치 저장' : '배치 저장'}
+                  </Text>
+                  {pending.length ? (
+                    <View style={s.primaryPrice}>
+                      <StarIcon fill={tone} />
+                      <Text style={[s.primaryText, { color: tone }]}>x {totalStardust}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            }}
           </Pressable>
         </View>
-        {showEditHint ? (
-          <View pointerEvents="none" style={s.editHint}>
-            <Text style={s.editHintText}>
-              가구를 끌어 놓고, 같은 자리를 다시 눌러 겹친 가구를 선택해요.
-            </Text>
-          </View>
-        ) : null}
-      </View>
-      <Modal
-        transparent
+      </Animated.View>
+
+      {showEditHint ? (
+        <View pointerEvents="none" style={[s.editHint, { bottom: collapsedHeight + 12 }]}>
+          <Text style={s.editHintText}>
+            가구를 끌어 놓고, 같은 자리를 다시 눌러 겹친 가구를 선택해요.
+          </Text>
+        </View>
+      ) : null}
+
+      <PurchaseConfirmModal
         visible={checkoutOpen}
-        animationType="fade"
-        onRequestClose={() => setCheckoutOpen(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.dialog}>
-            <Text style={s.dialogTitle}>
-              {insufficient ? '잔액이 부족해요.' : '구매하고 배치를 저장할까요?'}
-            </Text>
-            <Text style={s.dialogDescription}>필요한 아이템을 구매하고 지금 배치를 저장해요.</Text>
-            <ScrollView style={s.bill}>
-              {pending.map((item) => (
-                <View key={item.key} style={s.billLine}>
-                  <Text style={s.billText}>
-                    {item.name} · {optionColor(item.option) ?? '기본'}
-                  </Text>
-                  <Text style={s.billText}>✦ {item.price}</Text>
-                </View>
-              ))}
-              <View style={s.billLine}>
-                <Text style={s.billTotal}>구매 후 잔액</Text>
-                <Text style={s.billTotal}>✦ {(wallet?.stardust ?? 0) - totalStardust}</Text>
-              </View>
-            </ScrollView>
-            <View style={s.dialogActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setCheckoutOpen(false)}
-                style={s.secondary}
-              >
-                <Text style={s.secondaryText}>계속 꾸미기</Text>
-              </Pressable>
-              {!insufficient ? (
-                <Pressable accessibilityRole="button" onPress={save} style={s.primary}>
-                  <Text style={s.primaryText}>구매하고 저장</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal
-        transparent
+        total={totalStardust}
+        busy={task.busy}
+        onCancel={() => setCheckoutOpen(false)}
+        onConfirm={save}
+      />
+      <InsufficientStardustModal
+        visible={insufficientOpen}
+        amount={shortfall}
+        onClose={() => setInsufficientOpen(false)}
+      />
+      <DiscardChangesModal
         visible={exitOpen}
-        animationType="fade"
-        onRequestClose={() => setExitOpen(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.dialog}>
-            <Text style={s.dialogTitle}>변경한 배치를 나갈까요?</Text>
-            <Text style={s.dialogDescription}>
-              저장하지 않은 배치와 구매 예정 아이템은 사라져요.
-            </Text>
-            <View style={s.dialogActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setExitOpen(false)}
-                style={s.secondary}
-              >
-                <Text style={s.secondaryText}>계속 꾸미기</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setExitOpen(false);
-                  router.back();
-                }}
-                style={s.primary}
-              >
-                <Text style={s.primaryText}>저장하지 않고 나가기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </UserScreen>
+        onCancel={() => setExitOpen(false)}
+        onConfirm={discardAndLeave}
+      />
+      {/* 편집 중인 배치가 아니라 서버에 저장된 배치를 보여준다. 편집 상태는 건드리지 않는다. */}
+      <ShipInfoPopup
+        visible={infoOpen}
+        nickname={session.user?.nickname ?? null}
+        isPublic={isPublic}
+        likeCount={room?.housing.likeCount ?? null}
+        items={savedSceneItems(room, inventory)}
+        onClose={() => setInfoOpen(false)}
+      />
+    </SafeAreaView>
   );
 }
 
+// Figma 546:7637 Frame 26/Frame 102: 112×120, 이미지 72, 아래 글자 12
 function Product({
+  width,
   name,
-  color,
+  color: itemColor,
   caption,
+  price,
+  accessibilityCaption,
   disabled,
   onPress,
 }: {
+  width: number;
   name: string;
   color?: string;
   caption: string;
+  price?: number;
+  accessibilityCaption: string;
   disabled: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${name} ${caption}`}
+      accessibilityLabel={`${name} ${accessibilityCaption}`}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[s.product, disabled && s.productDisabled]}
+      style={[s.product, { width }, disabled && s.productDisabled]}
     >
-      <FurnitureArt name={name} color={color} />
-      <Text style={s.productName} numberOfLines={1}>
-        {name}
-      </Text>
-      <Text style={s.productCaption} numberOfLines={1}>
-        {caption}
-      </Text>
+      <View style={s.productImage}>
+        <FurnitureArt name={name} color={itemColor} size={72} />
+      </View>
+      <View style={s.productCaption}>
+        {price !== undefined ? (
+          <Text style={s.productCaptionText} numberOfLines={1}>
+            x {price}
+            {caption ? ` · ${caption}` : ''}
+          </Text>
+        ) : (
+          <Text style={s.productCaptionText} numberOfLines={1}>
+            {caption}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  page: {
-    flex: 1,
-    minHeight: 0,
-    marginHorizontal: -18,
-    marginTop: -12,
-    backgroundColor: '#f8f6fc',
-  },
+  safe: { flex: 1, backgroundColor: color.base },
   header: {
-    paddingHorizontal: 21,
-    paddingTop: 23,
-    paddingBottom: 10,
+    height: 29,
+    marginTop: 32,
+    paddingHorizontal: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
-  back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#282636', fontSize: 18, fontWeight: '700', flex: 1 },
-  wallet: {
-    backgroundColor: '#f6f1e6',
-    borderRadius: 30,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
+  back: { width: 14, height: 29, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: {
+    color: color.fale,
+    fontFamily: 'PretendardBold',
+    fontSize: 24,
+    includeFontPadding: false,
   },
-  walletText: { color: '#8a7047', fontSize: 11, fontWeight: '600' },
-  middle: { flex: 1, minHeight: 0, position: 'relative' },
-  sceneWrap: { marginTop: 24, paddingHorizontal: 20 },
-  sceneWrapShort: { width: 330, maxWidth: '100%', alignSelf: 'center' },
-  drawer: {
+  shipArea: { flex: 1, minHeight: 0, alignItems: 'center', paddingTop: SHIP_TOP_GAP },
+  shipColumn: { gap: 11 },
+  shipBar: {
+    height: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  roomBox: {
+    width: '100%',
+    aspectRatio: 312 / 300,
+    backgroundColor: color.mist,
+    borderWidth: 1,
+    borderColor: color.lght,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sceneFit: { height: '100%', aspectRatio: 330 / 342 },
+  // Figma 651:599 Frame 126: 배경 #E4E4E4, 테두리 2 #161616, 위 모서리 16, 위 20 · 아래 28 · 좌우 24
+  sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 23,
-    borderTopRightRadius: 23,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    zIndex: 10,
+    backgroundColor: color.bg,
+    borderWidth: 2,
+    borderBottomWidth: 0,
+    borderColor: color.base,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 24,
     overflow: 'hidden',
   },
-  handle: {
-    width: 38,
-    height: 4,
-    borderRadius: 10,
-    backgroundColor: '#ded7e6',
-    alignSelf: 'center',
-    marginBottom: 5,
+  content: { width: '100%', maxWidth: 352, alignSelf: 'center' },
+  dragZone: { width: '100%' },
+  // 핸들: 접힘 52×6(둥근 끝 포함 58), 펼침 72×4(76), #AAAAAA. 위 20 · 아래 12 는 선 중심 기준.
+  handleTouch: { alignItems: 'center', justifyContent: 'center', height: 32 },
+  handleCollapsed: { width: 58, height: 6, borderRadius: 3, backgroundColor: color.lght },
+  handleExpanded: { width: 76, height: 4, borderRadius: 2, backgroundColor: color.lght },
+  tabs: { flexDirection: 'row', height: 48 },
+  tab: {
+    width: 72,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: color.base,
   },
-  drawerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  drawerTabs: { flexDirection: 'row', gap: 18 },
-  drawerTab: { paddingVertical: 9 },
-  drawerTabActive: { borderBottomWidth: 2, borderBottomColor: '#7b658e' },
-  drawerTabText: { color: '#b0a5b9', fontSize: 15 },
-  drawerTabTextActive: { color: '#5d4a70', fontWeight: '700' },
-  expandText: { color: '#9e8eac', fontSize: 11, paddingVertical: 10 },
-  filtersScroll: { flexGrow: 0, flexShrink: 0, height: 51 },
-  filters: { flexDirection: 'row', gap: 6, paddingVertical: 8, paddingRight: 16 },
-  filter: {
-    height: 35,
-    minWidth: 35,
-    paddingHorizontal: 4,
-    borderRadius: 10,
+  tabActive: { borderBottomWidth: 4 },
+  tabText: { color: color.base, fontFamily: 'PretendardMedium', fontSize: 16 },
+  tabTextActive: { fontFamily: 'PretendardBold' },
+  filtersScroll: { flexGrow: 0, flexShrink: 0, marginTop: 16 },
+  filters: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // Figma 651:991 Frame 128: Default 테두리 1.2 #AAAAAA · 글자 #AAAAAA, pressed 배경 #161616 · 글자 #F1F1F1
+  filterAll: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.2,
+    borderColor: color.lght,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterAllActive: { backgroundColor: color.base, borderColor: color.base },
+  filterAllText: { color: color.lght, fontFamily: 'PretendardSemiBold', fontSize: 14 },
+  filterAllTextActive: { color: color.fale },
+  filterKinds: { flexDirection: 'row', gap: 4 },
+  // Figma 651:967 Rectangle 34: Default 테두리 #AAAAAA, pressed 테두리 #747474
+  filterKind: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
     borderWidth: 1,
-    borderColor: 'transparent',
-    backgroundColor: '#f6f3f8',
+    borderColor: color.lght,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  filterActive: { borderColor: '#ab98ba', backgroundColor: '#eee7f4' },
-  filterText: { color: '#655174', fontSize: 11 },
-  colors: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 7, flexShrink: 0 },
-  colorRow: { flexDirection: 'row', gap: 8 },
-  colorChip: {
-    width: 27,
-    height: 27,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  colorChipActive: { borderColor: '#736187' },
-  colorUnavailable: { opacity: 0.35 },
-  colorSwatch: { width: 19, height: 19, borderRadius: 10 },
-  colorText: { color: '#655174', fontSize: 11 },
-  productsScroll: { flex: 1, minHeight: 0 },
-  products: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 10 },
+  filterKindActive: { borderColor: color.tertiary },
+  // Figma 651:1079: 지름 28, 간격 4. 선택(pressed)은 #161616 1px 테두리.
+  colors: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 28, marginTop: 16 },
+  colorChip: { width: 28, height: 28, borderRadius: 14 },
+  colorActive: { borderWidth: 1, borderColor: color.base },
+  productsScroll: { flex: 1, minHeight: 0, marginTop: 16 },
+  products: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignSelf: 'center' },
   product: {
-    width: '31%',
-    minHeight: 102,
-    backgroundColor: '#f8f6fb',
+    height: 120,
+    paddingTop: 16,
+    paddingBottom: 8,
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: color.fale,
     borderWidth: 1,
-    borderColor: '#efebf3',
-    borderRadius: 13,
-    padding: 6,
+    borderColor: color.lght,
+    borderRadius: 4,
+  },
+  productDisabled: { opacity: 0.4 },
+  productImage: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center' },
+  productCaption: { width: '100%', paddingHorizontal: 8 },
+  productCaptionText: { color: '#000000', fontFamily: 'PretendardRegular', fontSize: 12 },
+  empty: {
+    width: '100%',
+    color: color.tertiary,
+    fontFamily: 'PretendardRegular',
+    fontSize: 13,
+    textAlign: 'center',
+    padding: 24,
+  },
+  footer: { marginTop: 16, gap: 8, alignItems: 'center' },
+  notice: { color: color.secondary, fontFamily: 'PretendardRegular', fontSize: 12 },
+  retryText: { color: color.base, fontFamily: 'PretendardMedium', fontSize: 12 },
+  primary: {
+    width: '100%',
+    maxWidth: 350,
+    height: 48,
+    borderRadius: 4,
+    backgroundColor: color.base,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  productDisabled: { opacity: 0.35 },
-  productName: { color: '#655174', fontSize: 10, marginTop: 2 },
-  productCaption: { color: '#9e8eac', fontSize: 10, marginTop: 2 },
-  empty: { width: '100%', color: '#aa9ab5', fontSize: 13, textAlign: 'center', padding: 25 },
-  checkout: {
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#f1ebf5',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 13,
-  },
-  notice: { color: '#655174', fontSize: 12, textAlign: 'center', marginBottom: 5 },
-  editHint: {
-    position: 'absolute',
-    bottom: 92,
-    left: 24,
-    right: 24,
-    alignItems: 'center',
-  },
+  primaryPressed: { backgroundColor: '#242424' },
+  primaryDisabled: { backgroundColor: color.mist },
+  primaryContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  primaryPrice: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  primaryText: { fontFamily: 'PretendardMedium', fontSize: 16, textAlign: 'center' },
+  editHint: { position: 'absolute', left: 24, right: 24, alignItems: 'center', zIndex: 20 },
   editHintText: {
     maxWidth: 400,
     overflow: 'hidden',
-    backgroundColor: '#373044',
-    color: '#fff',
+    backgroundColor: color.secondary,
+    color: color.fale,
+    fontFamily: 'PretendardRegular',
     fontSize: 12,
     lineHeight: 19,
     textAlign: 'center',
     paddingHorizontal: 16,
     paddingVertical: 11,
-    borderRadius: 12,
+    borderRadius: 4,
   },
-  primary: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: 13,
-    backgroundColor: '#302b38',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  primaryText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  disabled: { opacity: 0.38 },
-  secondary: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  secondaryText: { color: '#655b76', fontSize: 12, fontWeight: '600', textAlign: 'center' },
-  overlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  dialog: {
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '90%',
-    backgroundColor: '#fff',
-    borderRadius: 23,
-    padding: 25,
-    gap: 12,
-  },
-  dialogTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
-  dialogDescription: { color: '#9a8aa4', fontSize: 13, lineHeight: 21 },
-  bill: { maxHeight: 190, backgroundColor: '#f7f4fa', borderRadius: 12, padding: 12 },
-  billLine: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, paddingVertical: 6 },
-  billText: { color: '#655174', fontSize: 12 },
-  billTotal: { color: '#4e3f5b', fontSize: 12, fontWeight: '700' },
-  dialogActions: { flexDirection: 'row', gap: 9, marginTop: 10 },
 });

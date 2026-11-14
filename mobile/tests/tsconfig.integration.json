@@ -15,6 +15,11 @@
     "../src/integration/client.ts",
     "../src/integration/api.ts",
     "../src/integration/mockApi.ts",
+    "../src/integration/completionResult.ts",
+    "../src/integration/user/reviewStart.ts",
+    "../src/integration/user/constellationRecord.ts",
+    "../src/integration/user/welcomeFlow.ts",
+    "../src/integration/user/profileNickname.ts",
     "../src/integration/user/sliderQuizState.ts",
     "../src/integration/user/narrationContent.ts"
   ]

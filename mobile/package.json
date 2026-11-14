@@ -14,7 +14,8 @@
     "format:check": "prettier --check .",
     "test:auth": "tsc -p tests/tsconfig.json && node --test tests/auth.test.cjs",
     "test:quiz": "tsc -p tests/tsconfig.quiz.json && node --test tests/quiz.test.cjs",
-    "test:integration": "tsc -p tests/tsconfig.integration.json && node --test tests/integration.test.cjs"
+    "test:integration": "tsc -p tests/tsconfig.integration.json && node --test tests/integration.test.cjs",
+    "test:housing": "tsc -p tests/tsconfig.housing.json && node --test tests/housing.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

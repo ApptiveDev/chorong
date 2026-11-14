@@ -1,12 +1,23 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { RoomScene } from '../../components/house/RoomScene';
+import { housingVisibility } from '../housingVisibility';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { HousingDetail, InventoryItem } from '../models';
-import { UserScreen, UserStatus } from './Screen';
+import { UserStatus } from './Screen';
+import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
+import {
+  shipColor as color,
+  ShipTabsHeader,
+  StardustCount,
+  useVisibilityControl,
+  VisibilityBadge,
+} from './ShipStatus';
 
+// Figma D01_1 내 우주선 (547:2756)
 export default function HomeScreen() {
   const { generation } = useIntegration();
   return <Home key={generation} />;
@@ -16,10 +27,13 @@ function Home() {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
-  const { height: screenHeight } = useWindowDimensions();
   const [room, setRoom] = useState<HousingDetail | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [starBalance, setStarBalance] = useState<number | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const openBrowse = () => router.push({ pathname: '/social', params: { view: 'browse' } });
+  const visibility = useVisibilityControl(openBrowse);
+
   const load = () =>
     task.run(async () => {
       const [housing, owned, wallet] = await Promise.all([
@@ -28,6 +42,7 @@ function Home() {
         api.benefits.wallet(),
       ]);
       setRoom(housing);
+      housingVisibility.set(housing.housing.isPublic);
       setInventory(owned.items);
       setStarBalance(wallet.stardust);
       return housing;
@@ -38,140 +53,147 @@ function Home() {
     }, [session.ready, session.authenticated]),
   );
   const go = (path: string) => router.push(path as Href);
-  const sceneItems: RoomSceneItem[] =
-    room?.placements.map((placement) => {
-      const owned = inventory.find((item) => item.inventoryId === placement.inventoryId);
-      const option = (owned?.option ?? placement.option) as Record<string, unknown>;
-      return {
-        key: placement.inventoryId,
-        name: owned?.name ?? '배치 아이템',
-        x: placement.transform.x,
-        y: placement.transform.y,
-        layer: placement.transform.layer,
-        color: typeof option.color === 'string' ? option.color : undefined,
-      };
-    }) ?? [];
+
+  const pressBrowse = () => {
+    // 비회원은 구경하기 화면의 기존 로그인 안내를 그대로 따른다.
+    if (!visibility.member) go('/social');
+    else visibility.requestBrowse();
+  };
+
+  const sceneItems = savedSceneItems(room, inventory);
 
   return (
-    <UserScreen title="나의 우주선" scroll={false} showTitle={false}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <View style={s.page}>
-        <View style={s.header}>
-          <Text style={s.title}>나의 우주선</Text>
-          <View style={s.wallet}>
-            <Text style={s.walletText}>✦ {starBalance ?? '—'}</Text>
-          </View>
+        <View style={s.top}>
+          <ShipTabsHeader active="mine" onBrowse={pressBrowse} />
+
+          <View style={s.headerGap} />
+
+          {!session.authenticated ? (
+            <View style={s.login}>
+              <Text style={s.loginText}>로그인하면 내 우주선을 볼 수 있습니다.</Text>
+              <HomeAction title="로그인" onPress={() => go('/account')} />
+            </View>
+          ) : (
+            <View style={s.ship}>
+              <View style={s.shipColumn}>
+                <View style={s.shipBar}>
+                  <StardustCount value={starBalance} />
+                  <VisibilityBadge
+                    isPublic={visibility.isPublic}
+                    disabled={!room}
+                    onPress={() => setInfoOpen(true)}
+                  />
+                </View>
+                <View style={s.roomBox}>
+                  <View style={s.sceneFit}>
+                    <RoomScene items={sceneItems} />
+                  </View>
+                </View>
+                <View style={s.status}>
+                  <UserStatus task={task} />
+                  {task.error && !room ? (
+                    <Pressable accessibilityRole="button" onPress={() => void load()} hitSlop={8}>
+                      <Text style={s.retryText}>다시 불러오기</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          )}
         </View>
-        {!session.authenticated ? (
-          <View style={s.login}>
-            <Text style={s.loginTitle}>로그인하세요</Text>
-            <Text style={s.loginText}>로그인하면 내 우주선을 볼 수 있습니다.</Text>
-            <HomeAction title="로그인" onPress={() => go('/account')} primary />
+
+        {session.authenticated ? (
+          <View style={s.actions}>
+            <HomeAction title="상점" onPress={() => go('/room/shop')} />
+            <HomeAction title="꾸미기" onPress={() => go('/room/inventory')} dark />
           </View>
-        ) : (
-          <View style={s.middle}>
-            <Pressable accessibilityRole="button" style={s.visit} onPress={() => go('/social')}>
-              <Text style={s.visitText}>우주선 구경 ↗</Text>
-            </Pressable>
-            <View style={[s.sceneWrap, screenHeight < 750 && s.sceneWrapShort]}>
-              <RoomScene items={sceneItems} />
-            </View>
-            <Text style={s.tip}>작은 취향을 모아 나만의 방으로</Text>
-            <UserStatus task={task} />
-            {task.error && !room ? (
-              <Pressable accessibilityRole="button" onPress={() => void load()} style={s.retry}>
-                <Text style={s.retryText}>다시 불러오기</Text>
-              </Pressable>
-            ) : null}
-            <View style={s.actions}>
-              <HomeAction title="상점" onPress={() => go('/room/shop')} />
-              <HomeAction title="꾸미기" onPress={() => go('/room/inventory')} primary />
-            </View>
-          </View>
-        )}
+        ) : null}
       </View>
-    </UserScreen>
+      {visibility.modals}
+      <ShipInfoPopup
+        visible={infoOpen}
+        nickname={session.user?.nickname ?? null}
+        isPublic={visibility.isPublic}
+        likeCount={room?.housing.likeCount ?? null}
+        items={sceneItems}
+        onClose={() => setInfoOpen(false)}
+      />
+    </SafeAreaView>
   );
 }
 
 function HomeAction({
   title,
   onPress,
-  primary = false,
+  dark = false,
 }: {
   title: string;
   onPress: () => void;
-  primary?: boolean;
+  dark?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={[s.action, primary ? s.primaryAction : s.secondaryAction]}
+      style={[s.action, dark ? s.actionDark : s.actionLight]}
     >
-      <Text style={[s.actionText, primary && s.primaryText]}>{title}</Text>
+      <Text style={[s.actionText, dark && s.actionTextDark]}>{title}</Text>
     </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  page: {
-    flex: 1,
-    minHeight: 0,
-    marginHorizontal: -18,
-    marginTop: -12,
-    backgroundColor: '#f8f6fc',
-  },
-  header: {
-    paddingHorizontal: 21,
-    paddingTop: 23,
-    paddingBottom: 10,
+  safe: { flex: 1, backgroundColor: color.base },
+  // 위 묶음(헤더·우주선)과 아래 버튼을 양 끝에 붙인다. 버튼과 하단 내비게이션 사이 32.
+  page: { flex: 1, minHeight: 0, paddingTop: 32, justifyContent: 'space-between' },
+  top: { flexShrink: 1, minHeight: 0 },
+  // Figma 헤더와 우주선 묶음 사이 120. 화면이 짧으면 줄어든다.
+  headerGap: { height: 120, flexShrink: 1, minHeight: 16 },
+  ship: { paddingHorizontal: 40, alignItems: 'center' },
+  shipColumn: { width: '100%', maxWidth: 312, gap: 12 },
+  shipBar: {
+    height: 24,
+    paddingHorizontal: 4,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  title: { color: '#282636', fontSize: 23, fontWeight: '700' },
-  wallet: {
-    backgroundColor: '#f6f1e6',
-    borderRadius: 30,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  walletText: { color: '#8a7047', fontSize: 12, fontWeight: '600' },
-  middle: { flex: 1, minHeight: 0 },
-  visit: {
-    alignSelf: 'flex-end',
-    marginRight: 22,
-    minHeight: 38,
+  roomBox: {
+    width: '100%',
+    aspectRatio: 312 / 300,
+    backgroundColor: color.mist,
+    borderWidth: 1,
+    borderColor: color.lght,
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
   },
-  visitText: { color: '#817790', fontSize: 13 },
-  sceneWrap: { marginTop: 4, paddingHorizontal: 20 },
-  sceneWrapShort: { width: 330, maxWidth: '100%', alignSelf: 'center' },
-  tip: { color: '#aa9eb7', fontSize: 12, textAlign: 'center', marginTop: 20 },
-  actions: { position: 'absolute', bottom: 25, left: 24, right: 24, flexDirection: 'row', gap: 10 },
+  // RoomScene 고유 비율(330:342)을 유지한 채 상자 높이에 맞춘다.
+  sceneFit: { height: '100%', aspectRatio: 330 / 342 },
+  status: { position: 'absolute', top: '100%', left: 0, right: 0, alignItems: 'center', gap: 4 },
+  retryText: { color: color.fale, fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 40,
+    marginTop: 16,
+    marginBottom: 32,
+  },
   action: {
     flex: 1,
-    alignSelf: 'stretch',
-    minHeight: 52,
-    borderRadius: 13,
+    height: 48,
+    borderWidth: 1,
+    borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secondaryAction: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e8e0ee' },
-  primaryAction: { backgroundColor: '#7d6d91' },
-  actionText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
-  primaryText: { color: '#fff' },
-  login: {
-    margin: 24,
-    padding: 22,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    gap: 12,
-    alignItems: 'center',
-  },
-  loginTitle: { color: '#282636', fontSize: 18, fontWeight: '700' },
-  loginText: { color: '#888591', fontSize: 13 },
-  retry: { alignSelf: 'center', padding: 10 },
-  retryText: { color: '#655b76', fontSize: 12 },
+  actionLight: { backgroundColor: color.fale, borderColor: color.base },
+  actionDark: { backgroundColor: color.base, borderColor: color.fale },
+  actionText: { color: color.base, fontFamily: 'PretendardRegular', fontSize: 16 },
+  actionTextDark: { color: color.fale },
+  login: { paddingHorizontal: 40, gap: 16, alignItems: 'center' },
+  loginText: { color: color.fale, fontFamily: 'PretendardRegular', fontSize: 14 },
 });

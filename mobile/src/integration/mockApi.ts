@@ -118,6 +118,8 @@ export function restoreMockSnapshot(value: unknown): boolean {
   state.studyAnswers = new Map(saved.studyAnswers);
   state.reviewedToday = new Map(saved.reviewedToday);
   state.activeReview = new Map();
+  replayProgress.clear();
+  replayEnergySpent.clear();
   state.blockedUsers = saved.blockedUsers;
   room.housing = { ...room.housing, name: saved.housingName, isPublic: saved.isPublic };
   mockVisibility.set(saved.isPublic);
@@ -143,9 +145,31 @@ const courseDone = (courseId: number) =>
     ?.lessons.every(
       (item) => item.status === 'COMPLETED' || state.rewardedLessons.has(item.lessonId),
     ) ?? false;
-const completion = (courseId?: number, newBadge = false) => ({
+// 에너지 0 으로 시작한 레슨. 명세(API-404): 완료해도 레슨 별가루를 주지 않는다(stardustSkipped).
+// 별 뱃지·코스 보상은 에너지와 무관하다. 목업 스냅샷에는 저장하지 않는다.
+const noEnergyLessons = new Set<number>();
+const replayProgress = new Map<number, Set<number>>();
+// 에너지 없이 마쳐 레슨 별가루를 아직 받지 않은 레슨. 명세(API-404): 다시 하기는 이런 레슨일 때만
+// 에너지를 쓰고, 완료하면 그때 별가루를 준다. 목업 스냅샷에는 저장하지 않는다.
+const unpaidStardustLessons = new Set<number>();
+const replayEnergySpent = new Set<number>();
+// 명세(API-503): 복습 보상은 하루 3세션까지. 같은 Idempotency-Key 는 같은 응답을 돌려준다.
+const REVIEW_DAILY_REWARD_LIMIT = 3;
+const reviewRewards = { date: '', paid: 0 };
+const reviewResponses = new Map<string, unknown>();
+// 날짜가 바뀌면 지급 횟수를 0 으로 되돌린다.
+const reviewRewardsToday = () => {
+  const today = new Date().toISOString().slice(0, 10);
+  if (reviewRewards.date !== today) Object.assign(reviewRewards, { date: today, paid: 0 });
+  return reviewRewards;
+};
+// 명세 ReviewSet.rewardEligible: 오늘 보상 세션(3회)이 남아 있는지.
+const reviewRewardEligible = () => reviewRewardsToday().paid < REVIEW_DAILY_REWARD_LIMIT;
+const completion = (courseId?: number, newBadge = false, stardustSkipped = false) => ({
   rewards: [
-    { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 },
+    ...(stardustSkipped
+      ? []
+      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]),
     ...(newBadge
       ? [
           { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 },
@@ -162,6 +186,7 @@ const completion = (courseId?: number, newBadge = false) => ({
   ],
   wallet: state.wallet,
   courseCompleted: courseId ? courseDone(courseId) : false,
+  ...(stardustSkipped ? { stardustSkipped: true } : {}),
 });
 const auth = () => ({
   accessToken: 'mock-access',
@@ -430,6 +455,50 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response(lesson(id(options, 'lessonId')) ?? lessons[0]);
     case 'API-404': {
       const selected = lesson(id(options, 'lessonId')) ?? lessons[0];
+      if (input.replay === true) {
+        let completed = replayProgress.get(selected.lessonId);
+        if (!completed || completed.size === selected.contents.length) {
+          completed = new Set();
+          replayProgress.set(selected.lessonId, completed);
+          replayEnergySpent.delete(selected.lessonId);
+        }
+        // 명세(API-404): 다시 하기는 별가루를 아직 받지 않은 레슨일 때만 에너지를 쓴다.
+        // 이어서 시작하면 다시 쓰지 않고, 에너지가 0이면 줄이지 않는다.
+        const replayEnergy = state.wallet.energy ?? 0;
+        if (
+          unpaidStardustLessons.has(selected.lessonId) &&
+          !replayEnergySpent.has(selected.lessonId) &&
+          replayEnergy > 0
+        ) {
+          state.wallet = { ...state.wallet, energy: replayEnergy - 1 };
+          replayEnergySpent.add(selected.lessonId);
+        }
+        return response({
+          reviewRequired: false,
+          review: null,
+          progress: {
+            status: 'COMPLETED',
+            lastContentId:
+              selected.contents.filter((content) => completed.has(content.contentId)).at(-1)
+                ?.contentId ?? null,
+            resumeContentId:
+              selected.contents.find((content) => !completed.has(content.contentId))?.contentId ??
+              null,
+          },
+          contents: empty ? [] : selected.contents,
+        });
+      }
+      replayProgress.delete(selected.lessonId);
+      // 명세(API-404): 레슨을 시작할 때 에너지 1개를 쓴다. 이어서 시작하거나
+      // 이미 별가루를 받은 레슨을 다시 하면 쓰지 않는다. 에너지가 0이면 줄이지 않는다.
+      const energy = state.wallet.energy ?? 0;
+      if (
+        !state.startedLessons.has(selected.lessonId) &&
+        !state.rewardedLessons.has(selected.lessonId)
+      ) {
+        if (energy > 0) state.wallet = { ...state.wallet, energy: energy - 1 };
+        else noEnergyLessons.add(selected.lessonId);
+      }
       state.startedLessons.add(selected.lessonId);
       const completedContents = selected.contents.filter((content) =>
         state.completed.has(content.contentId),
@@ -450,16 +519,51 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     }
     case 'API-405': {
       const contentId = id(options, 'contentId');
-      state.completed.add(contentId);
       const selected = lessons.find((item) =>
         item.contents.some((content) => content.contentId === contentId),
       );
+      const replayed = selected && replayProgress.get(selected.lessonId);
+      if (replayed && selected) {
+        const next = selected.contents.find((content) => !replayed.has(content.contentId));
+        if (!replayed.has(contentId) && next?.contentId !== contentId)
+          throw new Error('MOCK_VALIDATION_FAILED: 콘텐츠 순서를 확인하세요.');
+        replayed.add(contentId);
+        const resumeContentId =
+          selected.contents.find((content) => !replayed.has(content.contentId))?.contentId ?? null;
+        // 백엔드 completeReplay: 이미 별가루를 받은 레슨이면 completion=null, 아니면 이번 지급 결과.
+        let replayCompletion = null;
+        if (resumeContentId === null && unpaidStardustLessons.has(selected.lessonId)) {
+          const paid = replayEnergySpent.has(selected.lessonId);
+          if (paid) {
+            unpaidStardustLessons.delete(selected.lessonId);
+            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+          }
+          replayCompletion = {
+            rewards: paid
+              ? [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]
+              : [],
+            wallet: state.wallet,
+            courseCompleted: courseDone(selected.courseId),
+            stardustSkipped: !paid,
+          };
+        }
+        return response({
+          progress: { status: 'COMPLETED', lastContentId: contentId, resumeContentId },
+          lessonCompleted: resumeContentId === null,
+          completion: replayCompletion,
+        });
+      }
+      state.completed.add(contentId);
       const done =
         !!selected && selected.contents.every((content) => state.completed.has(content.contentId));
       let newBadge = false;
+      const stardustSkipped = !!selected && noEnergyLessons.has(selected.lessonId);
       if (done && selected && !state.rewardedLessons.has(selected.lessonId)) {
         state.rewardedLessons.add(selected.lessonId);
-        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+        noEnergyLessons.delete(selected.lessonId);
+        if (!stardustSkipped)
+          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+        else unpaidStardustLessons.add(selected.lessonId);
         if (
           courseDone(selected.courseId) &&
           !state.completedConstellations.has(selected.courseId)
@@ -479,7 +583,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                 ?.contentId ?? null),
         },
         lessonCompleted: done,
-        completion: done ? completion(selected?.courseId, newBadge) : null,
+        completion: done ? completion(selected?.courseId, newBadge, stardustSkipped) : null,
       });
     }
     case 'API-406':
@@ -554,7 +658,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
             },
           ],
           message: null,
-          rewardEligible: true,
+          rewardEligible: reviewRewardEligible(),
         });
       }
       if (state.rewardedLessons.has(11) && state.studyAnswers.size) {
@@ -580,21 +684,30 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
             : available.length < 5
               ? '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.'
               : '복습을 구성할 문제가 부족해요. 이번 체험판은 틀린 문제 4개와 맞힌 문제 1개로 구성해요.',
-          rewardEligible: selected.length > 0,
+          rewardEligible: reviewRewardEligible(),
         });
       }
       return response({
         reviewItems: [],
         message: '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.',
-        rewardEligible: false,
+        rewardEligible: reviewRewardEligible(),
       });
     }
-    case 'API-503':
-      state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 3 };
-      return response({
-        rewards: [{ type: 'WALLET', currency: 'STARDUST', amount: 3 }],
+    case 'API-503': {
+      const key = options.key;
+      if (key && reviewResponses.has(key)) return response(reviewResponses.get(key));
+      const paid = reviewRewardEligible();
+      if (paid) {
+        reviewRewards.paid += 1;
+        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 3 };
+      }
+      const data = {
+        rewards: paid ? [{ type: 'WALLET', currency: 'STARDUST', amount: 3 }] : [],
         wallet: state.wallet,
-      });
+      };
+      if (key) reviewResponses.set(key, data);
+      return response(data);
+    }
     case 'API-601':
       return response({ lesson: lessons[0] });
     case 'API-602':
@@ -647,13 +760,18 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-801':
       return response(
         {
+          // 서버처럼 차단한 사용자는 빼고 보낸다. 서버는 하우징 ID 로 소유자 user_id 를 쓴다.
           housings: empty
             ? []
-            : [...socialCards].sort((a, b) =>
-                options.query && 'sort' in options.query && options.query.sort === 'popular'
-                  ? b.likeCount - a.likeCount
-                  : a.housingId - b.housingId,
-              ),
+            : socialCards
+                .filter(
+                  (card) => !state.blockedUsers.some((user) => user.userId === card.housingId),
+                )
+                .sort((a, b) =>
+                  options.query && 'sort' in options.query && options.query.sort === 'popular'
+                    ? b.likeCount - a.likeCount
+                    : a.housingId - b.housingId,
+                ),
         },
         true,
       );

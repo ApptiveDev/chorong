@@ -16,11 +16,19 @@ const dockItems = [
 
 type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0] & {
   bottom: number;
+  guest: boolean;
 };
 
-function DockBar({ state, navigation, bottom }: DockBarProps) {
+function DockBar({ state, navigation, bottom, guest }: DockBarProps) {
+  const guestControlRoom = guest && state.routes[state.index]?.name === 'more';
   return (
-    <View style={[dockStyles.bar, { height: 64 + bottom, paddingBottom: bottom }]}>
+    <View
+      style={[
+        dockStyles.bar,
+        guestControlRoom && dockStyles.guestBar,
+        { height: 64 + bottom, paddingBottom: bottom },
+      ]}
+    >
       <View style={dockStyles.items}>
         {dockItems.map((item) => {
           const routeIndex = state.routes.findIndex((route) => route.name === item.name);
@@ -42,9 +50,19 @@ function DockBar({ state, navigation, bottom }: DockBarProps) {
                 if (!selected && !event.defaultPrevented) navigation.navigate(route.name);
               }}
               onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
-              style={[dockStyles.item, selected && dockStyles.selected]}
+              style={[
+                dockStyles.item,
+                selected && dockStyles.selected,
+                selected && guestControlRoom && dockStyles.guestSelected,
+              ]}
             >
-              <Text style={[dockStyles.label, selected && dockStyles.selectedLabel]}>
+              <Text
+                style={[
+                  dockStyles.label,
+                  guestControlRoom && dockStyles.guestLabel,
+                  selected && dockStyles.selectedLabel,
+                ]}
+              >
                 {item.label}
               </Text>
             </Pressable>
@@ -78,7 +96,11 @@ function TabNavigator() {
 
   return (
     <Tabs
-      tabBar={(props) => (isEditing ? null : <DockBar {...props} bottom={bottom} />)}
+      tabBar={(props) =>
+        isEditing ? null : (
+          <DockBar {...props} bottom={bottom} guest={session.user?.status === 'GUEST'} />
+        )
+      }
       screenOptions={{
         headerShown: false,
       }}
@@ -99,9 +121,11 @@ function TabNavigator() {
 
 const dockStyles = StyleSheet.create({
   bar: { width: '100%', backgroundColor: '#161616' },
+  guestBar: { backgroundColor: '#e4e4e4' },
   items: { width: '100%', height: 64, flexDirection: 'row' },
   item: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
   selected: { borderBottomWidth: 4, borderBottomColor: '#f1f1f1' },
+  guestSelected: { borderBottomColor: '#161616' },
   label: {
     color: '#f1f1f1',
     fontSize: 16,
@@ -110,4 +134,5 @@ const dockStyles = StyleSheet.create({
     includeFontPadding: false,
   },
   selectedLabel: { fontFamily: 'PretendardBold' },
+  guestLabel: { color: '#161616' },
 });

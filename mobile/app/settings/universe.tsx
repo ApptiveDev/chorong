@@ -1,15 +1,23 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { integrationApi as api, useMockApi } from '../../src/integration/runtime';
-import { mockVisibility } from '../../src/integration/mockVisibility';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import {
+  ControlSettingRow,
+  ControlSettingsScreen,
+  figma,
+} from '../../src/components/settings/ControlSettingsUI';
 import { useIntegration, useTask } from '../../src/integration/hooks';
+import { housingVisibility, useHousingVisibility } from '../../src/integration/housingVisibility';
 import type { BlockedUser, Me } from '../../src/integration/models';
-import { UserStatus } from '../../src/integration/user/Screen';
-import { ControlSwitch } from '../../src/integration/user/ControlSwitch';
+import { integrationApi as api } from '../../src/integration/runtime';
+import { SessionConfirmModal } from '../../src/integration/user/SessionConfirmModal';
+import {
+  PrivateConfirmModal,
+  PublicConfirmModal,
+} from '../../src/integration/user/VisibilityConfirmModals';
 
+// Figma S03_1 · 우주선 관리 (497:454)
 export default function UniverseSettings() {
   const router = useRouter();
   const session = useIntegration();
@@ -18,14 +26,14 @@ export default function UniverseSettings() {
   const [users, setUsers] = useState<BlockedUser[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [confirmPrivate, setConfirmPrivate] = useState(false);
+  const [confirmPublic, setConfirmPublic] = useState(false);
+  const [visibilityRequested, setVisibilityRequested] = useState(false);
   const [unblockUser, setUnblockUser] = useState<BlockedUser | null>(null);
+  const [unblockRequested, setUnblockRequested] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
-  const mockPublic = useSyncExternalStore(
-    mockVisibility.subscribe,
-    mockVisibility.get,
-    mockVisibility.get,
-  );
-  const isPublic = useMockApi ? mockPublic : (me?.housing.isPublic ?? false);
+  const sharedPublic = useHousingVisibility();
+  const isPublic = sharedPublic ?? me?.housing.isPublic ?? false;
+  const member = session.ready && session.user?.status === 'ACTIVE';
 
   const load = () =>
     task.run(async () => {
@@ -34,24 +42,38 @@ export default function UniverseSettings() {
         api.social.blocks({ size: 20 }),
       ]);
       setMe(account);
+      housingVisibility.set(account.housing.isPublic);
       setUsers(page.data.users);
       setCursor(page.meta.nextCursor);
     });
-  useEffect(() => {
-    if (session.ready && session.user?.status === 'ACTIVE') void load();
-  }, [session.ready, session.user?.status]);
 
-  const changeVisibility = (value: boolean) =>
+  useEffect(() => {
+    if (member) void load();
+  }, [member]);
+
+  const changeVisibility = (value: boolean) => {
+    if (task.busy) return;
+    setVisibilityRequested(true);
     void task.run(async () => {
-      const housing = await api.room.update({ isPublic: value });
+      const housing = await housingVisibility.update(value);
       setMe((current) =>
         current
           ? { ...current, housing: { ...current.housing, isPublic: housing.isPublic } }
           : current,
       );
-      if (useMockApi) mockVisibility.set(housing.isPublic);
       setDialogVisible(false);
+      setConfirmPublic(false);
+      setVisibilityRequested(false);
     });
+  };
+
+  const closeVisibility = () => {
+    if (task.busy) return;
+    setDialogVisible(false);
+    setConfirmPublic(false);
+    setVisibilityRequested(false);
+  };
+
   const loadMore = () =>
     void task.run(async () => {
       if (!cursor) return;
@@ -59,209 +81,192 @@ export default function UniverseSettings() {
       setUsers((current) => [...current, ...page.data.users]);
       setCursor(page.meta.nextCursor);
     });
-  const unblock = () =>
+
+  const closeUnblock = () => {
+    if (task.busy) return;
+    setDialogVisible(false);
+    setUnblockUser(null);
+    setUnblockRequested(false);
+  };
+
+  const unblock = () => {
+    if (task.busy || !unblockUser) return;
+    const userId = unblockUser.userId;
+    setUnblockRequested(true);
     void task.run(async () => {
-      if (!unblockUser) return;
-      await api.social.unblock(unblockUser.userId);
+      await api.social.unblock(userId);
+      setUsers((current) => current.filter((user) => user.userId !== userId));
+      setDialogVisible(false);
+      setUnblockUser(null);
+      setUnblockRequested(false);
       const page = await api.social.blocks({ size: 20 });
       setUsers(page.data.users);
       setCursor(page.meta.nextCursor);
-      setDialogVisible(false);
     });
+  };
 
   return (
-    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={s.content}>
-        <View style={s.header}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="제어실로 돌아가기"
-            onPress={() => router.back()}
-            style={s.back}
-          >
-            <Ionicons name="chevron-back" size={24} color="#282636" />
-          </Pressable>
-          <Text style={s.title}>우주선 관리하기</Text>
-        </View>
-        <UserStatus task={task} />
-        {session.user?.status === 'ACTIVE' ? (
-          <>
-            <View style={s.group}>
-              <Pressable
-                accessibilityRole="switch"
-                accessibilityLabel="우주선 공개"
-                accessibilityState={{ checked: isPublic, disabled: !me || task.busy }}
-                disabled={!me || task.busy}
-                onPress={() => {
-                  if (!isPublic) return changeVisibility(true);
-                  setUnblockUser(null);
-                  setConfirmPrivate(true);
-                  setDialogVisible(true);
-                }}
-                style={s.settingRow}
-              >
-                <Text style={s.label}>우주선 공개</Text>
-                <ControlSwitch value={isPublic} />
-              </Pressable>
-            </View>
-            <View style={s.blockedSection}>
-              <Text style={s.sectionTitle}>차단한 사용자</Text>
-              {!task.busy && !task.error && users.length === 0 ? (
-                <Text style={s.empty}>차단한 사용자가 없어요.</Text>
-              ) : null}
-              {users.map((user) => (
-                <View key={user.userId} style={s.blockedRow}>
-                  <Text style={s.label}>{user.nickname}</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={task.busy}
-                    onPress={() => {
-                      setConfirmPrivate(false);
-                      setUnblockUser(user);
-                      setDialogVisible(true);
-                    }}
-                    style={s.unblockButton}
-                  >
-                    <Text style={s.unblockText}>해제</Text>
-                  </Pressable>
+    <ControlSettingsScreen title="우주선 관리하기" onBack={() => router.replace('/more')}>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <ControlSettingRow
+          label="우주선 공개"
+          value={isPublic}
+          disabled={!me || task.busy}
+          onPress={() => {
+            if (!me || task.busy) return;
+            setUnblockUser(null);
+            setConfirmPrivate(isPublic);
+            setConfirmPublic(!isPublic);
+            setVisibilityRequested(false);
+            setDialogVisible(true);
+          }}
+        />
+
+        {/* 차단한 사용자: 제목(왼쪽 8)과 목록 사이 12 */}
+        <View style={s.blocked}>
+          <Text style={s.blockedTitle}>차단한 사용자</Text>
+          <View style={s.card}>
+            {users.length === 0 && !task.busy && !task.error ? (
+              <Text style={s.empty}>차단한 사용자가 없습니다.</Text>
+            ) : null}
+            {users.map((user) => (
+              <View key={user.userId} style={s.item}>
+                <View style={s.who}>
+                  <View style={s.star}>
+                    <BlockedStar />
+                  </View>
+                  <Text style={s.nickname} numberOfLines={1}>
+                    {user.nickname}
+                  </Text>
                 </View>
-              ))}
-              {cursor ? (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel={`${user.nickname} 차단 해제`}
                   disabled={task.busy}
-                  onPress={loadMore}
-                  style={s.moreButton}
+                  hitSlop={10}
+                  onPress={() => {
+                    if (task.busy) return;
+                    setConfirmPrivate(false);
+                    setConfirmPublic(false);
+                    setUnblockUser(user);
+                    setUnblockRequested(false);
+                    setDialogVisible(true);
+                  }}
                 >
-                  <Text style={s.unblockText}>더 보기</Text>
+                  {({ pressed }) => (
+                    <View style={s.unblock}>
+                      <UnblockLabel color={pressed ? '#424242' : figma.base} />
+                    </View>
+                  )}
                 </Pressable>
-              ) : null}
-            </View>
-          </>
-        ) : (
-          <Text style={s.empty}>로그인하면 우주선을 관리할 수 있어요.</Text>
-        )}
-      </ScrollView>
-      <Modal
-        visible={dialogVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setDialogVisible(false);
-        }}
-      >
-        <View style={s.overlay}>
-          <View style={s.dialog}>
-            <Text style={s.dialogTitle}>
-              {confirmPrivate ? '우주선을 비공개로 바꿀까요?' : '차단을 해제할까요?'}
-            </Text>
-            <Text style={s.dialogCopy}>
-              {confirmPrivate
-                ? '다른 별지기에게 보이지 않고, 다른 우주선도 구경할 수 없어요.'
-                : '이 사용자의 우주선이 다시 구경 목록에 나타날 수 있어요.'}
-            </Text>
-            <View style={s.actions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setDialogVisible(false);
-                }}
-                style={s.secondary}
-              >
-                <Text style={s.secondaryText}>취소</Text>
+              </View>
+            ))}
+            {cursor ? (
+              <Pressable accessibilityRole="button" disabled={task.busy} onPress={loadMore}>
+                <Text style={s.more}>더 보기</Text>
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={task.busy}
-                onPress={() => (confirmPrivate ? changeVisibility(false) : unblock())}
-                style={s.primary}
-              >
-                <Text style={s.primaryText}>{confirmPrivate ? '비공개로 변경' : '해제'}</Text>
-              </Pressable>
-            </View>
+            ) : null}
           </View>
         </View>
-      </Modal>
-    </SafeAreaView>
+
+        {session.ready && !member ? (
+          <Text style={s.notice}>로그인하면 우주선을 관리할 수 있습니다.</Text>
+        ) : null}
+        {task.error && !unblockUser ? <Text style={s.error}>{task.error}</Text> : null}
+      </ScrollView>
+
+      <PublicConfirmModal
+        visible={dialogVisible && confirmPublic}
+        error={visibilityRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeVisibility}
+        onConfirm={() => changeVisibility(true)}
+      />
+      <PrivateConfirmModal
+        visible={dialogVisible && confirmPrivate}
+        error={visibilityRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeVisibility}
+        onConfirm={() => changeVisibility(false)}
+      />
+      <SessionConfirmModal
+        visible={dialogVisible && !confirmPrivate && !!unblockUser}
+        title="차단을 해제할까요?"
+        notice="해제한 사용자는 다시 구경 목록에 나올 수 있어요."
+        noticeWeight="medium"
+        scrollable
+        confirmLabel="해제하기"
+        error={unblockRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeUnblock}
+        onConfirm={unblock}
+      />
+    </ControlSettingsScreen>
+  );
+}
+
+// Figma 656:2901 'Star 5' 원본 경로 (8.66×10, #161616)
+// Figma 656:2929 '해제' 글자(DungGeunMo Regular 14)를 윤곽선으로 내보낸 SVG. 기본 #161616, 눌림 #424242.
+function UnblockLabel({ color }: { color: string }) {
+  return (
+    <Svg width={27} height={12} viewBox="0 0 27 12" fill="none">
+      <Path
+        d="M4.375 0V0.875H7V1.75H0V0.875H2.625V0H4.375ZM9.625 6.125V11.375H7.875V0H9.625V5.25H10.5V0H12.25V11.375H10.5V6.125H9.625ZM5.25 9.625V10.5H1.75V9.625H0.875V8.75H0V4.375H0.875V3.5H1.75V2.625H5.25V3.5H6.125V4.375H7V8.75H6.125V9.625H5.25ZM2.625 3.5V4.375H1.75V8.75H2.625V9.625H4.375V8.75H5.25V4.375H4.375V3.5H2.625ZM23.625 0V11.375H21.875V6.125H20.125V5.25H21.875V0H23.625ZM26.25 0V11.375H24.5V0H26.25ZM21 9.625V10.5H19.25V9.625H18.375V8.75H16.625V9.625H15.75V10.5H14V9.625H14.875V8.75H15.75V7.875H16.625V1.75H14V0.875H21V1.75H18.375V7.875H19.25V8.75H20.125V9.625H21Z"
+        fill={color}
+      />
+    </Svg>
+  );
+}
+
+function BlockedStar() {
+  return (
+    <Svg width={8.66026} height={10} viewBox="0 0 8.66026 10" fill="none">
+      <Path
+        d="M4.33013 0L5.28504 3.34604L8.66025 2.5L6.23996 5L8.66025 7.5L5.28504 6.65396L4.33013 10L3.37521 6.65396L0 7.5L2.4203 5L0 2.5L3.37521 3.34604L4.33013 0Z"
+        fill={figma.base}
+      />
+    </Svg>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
-  content: { paddingHorizontal: 24, paddingTop: 22, paddingBottom: 40, flexGrow: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
-  back: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  title: { color: '#282636', fontSize: 21, fontWeight: '700' },
-  group: {
-    borderWidth: 1,
-    borderColor: '#eeeaf3',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 3,
+  content: { paddingBottom: 40 },
+  blocked: { marginTop: 24, gap: 12 },
+  blockedTitle: {
+    paddingLeft: 8,
+    color: figma.base,
+    fontFamily: 'PretendardMedium',
+    fontSize: 16,
   },
-  settingRow: {
-    minHeight: 70,
+  // 목록 상자: 위 12 · 아래 24 · 왼쪽 20 · 오른쪽 28
+  card: {
+    backgroundColor: figma.fale,
+    borderWidth: 1,
+    borderColor: figma.lght,
+    borderRadius: 4,
+    paddingTop: 12,
+    paddingBottom: 24,
+    paddingLeft: 20,
+    paddingRight: 28,
+  },
+  // 항목: 위아래 12 · 좌우 2, 아래 구분선 1 #000
+  item: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
   },
-  label: { color: '#282636', fontSize: 14 },
-  blockedSection: { marginTop: 65 },
-  sectionTitle: { color: '#282636', fontSize: 15, fontWeight: '700', marginBottom: 14 },
-  empty: { color: '#aaa3b1', fontSize: 13, paddingVertical: 16 },
-  blockedRow: {
-    borderWidth: 1,
-    borderColor: '#e4deea',
-    borderRadius: 12,
-    padding: 13,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  unblockButton: {
-    paddingVertical: 9,
-    paddingHorizontal: 17,
-    borderRadius: 9,
-    backgroundColor: '#f0edf4',
-  },
-  unblockText: { color: '#655b76', fontSize: 12 },
-  moreButton: { alignSelf: 'center', padding: 12 },
-  overlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  dialog: {
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '90%',
-    backgroundColor: '#fff',
-    borderRadius: 23,
-    padding: 25,
-    gap: 16,
-  },
-  dialogTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
-  dialogCopy: { color: '#807188', fontSize: 13, lineHeight: 22 },
-  actions: { flexDirection: 'row', gap: 9, marginTop: 8 },
-  primary: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 13,
-    backgroundColor: '#373044',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  secondary: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
+  who: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  star: { width: 10, height: 10, alignItems: 'center', justifyContent: 'center' },
+  nickname: { flexShrink: 1, color: figma.base, fontFamily: 'PretendardRegular', fontSize: 14 },
+  // Figma 656:2929 해제 버튼 칸 28×14
+  unblock: { width: 28, height: 14, justifyContent: 'center' },
+  empty: { paddingVertical: 12, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
+  more: { paddingTop: 12, color: figma.base, fontFamily: 'PretendardMedium', fontSize: 14 },
+  notice: { marginTop: 16, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
+  error: { marginTop: 16, color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 14 },
 });

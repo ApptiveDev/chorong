@@ -189,6 +189,13 @@ export class IntegrationClient {
       this.deviceFlight = null;
     }
   }
+  async renewGuestDeviceUuid(): Promise<void> {
+    if (this.session) throw new Error('비회원 기기 식별자는 로그아웃 후에만 변경할 수 있습니다.');
+    if (this.deviceFlight) await this.deviceFlight;
+    const next = this.uuid();
+    await this.storage.set('chorong.v1.device', next);
+    this.device = next;
+  }
   initialize = () => {
     if (this.initializeFlight) return this.initializeFlight;
     this.initializeFlight = (async () => {

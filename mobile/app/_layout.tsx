@@ -35,6 +35,10 @@ export default function RootLayout() {
       uri: require('../assets/fonts/Pretendard-SemiBold.otf'),
       display: FontDisplay.BLOCK,
     },
+    TekoRegular: {
+      uri: require('../assets/fonts/Teko-Regular.ttf'),
+      display: FontDisplay.BLOCK,
+    },
   });
 
   if (fontError) throw fontError;
@@ -53,7 +57,7 @@ export default function RootLayout() {
           <Stack.Screen name="review" options={{ headerShown: false }} />
           <Stack.Screen name="review-start" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ title: '시작 안내' }} />
-          <Stack.Screen name="learn/course/[courseId]" options={{ title: '코스' }} />
+          <Stack.Screen name="learn/course/[courseId]" options={{ headerShown: false }} />
           <Stack.Screen name="learn/lesson/[lessonId]" options={{ title: '레슨' }} />
           <Stack.Screen name="learn/study/[lessonId]" options={{ headerShown: false }} />
           <Stack.Screen name="room/[mode]" options={{ headerShown: false }} />

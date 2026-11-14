@@ -61,7 +61,10 @@ export function createIntegrationApi(client: IntegrationClient) {
   const learning = {
     courses: (category?: string, topic?: string) =>
       client.request('API-401', object({ courses: array(m.courseSummary) }), {
-        query: category || topic ? { category, topic } : undefined,
+        query:
+          category || topic
+            ? { ...(category ? { category } : {}), ...(topic ? { topic } : {}) }
+            : undefined,
       }),
     course: (courseId: number) => client.request('API-402', m.courseDetail, { path: { courseId } }),
     lesson: (lessonId: number) =>

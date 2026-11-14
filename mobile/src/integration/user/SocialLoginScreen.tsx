@@ -12,7 +12,18 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIntegration, useTask } from '../hooks';
 import { integrationApi as api, useMockApi } from '../runtime';
 
-type SocialProvider = 'apple' | 'google' | 'kakao';
+export type SocialProvider = 'apple' | 'google' | 'kakao';
+
+// 소셜 계속하기 공용 처리. 로그인 화면과 첫 학습 완료 로그인 모달이 같이 쓴다.
+export async function continueWithSocial(provider: SocialProvider, authenticated: boolean) {
+  if (useMockApi) {
+    await api.account.oauth(provider, { accessToken: 'mock-social-login' });
+  } else if (!authenticated) {
+    const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
+    if (!platform) throw new Error('웹에서는 임시 로그인을 사용할 수 없습니다.');
+    await api.account.guest(platform);
+  }
+}
 
 const googleLetters = [
   ['G', '#0038df'],
@@ -44,14 +55,7 @@ export default function SocialLoginScreen() {
   const continueWith = (provider: SocialProvider) => {
     if (task.busy) return;
     void task.run(async () => {
-      if (useMockApi) {
-        await api.account.oauth(provider, { accessToken: 'mock-social-login' });
-      } else if (!session.authenticated) {
-        const platform =
-          Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
-        if (!platform) throw new Error('웹에서는 임시 로그인을 사용할 수 없습니다.');
-        await api.account.guest(platform);
-      }
+      await continueWithSocial(provider, session.authenticated);
       router.replace(afterLogin);
     });
   };

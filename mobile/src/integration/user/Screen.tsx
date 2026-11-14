@@ -69,11 +69,26 @@ const screenStyles = StyleSheet.create({
   darkSafe: { backgroundColor: '#161616' },
   darkPage: { paddingHorizontal: 0, paddingTop: 0, gap: 0, overflow: 'hidden' },
 });
-export function UserStatus({ task }: { task: ReturnType<typeof useTask> }) {
+// floatingBusy: 로딩 표시를 레이아웃 흐름 밖(절대 위치)에 띄워, 표시·해제 때 아래 화면이 밀리지 않게 한다.
+export function UserStatus({
+  task,
+  floatingBusy = false,
+}: {
+  task: ReturnType<typeof useTask>;
+  floatingBusy?: boolean;
+}) {
   const message = task.error?.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '');
   return (
     <>
-      {task.busy ? <ActivityIndicator accessibilityLabel="불러오는 중" /> : null}
+      {task.busy ? (
+        floatingBusy ? (
+          <View pointerEvents="none" style={statusStyles.floatingBusy}>
+            <ActivityIndicator accessibilityLabel="불러오는 중" />
+          </View>
+        ) : (
+          <ActivityIndicator accessibilityLabel="불러오는 중" />
+        )
+      ) : null}
       {message ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {message}
@@ -82,3 +97,14 @@ export function UserStatus({ task }: { task: ReturnType<typeof useTask> }) {
     </>
   );
 }
+
+const statusStyles = StyleSheet.create({
+  floatingBusy: {
+    position: 'absolute',
+    top: 4,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+});

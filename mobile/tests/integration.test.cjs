@@ -16,6 +16,8 @@ const {
   restoreMockSnapshot,
 } = require('../.expo/integration-tests/mockApi');
 const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
+const { firstStudyLesson } = require('../.expo/integration-tests/user/welcomeFlow');
+const { nicknameValidationError } = require('../.expo/integration-tests/user/profileNickname');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
 const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private', expiresIn: 3600 };
@@ -330,6 +332,23 @@ test('housing save and batch purchase send PDF bodies and purchase key unchanged
   });
   assert.equal(calls[1].headers.get('Idempotency-Key'), 'purchase-key-1');
 });
+test('purchase rejected for balance keeps the server code so the room shows the shortage modal', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  c.http.defaults.adapter = async (config) => {
+    if (config.url === '/shop/purchases') fail(config, 402, 'INSUFFICIENT_BALANCE');
+    throw new Error(`unexpected ${config.url}`);
+  };
+  await assert.rejects(
+    api.room.purchase([{ itemId: 11, optionId: 12 }], 'purchase-key-2'),
+    (error) => error.code === 'INSUFFICIENT_BALANCE' && error.status === 402,
+  );
+  c.http.defaults.adapter = async (config) => fail(config, 409, 'ALREADY_OWNED');
+  await assert.rejects(
+    api.room.purchase([{ itemId: 11, optionId: 12 }], 'purchase-key-3'),
+    (error) => error.code === 'ALREADY_OWNED',
+  );
+});
 test('guest uses one stable UUID, no authorization; tokens never enter snapshots or traces', async () => {
   const { c, api, entries } = setup();
   const requests = [];
@@ -455,6 +474,85 @@ test('failed logout keeps session; successful 204 logout clears persisted tokens
   assert.equal(entries.size, 0);
   assert.equal(c.getSnapshot().traces[0].api, 'API-107');
 });
+test('profile nickname validation follows the server length and rejects unsupported characters', () => {
+  assert.equal(nicknameValidationError('가'), '닉네임은 2~12자로 입력하세요.');
+  assert.equal(
+    nicknameValidationError('가나다라마바사아자차카타파'),
+    '닉네임은 2~12자로 입력하세요.',
+  );
+  assert.equal(nicknameValidationError('  별지기7  '), null);
+  assert.equal(nicknameValidationError('별 지기'), '한글, 영문, 숫자만 입력할 수 있습니다.');
+  assert.equal(nicknameValidationError('cat🌙'), '한글, 영문, 숫자만 입력할 수 있습니다.');
+});
+test('profile updates the shared member nickname only after a successful response', async () => {
+  const { c, api } = setup();
+  await login(c);
+  c.http.defaults.adapter = async (config) => fail(config, 503, 'INTERNAL');
+  await assert.rejects(api.account.update({ nickname: '새이름' }));
+  assert.equal(c.getSnapshot().user.nickname, '시험');
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { data: { ...me, nickname: '새이름' } });
+  await api.account.update({ nickname: '새이름' });
+  assert.equal(c.getSnapshot().user.nickname, '새이름');
+});
+test('withdrawal failure preserves member session and success allows a guest session', async () => {
+  const { c, api } = setup();
+  await login(c);
+  c.http.defaults.adapter = async (config) => fail(config, 503, 'INTERNAL');
+  await assert.rejects(api.account.withdraw());
+  assert.equal(c.getSnapshot().user.status, 'ACTIVE');
+  c.http.defaults.adapter = async (config) => {
+    if (config.url === '/users/me') return respond(config, '', 204);
+    if (config.url === '/auth/guest')
+      return respond(config, {
+        data: { ...tokens, user: { userId: 8, nickname: '게스트', status: 'GUEST' }, isNew: true },
+      });
+    throw new Error(`unexpected ${config.url}`);
+  };
+  await api.account.withdraw();
+  assert.equal(c.getSnapshot().authenticated, false);
+  await api.account.guest('ANDROID');
+  assert.equal(c.getSnapshot().user.status, 'GUEST');
+});
+test('a former guest device cannot restore the member after logout', async () => {
+  const entries = new Map();
+  const storage = {
+    get: async (key) => entries.get(key) ?? null,
+    set: async (key, value) => entries.set(key, value),
+    remove: async (key) => entries.delete(key),
+  };
+  const freshUuid = '12345678-1234-4234-8234-123456789abd';
+  const ids = [uuid, freshUuid];
+  const c = new IntegrationClient(
+    'https://test.invalid/api/v1',
+    storage,
+    () => ids.shift() ?? freshUuid,
+    true,
+  );
+  const api = createIntegrationApi(c);
+  await c.deviceUuid();
+  await login(c);
+  c.http.defaults.adapter = async (config) => {
+    if (config.url === '/auth/logout') return respond(config, '', 204);
+    if (config.url === '/auth/guest') {
+      const { deviceUuid } = JSON.parse(config.data);
+      const user =
+        deviceUuid === uuid
+          ? { userId: 7, nickname: '시험', status: 'ACTIVE' }
+          : { userId: 8, nickname: '게스트', status: 'GUEST' };
+      return respond(config, { data: { ...tokens, user, isNew: user.status === 'GUEST' } });
+    }
+    throw new Error(`unexpected ${config.url}`);
+  };
+  await api.account.logout(false);
+  await api.account.guest('ANDROID');
+  assert.equal(c.getSnapshot().user.status, 'ACTIVE');
+  await api.account.logout(false);
+  await c.renewGuestDeviceUuid();
+  await api.account.guest('ANDROID');
+  assert.equal(entries.get('chorong.v1.device'), freshUuid);
+  assert.equal(c.getSnapshot().user.status, 'GUEST');
+});
 test('app restart rotates stored refresh and reloads server user status', async () => {
   const { c, entries } = setup(true);
   await login(c);
@@ -468,6 +566,78 @@ test('app restart rotates stored refresh and reloads server user status', async 
   assert.deepEqual(urls, ['/auth/token/refresh', '/users/me']);
   assert.equal(restored.c.getSnapshot().user.onboardingCompleted, false);
   assert.equal(restored.c.getSnapshot().ready, true);
+});
+
+test('목업 사용자 데이터만으로는 인증되지 않고 비회원 세션은 재실행 후에도 유지된다', async () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  const entries = new Map();
+  const storage = {
+    get: async (key) => entries.get(key) ?? null,
+    set: async (key, value) => {
+      entries.set(key, value);
+    },
+    remove: async (key) => {
+      entries.delete(key);
+    },
+  };
+  const makeClient = () =>
+    new IntegrationClient('https://mock.invalid/api/v1', storage, () => uuid, true, mockApi);
+  try {
+    mockApi('API-104', {});
+    const fresh = makeClient();
+    await fresh.initialize();
+    assert.equal(fresh.getSnapshot().ready, true);
+    assert.equal(fresh.getSnapshot().authenticated, false);
+    assert.equal(fresh.getSnapshot().user, null);
+
+    await createIntegrationApi(fresh).account.guest('ANDROID');
+    assert.equal(fresh.getSnapshot().user.status, 'GUEST');
+    const restored = makeClient();
+    await restored.initialize();
+    assert.equal(restored.getSnapshot().ready, true);
+    assert.equal(restored.getSnapshot().authenticated, true);
+    assert.equal(restored.getSnapshot().user.status, 'GUEST');
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('완료된 첫 레슨은 기존 기록을 보존한 채 처음부터 다시 진행한다', async () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const contents = mockApi('API-403', { path: { lessonId: 11 } }).data.data.contents;
+    for (const content of contents) mockApi('API-405', { path: { contentId: content.contentId } });
+    const detail = mockApi('API-402', { path: { courseId: 1 } }).data.data;
+    const selected = firstStudyLesson(detail.lessons);
+    assert.equal(selected.lesson.lessonId, 11);
+    assert.equal(selected.replay, true);
+    const before = JSON.parse(JSON.stringify(mockSnapshot()));
+    const started = mockApi('API-404', {
+      path: { lessonId: selected.lesson.lessonId },
+      body: { replay: selected.replay },
+    }).data.data;
+    assert.equal(started.progress.status, 'COMPLETED');
+    assert.equal(started.contents[0].contentId, contents[0].contentId);
+    assert.deepEqual(mockSnapshot(), before);
+
+    const firstQuiz = started.contents.find((content) => content.quiz).quiz;
+    mockApi('API-406', {
+      path: { quizId: firstQuiz.quizId },
+      body: { answer: { value: true }, replay: true },
+    });
+    assert.deepEqual(mockSnapshot(), before);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('첫 학습은 잠긴 레슨을 건너뛰고 미완료 레슨을 일반 모드로 연다', () => {
+  const selected = firstStudyLesson([
+    { lessonId: 1, title: '잠김', status: 'LOCKED' },
+    { lessonId: 2, title: '첫 학습', status: 'UNLOCKED' },
+  ]);
+  assert.equal(selected.lesson.lessonId, 2);
+  assert.equal(selected.replay, false);
 });
 test('late protected response cannot restore data after logout', async () => {
   const { c, api } = setup();
@@ -826,7 +996,7 @@ test('v2 inventory copies and shop counts keep existing room model', () => {
   );
 });
 
-test('v2 lesson keeps unsupported quiz content in place without grading data', () => {
+test('v2 MULTI keeps content order and connects existing learning and review data', () => {
   const quizContent = (contentId, order, quiz) => ({
     contentId,
     order,
@@ -846,7 +1016,7 @@ test('v2 lesson keeps unsupported quiz content in place without grading data', (
       quizContent(82, 2, {
         quizId: 802,
         interactionType: 'MULTI',
-        config: { options: ['a', 'b'] },
+        config: { options: ['a', 'b'], answers: [0] },
       }),
       quizContent(83, 3, { quizId: 803, interactionType: 'SLIDER', config: { ticks: ['0', '1'] } }),
       quizContent(84, 4, { quizId: 804, interactionType: 'CHOSUNG', config: { hint: 'ㅇㅌ' } }),
@@ -872,28 +1042,32 @@ test('v2 lesson keeps unsupported quiz content in place without grading data', (
     );
     assert.deepEqual(
       parsed.contents.map((c) => c.quiz?.quizId ?? null),
-      [801, null, 803, 804, 805],
+      [801, 802, 803, 804, 805],
     );
     assert.deepEqual(
       parsed.contents.map((c) => c.unsupportedQuiz ?? null),
-      [null, { quizId: 802, interactionType: 'MULTI' }, null, null, null],
+      [null, null, null, null, null],
     );
+    assert.deepEqual(parsed.contents[1].quiz.options, {
+      choices: [
+        { index: 0, label: 'a' },
+        { index: 1, label: 'b' },
+      ],
+      answer: [0],
+      mockHtmlType: 'multi',
+    });
   }
-  // 미지원 유형은 답안을 만들어 보내지 않는다.
-  assert.throws(() => contract.encodeAnswer(802, { texts: ['0'] }), /명세 불일치/);
+  assert.deepEqual(contract.encodeAnswer(802, { texts: ['0'] }), { answers: [0] });
   assert.throws(() => contract.encodeAnswer(802, { position: 0.5 }), /명세 불일치/);
-  // 온보딩은 quiz=null 콘텐츠를 답한 것으로 보고 보상을 받을 수 있어 그대로 실패시킨다.
+  // 온보딩의 기존 QuizCard는 MULTI를 표현하지 못하므로 기존 차단을 유지한다.
   assert.throws(() => contract.onboarding({ lesson: raw }), /interactionType=MULTI/);
-  // 복습 완료는 5문항 전부가 필요해 그대로 실패시킨다.
-  assert.throws(
-    () =>
-      contract.reviewSet({
-        reviewItems: [{ reviewItemId: 1, quiz: raw.contents[1].quiz }],
-        message: null,
-        rewardEligible: true,
-      }),
-    /interactionType=MULTI/,
-  );
+  const review = contract.reviewSet({
+    reviewItems: [{ reviewItemId: 1, quiz: raw.contents[1].quiz }],
+    message: null,
+    rewardEligible: true,
+  });
+  assert.equal(review.reviewItems[0].quiz.options.mockHtmlType, 'multi');
+  assert.deepEqual(contract.encodeReviewAnswer(1, { texts: ['0'] }), { answers: [0] });
 });
 
 test('v2 placement without item option keeps the placement and invents no option id', () => {
@@ -971,6 +1145,9 @@ test('CHOSUNG quiz maps hint, sends the typed string and uses only server gradin
   });
   assert.deepEqual(parsed, {
     quizId: 960,
+    interactionType: 'CHOSUNG',
+    quizOrder: 1,
+    config: { hint: 'ㅇㅌㄹㅁㄹ' },
     question: '이 색의 이름은?',
     hint: null,
     type: 'CHOSUNG',
@@ -1097,6 +1274,9 @@ test('SLIDER config maps string ticks and optional hint; answer is a 0~1 positio
   });
   assert.deepEqual(parsed, {
     quizId: 970,
+    interactionType: 'SLIDER',
+    quizOrder: 1,
+    config: { ticks: ['0', '반나절', '하루'], hint: '놓으면 제출돼요' },
     question: '얼마나 걸릴까요?',
     hint: null,
     type: 'SLIDER',
@@ -1360,5 +1540,979 @@ test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', a
       assert.ok(['별지기', '초롱이'].includes(message.speaker));
       assert.ok(message.text.length > 0);
     }
+  }
+});
+
+test('목업 레슨 시작은 처음 시작할 때만 에너지를 쓰고, 에너지 없이 마치면 별가루를 주지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 5 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    const start = () => mockApi('API-404', { path: { lessonId: 21 }, body: { replay: false } });
+    start();
+    assert.equal(mockApi('API-904', {}).data.data.energy, 4);
+    start();
+    assert.equal(mockApi('API-904', {}).data.data.energy, 4);
+
+    assert.equal(restoreMockSnapshot({ ...fresh, wallet: { ...fresh.wallet, energy: 0 } }), true);
+    start();
+    assert.equal(mockApi('API-904', {}).data.data.energy, 0);
+
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const contents = mockApi('API-403', { path: { lessonId: 21 } }).data.data.contents;
+    let result;
+    for (const content of contents)
+      result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion.stardustSkipped, true);
+    assert.equal(
+      result.completion.rewards.some((item) => item.type === 'WALLET'),
+      false,
+    );
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const v032Quiz = (quizId, interactionType, config) => ({
+  quizId,
+  lessonId: 3200,
+  interactionType,
+  question: '질문',
+  instruction: '안내',
+  difficulty: '기초',
+  quizOrder: 1,
+  config,
+});
+const v032Lesson = (quizzes) => ({
+  lessonId: 3200,
+  courseId: 32,
+  title: '계약 검증',
+  description: '설명',
+  contents: quizzes.map((quiz, index) => ({
+    contentId: 32000 + index,
+    order: index + 1,
+    segmentId: 'first',
+    contentType: 'QUIZ',
+    quiz,
+  })),
+});
+
+test('0.3.2 MULTI learning and review send selected indexes, including wrong answers', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32001, 'MULTI', { options: ['첫째', '둘째', '셋째'], answers: [0, 1] });
+  const sent = [];
+  c.http.defaults.adapter = async (config) => {
+    if (config.method === 'get')
+      return respond(config, {
+        data: config.url.includes('/reviews/')
+          ? { reviewItems: [{ reviewItemId: 32901, quiz }], message: null, rewardEligible: true }
+          : v032Lesson([quiz]),
+      });
+    sent.push({ url: config.url, body: JSON.parse(config.data) });
+    return respond(config, {
+      data: { isCorrect: false, completed: true, correctAnswer: { answers: [0, 1] } },
+    });
+  };
+  const lesson = await api.learning.lesson(3200);
+  assert.equal(lesson.contents[0].quiz.options.mockHtmlType, 'multi');
+  assert.deepEqual(lesson.contents[0].quiz.options.answer, [0, 1]);
+  const selected = { texts: ['2', '0'] };
+  const result = await api.learning.answer(32001, selected);
+  assert.equal(result.isCorrect, false);
+  assert.equal(result.completed, true);
+  assert.equal(result.explanation, undefined);
+  assert.deepEqual(selected, { texts: ['2', '0'] });
+  await api.review.next();
+  await api.review.answer(32901, { texts: ['1'] });
+  assert.deepEqual(sent, [
+    { url: '/quizzes/32001/answer', body: { answer: { answers: [0, 2] }, replay: false } },
+    { url: '/reviews/32901/answer', body: { answer: { answers: [1] } } },
+  ]);
+  for (const texts of [[], ['0', '0'], ['-1'], ['3'], ['0.5'], ['NaN'], [''], [' 1'], [0]])
+    assert.throws(() => api.learning.answer(32001, { texts }), /명세 불일치/);
+  assert.equal(sent.length, 2);
+});
+
+test('0.3.2 MULTI rejects missing, duplicate and out-of-range public answers', () => {
+  const invalid = [undefined, [], [0, 0], [-1], [2], [0.5], ['0']];
+  for (const answers of invalid) {
+    const quiz = v032Quiz(32002, 'MULTI', { options: ['가', '나'], answers });
+    for (const parse of [
+      () => contract.lesson(v032Lesson([quiz])),
+      () =>
+        contract.reviewSet({
+          reviewItems: [{ reviewItemId: 32902, quiz }],
+          message: null,
+          rewardEligible: true,
+        }),
+      () => contract.onboarding({ lesson: v032Lesson([quiz]) }),
+    ])
+      assert.throws(parse, /config.answers/);
+  }
+  assert.throws(
+    () => contract.quiz(v032Quiz(32002, 'MULTI', { options: ['가'], answers: [0] })),
+    /config.answers/,
+  );
+});
+
+test('0.3.2 MATCH learning and review encode the actual right-column selection', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32003, 'MATCH', {
+    pairs: [
+      ['왼1', '오른1'],
+      ['왼2', '오른2'],
+      ['왼3', '오른3'],
+    ],
+  });
+  const sent = [];
+  c.http.defaults.adapter = async (config) => {
+    if (config.method === 'get')
+      return respond(config, {
+        data: config.url.includes('/reviews/')
+          ? { reviewItems: [{ reviewItemId: 32903, quiz }], message: null, rewardEligible: true }
+          : v032Lesson([quiz]),
+      });
+    sent.push({ url: config.url, body: JSON.parse(config.data) });
+    return respond(config, { data: { isCorrect: false, completed: true } });
+  };
+  const lesson = await api.learning.lesson(3200);
+  assert.deepEqual(lesson.contents[0].quiz.options.right, ['오른3', '오른2', '오른1']);
+  const order = [0, 2, 1];
+  await api.learning.answer(32003, { order }, true);
+  await api.review.next();
+  await api.review.answer(32903, { order: [2, 1, 0] });
+  assert.deepEqual(order, [0, 2, 1]);
+  assert.deepEqual(sent, [
+    {
+      url: '/quizzes/32003/answer',
+      body: {
+        answer: {
+          pairs: [
+            ['왼1', '오른3'],
+            ['왼2', '오른1'],
+            ['왼3', '오른2'],
+          ],
+        },
+        replay: true,
+      },
+    },
+    { url: '/reviews/32903/answer', body: { answer: { pairs: quiz.config.pairs } } },
+  ]);
+  for (const order of [[], [0, 1], [0, 0, 1], [-1, 1, 2], [0, 1, 3], [0, 1, 1.5]])
+    assert.throws(() => api.review.answer(32903, { order }), /명세 불일치/);
+  assert.equal(sent.length, 2);
+});
+
+test('0.3.2 topic filters work together and old course responses remain valid', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const mock = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  const api = createIntegrationApi(mock);
+  await api.account.guest('ANDROID');
+  const all = (await api.learning.courses()).courses;
+  assert.equal(all.length, 4);
+  assert.ok(all.every((item) => typeof item.topic === 'string'));
+  const first = all[0];
+  assert.deepEqual((await api.learning.courses(undefined, first.topic)).courses, [first]);
+  assert.deepEqual((await api.learning.courses(first.category, first.topic)).courses, [first]);
+  assert.deepEqual((await api.learning.courses('없는 분야', first.topic)).courses, []);
+  assert.equal((await api.learning.course(first.courseId)).topic, first.topic);
+  const { c, api: real } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const { topic, ...legacy } = first;
+  c.http.defaults.adapter = async (config) => {
+    assert.deepEqual(config.params, { category: first.category, topic });
+    return respond(config, { data: { courses: [legacy] } });
+  };
+  const response = await real.learning.courses(first.category, topic);
+  assert.equal(response.courses[0].topic, undefined);
+});
+
+test('0.3.2 segments and all SINGLE presentation metadata survive without changing UI choices', () => {
+  const presentations = [
+    { type: 'AUDIO', mediaUrl: 'https://test.invalid/audio.mp3' },
+    {
+      type: 'TILE',
+      mediaUrl: 'https://test.invalid/image.png',
+      stages: [1, 4],
+      rows: 2,
+      columns: 2,
+    },
+    { type: 'ZOOM_OUT', mediaUrl: 'https://test.invalid/image.png', stages: [4, 2, 1] },
+    { type: 'SHARPEN', mediaUrl: 'https://test.invalid/image.png', stages: [8, 2, 0] },
+    { type: 'INLINE_WORD' },
+  ];
+  const quizzes = presentations.map((presentation, index) =>
+    v032Quiz(32010 + index, 'SINGLE', { options: ['가', '나'], presentation }),
+  );
+  const raw = v032Lesson(quizzes);
+  raw.segments = [
+    {
+      segmentId: 'first',
+      title: '첫 구간',
+      order: 1,
+      contentIds: raw.contents.map((item) => item.contentId),
+    },
+  ];
+  const before = JSON.parse(JSON.stringify(raw));
+  const parsed = [
+    contract.lesson(raw),
+    contract.lessonStart({
+      reviewRequired: false,
+      review: null,
+      progress: { status: 'IN_PROGRESS', lastContentId: null, resumeContentId: 32000 },
+      contents: raw.contents,
+      segments: raw.segments,
+    }),
+    contract.onboarding({ lesson: raw }).lesson,
+  ];
+  for (const lesson of parsed) {
+    assert.deepEqual(lesson.segments, raw.segments);
+    lesson.contents.forEach((item, index) => {
+      assert.equal(item.segmentId, 'first');
+      for (const key of [
+        'interactionType',
+        'instruction',
+        'difficulty',
+        'quizOrder',
+        'lessonId',
+        'config',
+      ])
+        assert.deepEqual(item.quiz[key], quizzes[index][key]);
+      assert.deepEqual(item.quiz.options.choices, [
+        { index: 0, label: '가' },
+        { index: 1, label: '나' },
+      ]);
+    });
+  }
+  assert.deepEqual(raw, before);
+  assert.equal(contract.lesson(v032Lesson([])).segments, undefined);
+  assert.throws(
+    () => contract.lesson({ ...raw, segments: [{ ...raw.segments[0], contentIds: ['32000'] }] }),
+    /contentIds/,
+  );
+  assert.throws(
+    () =>
+      contract.quiz(
+        v032Quiz(32015, 'SINGLE', {
+          options: ['가', '나'],
+          presentation: { type: 'TILE', stages: ['4'] },
+        }),
+      ),
+    /stages/,
+  );
+});
+
+test('0.3.2 optional grading fields stay optional and legacy mock answers remain unchanged', () => {
+  const graded = contract.answerResult({
+    isCorrect: false,
+    completed: true,
+    closeness: 0,
+    source: '출처',
+  });
+  assert.deepEqual(graded.correctAnswer, {});
+  assert.equal(graded.explanation, undefined);
+  assert.equal(graded.closeness, 0);
+  assert.equal(graded.source, '출처');
+  for (const [key, value] of [
+    ['completed', 'true'],
+    ['explanation', 1],
+    ['closeness', '0'],
+    ['source', 1],
+  ])
+    assert.throws(() => contract.answerResult({ isCorrect: true, [key]: value }), /명세 불일치/);
+  contract.quiz(v032Quiz(32016, 'MULTI', { options: ['가', '나'], answers: [0] }));
+  const legacy = {
+    quizId: 32016,
+    type: 'MULTIPLE_CHOICE',
+    question: '목업',
+    hint: null,
+    options: { choices: [{ index: 0, label: '가' }], mockHtmlType: 'multi', answer: [0] },
+  };
+  assert.deepEqual(contract.quiz(legacy), legacy);
+  assert.deepEqual(contract.encodeAnswer(32016, { texts: ['0'] }), { texts: ['0'] });
+});
+
+test('0.3.2 flippedX survives housing, visit and save conversion for both boolean values', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const placements = [true, false].map((flippedX, index) => ({
+    placementId: index + 1,
+    inventoryId: `copy-${index}`,
+    itemId: index + 1,
+    area: 'INTERIOR',
+    transform: { x: 0.2, y: 0.3, flippedX, layer: index },
+  }));
+  const housing = { housingId: 1, name: '우주선', isPublic: true, likeCount: 0 };
+  c.http.defaults.adapter = async (config) => {
+    if (config.method === 'put') {
+      const body = JSON.parse(config.data);
+      assert.deepEqual(
+        body.placements,
+        placements.map(({ inventoryId, area, transform }) => ({ inventoryId, area, transform })),
+      );
+      return respond(config, { data: { placements } });
+    }
+    return respond(config, {
+      data: {
+        housing,
+        placements,
+        avatar: { x: 0, y: 0, state: 'IDLE', placementId: null },
+        ownerNickname: '방문',
+        likedByMe: false,
+      },
+    });
+  };
+  const own = await api.room.me();
+  const visit = await api.social.visit(1);
+  const saved = await api.room.save(own.placements);
+  for (const response of [own, visit, saved])
+    assert.deepEqual(
+      response.placements.map((item) => item.transform.flippedX),
+      [true, false],
+    );
+  assert.throws(
+    () =>
+      contract.savedPlacements({
+        placements: [
+          { ...placements[0], transform: { ...placements[0].transform, flippedX: 'true' } },
+        ],
+      }),
+    /flippedX/,
+  );
+});
+
+test('0.3.2 optionless inventory copies do not invent an option ID', () => {
+  const grouped = {
+    itemId: 1,
+    itemType: 'FURNITURE',
+    name: '고양이',
+    ownedCount: 1,
+    placedCount: 0,
+    availableCount: 1,
+    copies: [
+      {
+        inventoryId: 'starter-cat',
+        acquiredVia: 'STARTER',
+        acquiredAt: '2026-11-12T00:00:00Z',
+        placed: false,
+      },
+    ],
+  };
+  const [item] = contract.inventory({ items: [grouped] }).items;
+  assert.equal(item.inventoryId, 'starter-cat');
+  assert.equal(item.optionId, undefined);
+  assert.deepEqual(item.option, {});
+  assert.equal(item.acquiredVia, 'STARTER');
+});
+
+test('0.3.2 star badges never count as constellation completion or completion dates', () => {
+  const reward = { type: 'CONSTELLATION', source: { courseId: 1, lessonId: 11 } };
+  assert.equal(contract.isConstellationReward({ ...reward, badge: { badgeType: 'STAR' } }), false);
+  assert.equal(
+    contract.isConstellationReward({ ...reward, badge: { badgeType: 'CONSTELLATION' } }),
+    true,
+  );
+  assert.equal(contract.isConstellationReward(reward), false);
+  assert.equal(
+    contract.isConstellationReward({ type: 'CONSTELLATION', source: { courseId: 1 } }),
+    true,
+  );
+  assert.equal(
+    contract.isConstellationReward({ type: 'CONSTELLATION', badge: { type: 'CONSTELLATION' } }),
+    true,
+  );
+  assert.equal(contract.isConstellationReward({ type: 'WALLET' }), false);
+});
+
+test('0.3.2 replay completes content through API-405 and preserves optional completion data', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32020, 'SINGLE', { options: ['가', '나'] });
+  const contents = v032Lesson([quiz]).contents;
+  const sent = [];
+  const completion = {
+    rewards: [{ type: 'WALLET', currency: 'STARDUST', amount: 1 }],
+    wallet: { stardust: 21, energy: 4 },
+    courseCompleted: false,
+    quizSummary: { correctCount: 1, totalCount: 1 },
+    stardustSkipped: false,
+  };
+  c.http.defaults.adapter = async (config) => {
+    sent.push({
+      url: config.url,
+      body: config.data === undefined ? undefined : JSON.parse(config.data),
+    });
+    if (config.url.endsWith('/start'))
+      return respond(config, {
+        data: {
+          reviewRequired: false,
+          review: null,
+          progress: { status: 'COMPLETED', lastContentId: null, resumeContentId: 32000 },
+          contents,
+        },
+      });
+    if (config.url.includes('/quizzes/'))
+      return respond(config, { data: { isCorrect: true, completed: true } });
+    return respond(config, {
+      data: {
+        progress: { status: 'COMPLETED', lastContentId: 32000, resumeContentId: null },
+        lessonCompleted: true,
+        completion,
+      },
+    });
+  };
+  await api.learning.start(3200, true);
+  await api.learning.answer(32020, { index: 0 }, true);
+  const result = await api.learning.completeContent(32000);
+  assert.deepEqual(result.completion, completion);
+  assert.deepEqual(sent, [
+    { url: '/lessons/3200/start', body: { replay: true } },
+    { url: '/quizzes/32020/answer', body: { answer: { answer: 0 }, replay: true } },
+    { url: '/contents/32000/complete', body: undefined },
+  ]);
+});
+
+test('mock replay completion keeps saved progress, rewards and wallet unchanged', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const before = JSON.parse(JSON.stringify(mockSnapshot()));
+    const start = () =>
+      mockApi('API-404', { path: { lessonId: 11 }, body: { replay: true } }).data.data;
+    const { contents } = start();
+    assert.equal(start().progress.lastContentId, null);
+    const complete = (contentId) => mockApi('API-405', { path: { contentId } }).data.data;
+    assert.throws(() => complete(contents[1].contentId), /콘텐츠 순서/);
+    complete(contents[0].contentId);
+    assert.equal(start().progress.lastContentId, contents[0].contentId);
+    let result;
+    for (const content of contents.slice(1)) result = complete(content.contentId);
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion, null);
+    assert.equal(complete(contents.at(-1).contentId).lessonCompleted, true);
+    assert.deepEqual(mockSnapshot(), before);
+    assert.equal(start().progress.lastContentId, null);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const {
+  grantedStardust,
+  replayCompletion,
+  reviewCompletion,
+  reviewScore,
+} = require('../.expo/integration-tests/completionResult');
+
+test('완료 화면 분기는 응답 rewards 의 별가루 지급량만 기준으로 한다', () => {
+  const stardust = (amount) => ({ type: 'WALLET', currency: 'STARDUST', amount });
+  const completion = (rewards, extra = {}) => ({
+    rewards,
+    wallet: { stardust: 0, energy: 0 },
+    courseCompleted: false,
+    ...extra,
+  });
+  assert.equal(
+    grantedStardust([
+      stardust(2),
+      stardust(null),
+      { type: 'CONSTELLATION', badge: {} },
+      { type: 'WALLET', currency: null, amount: 9 },
+    ]),
+    2,
+  );
+  // 다시 하기: 이미 받은 레슨(null), 이번에도 에너지 없음(stardustSkipped), 미지급 별가루 지급
+  assert.deepEqual(replayCompletion(null), { kind: 'replayPlain' });
+  assert.deepEqual(replayCompletion(undefined), { kind: 'replayPlain' });
+  assert.deepEqual(replayCompletion(completion([], { stardustSkipped: true })), {
+    kind: 'replayPlain',
+  });
+  assert.deepEqual(replayCompletion(completion([stardust(1)], { stardustSkipped: false })), {
+    kind: 'replayRewarded',
+    stardust: 1,
+  });
+  // 오늘의 복습: 지급 / 하루 한도 초과·이미 끝난 세션(rewards=[])
+  assert.deepEqual(reviewCompletion([stardust(3)]), { kind: 'reviewRewarded', stardust: 3 });
+  assert.deepEqual(reviewCompletion([]), { kind: 'reviewAlreadyRewarded' });
+  assert.deepEqual(reviewScore({ 1: true, 2: false, 3: true }, [1, 2, 3]), {
+    correct: 2,
+    total: 3,
+  });
+  assert.equal(reviewScore({ 1: true }, [1, 2]), null);
+  assert.equal(reviewScore({}, []), null);
+});
+
+test('목업 다시 하기: 에너지 없이 마친 레슨은 에너지를 쓰고 다시 마치면 별가루를 한 번만 준다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 0 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: false } });
+    const contents = mockApi('API-403', { path: { lessonId: 21 } }).data.data.contents;
+    let first;
+    for (const content of contents)
+      first = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+    assert.equal(first.completion.stardustSkipped, true);
+
+    // 다음 날 에너지가 다시 생긴 상태
+    const finished = mockSnapshot();
+    assert.equal(
+      restoreMockSnapshot({ ...finished, wallet: { ...finished.wallet, energy: 2 } }),
+      true,
+    );
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const replayLesson = () => {
+      mockApi('API-404', { path: { lessonId: 21 }, body: { replay: true } });
+      let result;
+      for (const content of contents)
+        result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+      return result;
+    };
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: true } });
+    assert.equal(mockApi('API-904', {}).data.data.energy, 1);
+    const rewarded = replayLesson();
+    // 이어서 시작해도 에너지를 다시 쓰지 않는다.
+    assert.equal(rewarded.completion.wallet.energy, 1);
+    assert.equal(rewarded.lessonCompleted, true);
+    assert.deepEqual(rewarded.completion.rewards, [
+      { type: 'WALLET', currency: 'STARDUST', amount: 5 },
+    ]);
+    assert.equal(rewarded.completion.stardustSkipped, false);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.deepEqual(replayCompletion(rewarded.completion), {
+      kind: 'replayRewarded',
+      stardust: 5,
+    });
+
+    // 같은 레슨을 또 다시 하면 에너지·별가루 모두 변하지 않는다.
+    const plain = replayLesson();
+    assert.equal(plain.lessonCompleted, true);
+    assert.equal(plain.completion, null);
+    assert.equal(mockApi('API-904', {}).data.data.energy, 1);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.deepEqual(replayCompletion(plain.completion), { kind: 'replayPlain' });
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('목업 다시 하기: 미지급 레슨도 에너지가 없으면 이번에도 별가루를 주지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 0 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: false } });
+    const contents = mockApi('API-403', { path: { lessonId: 21 } }).data.data.contents;
+    for (const content of contents) mockApi('API-405', { path: { contentId: content.contentId } });
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: true } });
+    let result;
+    for (const content of contents)
+      result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion.stardustSkipped, true);
+    assert.deepEqual(result.completion.rewards, []);
+    assert.equal(mockApi('API-904', {}).data.data.energy, 0);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
+    assert.deepEqual(replayCompletion(result.completion), { kind: 'replayPlain' });
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('목업 복습 완료는 하루 3세션까지 보상하고 같은 키 재요청은 다시 지급하지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const complete = (key) =>
+      mockApi('API-503', { body: { reviewItemIds: [1, 2, 3, 4, 5] }, key }).data.data;
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const first = complete('review-test-1');
+    assert.deepEqual(reviewCompletion(first.rewards), { kind: 'reviewRewarded', stardust: 3 });
+    assert.deepEqual(complete('review-test-1'), first);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 3);
+    complete('review-test-2');
+    complete('review-test-3');
+    const fourth = complete('review-test-4');
+    assert.deepEqual(fourth.rewards, []);
+    assert.deepEqual(reviewCompletion(fourth.rewards), { kind: 'reviewAlreadyRewarded' });
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 9);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const {
+  checkReviewStart,
+  kstDate,
+  markReviewRewardedToday,
+  reviewRewardNotice,
+  reviewRewardedToday,
+} = require('../.expo/integration-tests/user/reviewStart');
+
+test('복습 안내 셋째 줄: 오늘 완료 기록 또는 rewardEligible=false 면 보상 받음, 모르면 비워 둔다', () => {
+  const first = '오늘 첫 복습 완료 시 별가루 +5';
+  const already = '오늘의 복습 보상은 이미 받았어요.';
+  const notice = (rewardEligible, rewardedToday) =>
+    reviewRewardNotice({ rewardEligible, rewardedToday });
+  assert.equal(notice(null, null), null);
+  assert.equal(notice(true, null), null);
+  assert.equal(notice(null, false), null);
+  assert.equal(notice(true, false), first);
+  // 하루 3세션 중 첫 완료 뒤에도 서버 rewardEligible 은 true 지만 완료 기록으로 ② 를 보여 준다.
+  assert.equal(notice(true, true), already);
+  assert.equal(notice(null, true), already);
+  assert.equal(notice(false, false), already);
+  assert.equal(notice(false, null), already);
+});
+
+test('복습 완료 기록은 사용자별·KST 날짜별이며 재실행 뒤에도 저장소에서 읽힌다', async () => {
+  const entries = new Map();
+  const storage = {
+    get: async (key) => entries.get(key) ?? null,
+    set: async (key, value) => {
+      entries.set(key, value);
+    },
+    remove: async (key) => {
+      entries.delete(key);
+    },
+  };
+  // 2026-11-14 23:30 KST = 2026-11-14T14:30Z, 다음 날 00:10 KST = 2026-11-14T15:10Z
+  const lateNight = Date.parse('2026-11-14T14:30:00Z');
+  const afterMidnight = Date.parse('2026-11-14T15:10:00Z');
+  assert.equal(kstDate(lateNight), '2026-11-14');
+  assert.equal(kstDate(afterMidnight), '2026-11-15');
+  assert.equal(await reviewRewardedToday(storage, 7, lateNight), false);
+  await markReviewRewardedToday(storage, 7, lateNight);
+  assert.equal(await reviewRewardedToday(storage, 7, lateNight), true);
+  // 같은 기기의 다른 사용자, 날짜가 바뀐 뒤에는 기록이 적용되지 않는다.
+  assert.equal(await reviewRewardedToday(storage, 8, lateNight), false);
+  assert.equal(await reviewRewardedToday(storage, 7, afterMidnight), false);
+  // SecureStore 키 규칙([A-Za-z0-9._-])을 지킨다.
+  assert.ok([...entries.keys()].every((key) => /^[A-Za-z0-9._-]+$/.test(key)));
+});
+
+test('복습 시작은 문항 0개면 모달, 1개 이상이면 이동, 조회 실패는 문제 없음으로 바꾸지 않는다', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32030, 'SINGLE', { options: ['가', '나'] });
+  let reply;
+  const requested = [];
+  c.http.defaults.adapter = async (config) => {
+    requested.push({ url: config.url, params: config.params });
+    return reply(config);
+  };
+  const seen = [];
+  const check = (lessonId) =>
+    checkReviewStart(
+      () => api.review.next(lessonId),
+      (set) => seen.push(set.rewardEligible),
+    );
+
+  reply = (config) =>
+    respond(config, {
+      data: { reviewItems: [], message: '더 이상 복습할 문제가 없어요', rewardEligible: false },
+    });
+  assert.deepEqual(await check(), { kind: 'empty' });
+
+  reply = (config) =>
+    respond(config, {
+      data: { reviewItems: [{ reviewItemId: 32931, quiz }], message: null, rewardEligible: true },
+    });
+  assert.deepEqual(await check(7), { kind: 'start' });
+  assert.deepEqual(seen, [false, true]);
+  assert.deepEqual(requested, [
+    { url: '/reviews/next', params: undefined },
+    { url: '/reviews/next', params: { lessonId: 7 } },
+  ]);
+
+  // 서버 오류와 계약에 맞지 않는 응답은 예외로 올라가 기존 오류 표시로 간다.
+  reply = (config) => fail(config, 500, 'INTERNAL_ERROR');
+  await assert.rejects(check());
+  reply = (config) => respond(config, { data: { message: null, rewardEligible: true } });
+  await assert.rejects(check());
+  reply = (config) =>
+    respond(config, {
+      data: { reviewItems: [{ reviewItemId: 1, quiz: { quizId: 1 } }], rewardEligible: true },
+    });
+  await assert.rejects(check());
+  assert.deepEqual(seen, [false, true]);
+});
+
+test('목업 복습 세트: 문제가 없으면 모달 분기, rewardEligible 은 오늘 보상 세션이 남았는지 따른다', async () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    assert.equal(restoreMockSnapshot({ ...original, rewardedLessons: [], studyAnswers: [] }), true);
+    const next = () => Promise.resolve(contract.reviewSet(mockApi('API-501', {}).data.data));
+    assert.deepEqual(await checkReviewStart(next), { kind: 'empty' });
+    // 오늘 보상 세션을 모두 쓰면 rewardEligible=false 로 바뀐다.
+    for (let index = 0; index < 4; index += 1)
+      mockApi('API-503', { body: { reviewItemIds: [1, 2, 3, 4, 5] }, key: `eligible-${index}` });
+    assert.equal((await next()).rewardEligible, false);
+    assert.equal(
+      reviewRewardNotice({ rewardEligible: (await next()).rewardEligible, rewardedToday: false }),
+      '오늘의 복습 보상은 이미 받았어요.',
+    );
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const {
+  constellationImage,
+  fallbackLayout,
+  litStars,
+  nextLessonOf,
+  recordStars,
+  segmentStyle,
+  starLayout,
+} = require('../.expo/integration-tests/user/constellationRecord');
+const {
+  constellationLayouts,
+  layoutsByStarCount,
+} = require('../.expo/integration-tests/user/constellationLayouts');
+
+const lessonSummary = (lessonId, order, status) => ({
+  lessonId,
+  title: `레슨 ${lessonId}`,
+  order,
+  status,
+  unlocksAt: null,
+  completedAt: null,
+});
+
+test('별자리 기록: 완료는 흰 별, 다음 학습은 ?, 나머지는 빈 별이며 레슨 순서대로 놓인다', () => {
+  const lessons = [
+    lessonSummary(13, 3, 'LOCKED'),
+    lessonSummary(11, 1, 'COMPLETED'),
+    lessonSummary(12, 2, 'UNLOCKED'),
+  ];
+  // 다음 학습은 기존 규칙(목록에서 처음 나오는 IN_PROGRESS·UNLOCKED)을 그대로 쓴다.
+  assert.equal(nextLessonOf(lessons).lessonId, 12);
+  const stars = recordStars(lessons, 12, null);
+  assert.deepEqual(
+    stars.map((star) => [star.lessonId, star.state]),
+    [
+      [11, 'done'],
+      [12, 'next'],
+      [13, 'todo'],
+    ],
+  );
+  assert.equal(litStars(stars), 1);
+  // 별 3개는 Figma 임시 배치를 쓴다.
+  assert.deepEqual(
+    stars.map((star) => star.point),
+    layoutsByStarCount[3].stars,
+  );
+  assert.equal(segmentStyle('done'), 'solid');
+  assert.equal(segmentStyle('next'), 'dashed');
+  assert.equal(segmentStyle('todo'), 'dashed');
+
+  // 다음 학습이 없으면(전부 완료·잠김) ? 별을 만들지 않는다.
+  const finished = recordStars(
+    [lessonSummary(1, 1, 'COMPLETED'), lessonSummary(2, 2, 'LOCKED')],
+    null,
+    null,
+  );
+  assert.deepEqual(
+    finished.map((star) => star.state),
+    ['done', 'todo'],
+  );
+  assert.equal(nextLessonOf([lessonSummary(1, 1, 'COMPLETED')]), null);
+  // 진행 중 레슨이 다음 학습이다.
+  assert.equal(
+    nextLessonOf([lessonSummary(1, 1, 'COMPLETED'), lessonSummary(2, 2, 'IN_PROGRESS')]).lessonId,
+    2,
+  );
+});
+
+test('별 위치는 별자리별 설정 → 별 개수별 기본 → 자동 배치 순이고 그림은 서버 imageUrl 이 먼저다', () => {
+  for (const count of [0, 1, 2, 4, 7, 15]) {
+    const points = fallbackLayout(count);
+    assert.equal(points.length, count);
+    assert.ok(points.every(({ x, y }) => x >= 0 && x <= 1 && y >= 0 && y <= 1));
+    assert.deepEqual(starLayout(999, count), count === 3 ? layoutsByStarCount[3].stars : points);
+  }
+  const custom = { stars: [0.1, 0.3, 0.5, 0.7].map((x) => ({ x, y: x })), image: 42 };
+  constellationLayouts[77] = custom;
+  try {
+    assert.deepEqual(starLayout(77, 3), custom.stars.slice(0, 3));
+    assert.deepEqual(starLayout(77, 4), custom.stars);
+    // 설정보다 별이 많으면 설정을 쓰지 않는다.
+    assert.equal(starLayout(77, 5).length, 5);
+    assert.equal(constellationImage(77, null), 42);
+    assert.deepEqual(constellationImage(77, 'https://img.example/77.png'), {
+      uri: 'https://img.example/77.png',
+    });
+  } finally {
+    delete constellationLayouts[77];
+  }
+  assert.equal(constellationImage(null, null), null);
+});
+
+test('목업: 레슨을 마치고 코스 상세를 다시 읽으면 흰 별이 늘고 ? 가 다음 레슨으로 옮겨 간다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    assert.equal(
+      restoreMockSnapshot({ ...original, startedLessons: [], rewardedLessons: [], completed: [] }),
+      true,
+    );
+    const course = mockApi('API-401', {}).data.data.courses[0];
+    const detail = () => mockApi('API-402', { path: { courseId: course.courseId } }).data.data;
+    const before = detail();
+    const next = nextLessonOf(before.lessons);
+    assert.ok(next, '목업 첫 코스에 진행할 레슨이 있어야 한다');
+    const beforeStars = recordStars(
+      before.lessons,
+      next.lessonId,
+      before.constellation?.constellationId,
+    );
+    assert.equal(beforeStars.find((star) => star.lessonId === next.lessonId).state, 'next');
+
+    mockApi('API-404', { path: { lessonId: next.lessonId }, body: { replay: false } });
+    const contents = mockApi('API-403', { path: { lessonId: next.lessonId } }).data.data.contents;
+    for (const content of contents) mockApi('API-405', { path: { contentId: content.contentId } });
+
+    const after = detail();
+    const afterNext = nextLessonOf(after.lessons);
+    const afterStars = recordStars(
+      after.lessons,
+      afterNext?.lessonId ?? null,
+      after.constellation?.constellationId,
+    );
+    assert.equal(afterStars.find((star) => star.lessonId === next.lessonId).state, 'done');
+    assert.equal(litStars(afterStars), litStars(beforeStars) + 1);
+    assert.ok(afterStars.filter((star) => star.state === 'next').length <= 1);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const {
+  completedConstellations,
+  constellationCompletedOn,
+  formatDotDate,
+  isConstellationComplete,
+} = require('../.expo/integration-tests/user/constellationRecord');
+
+test('별자리 완성은 소속 레슨 전체 완료로 계산하고, 목록은 서버 이름·순서를 쓴다', () => {
+  assert.equal(isConstellationComplete({ totalLessons: 3, completedLessons: 3 }), true);
+  assert.equal(isConstellationComplete({ totalLessons: 3, completedLessons: 2 }), false);
+  // 레슨이 없는 코스는 완성으로 보지 않는다.
+  assert.equal(isConstellationComplete({ totalLessons: 0, completedLessons: 0 }), false);
+
+  const course = (courseId, completedLessons, totalLessons, constellation) => ({
+    courseId,
+    title: `코스 ${courseId}`,
+    completedLessons,
+    totalLessons,
+    constellation,
+  });
+  const courses = [
+    course(2, 4, 4, { constellationId: 20, name: '코스 별자리' }),
+    course(1, 1, 3, { constellationId: 10, name: '진행 중' }),
+    course(3, 3, 3, null),
+  ];
+  const constellations = [
+    { constellationId: 20, courseId: 2, name: '서버 별자리', starCount: 4, imageUrl: null },
+  ];
+  const list = completedConstellations(courses, constellations, { 2: '2026. 11. 05' });
+  assert.deepEqual(
+    list.map((item) => [item.courseId, item.name, item.completedOn, item.points.length]),
+    [
+      [2, '서버 별자리', '2026. 11. 05', 4],
+      [3, '코스 3', null, 3],
+    ],
+  );
+  // 별자리 조회(API-906)가 실패해도 코스 정보로 목록을 만든다.
+  assert.equal(completedConstellations(courses, null, {})[0].name, '코스 별자리');
+  // 완성한 별자리가 없으면 빈 목록(빈 상태 화면).
+  assert.deepEqual(completedConstellations([course(1, 0, 3, null)], constellations, {}), []);
+});
+
+test('완성일은 한국시간 YYYY. MM. DD 이고, 상세 완성일은 모든 레슨 완료 때만 마지막 완료 시각이다', () => {
+  // 2026-11-04T15:30Z = 2026-11-05 00:30 KST
+  assert.equal(formatDotDate('2026-11-04T15:30:00Z'), '2026. 11. 05');
+  const done = (completedAt) => ({ status: 'COMPLETED', completedAt });
+  assert.equal(
+    constellationCompletedOn([done('2026-11-01T01:00:00Z'), done('2026-11-04T15:30:00Z')]),
+    '2026. 11. 05',
+  );
+  assert.equal(
+    constellationCompletedOn([
+      done('2026-11-01T01:00:00Z'),
+      { status: 'UNLOCKED', completedAt: null },
+    ]),
+    null,
+  );
+  assert.equal(constellationCompletedOn([]), null);
+  assert.equal(constellationCompletedOn([done(null)]), null);
+});
+
+test('목업: 코스의 레슨을 모두 마치면 완성 별자리 목록에 나타나고, 그 전에는 빈 목록이다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    assert.equal(
+      restoreMockSnapshot({
+        ...original,
+        startedLessons: [],
+        rewardedLessons: [],
+        completed: [],
+        completedConstellations: [],
+      }),
+      true,
+    );
+    const read = () => {
+      const courses = mockApi('API-401', {}).data.data.courses;
+      return completedConstellations(courses, mockApi('API-906', {}).data.data.constellations, {});
+    };
+    const target = mockApi('API-401', {}).data.data.courses.find(
+      (course) => course.completedLessons === 0,
+    );
+    assert.ok(target, '아직 시작하지 않은 목업 코스가 있어야 한다');
+    assert.equal(
+      read().some((item) => item.courseId === target.courseId),
+      false,
+    );
+
+    const detail = mockApi('API-402', { path: { courseId: target.courseId } }).data.data;
+    for (const lesson of detail.lessons) {
+      mockApi('API-404', { path: { lessonId: lesson.lessonId }, body: { replay: false } });
+      const contents = mockApi('API-403', { path: { lessonId: lesson.lessonId } }).data.data
+        .contents;
+      for (const content of contents)
+        mockApi('API-405', { path: { contentId: content.contentId } });
+    }
+    const after = read().find((item) => item.courseId === target.courseId);
+    assert.ok(after, '레슨을 모두 마친 코스는 완성 목록에 있어야 한다');
+    assert.equal(after.points.length, target.totalLessons);
+  } finally {
+    restoreMockSnapshot(original);
   }
 });

@@ -3,8 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Animated,
-  Easing,
   Image,
   type ImageSourcePropType,
   Linking,
@@ -19,34 +17,30 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type {
-  Content,
-  LessonStartResponse,
-  LessonCompleteResponse,
-  QuizAnswer,
-  AnswerResult,
-} from '../models';
-import { integrationApi as api, useMockApi } from '../runtime';
+import type { Content, LessonStartResponse, LessonCompleteResponse } from '../models';
+import { integrationApi as api } from '../runtime';
+import { isConstellationReward } from '../contract';
+import { replayCompletion } from '../completionResult';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
-import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
-import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
-import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
-import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
-import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
-import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
-import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
-import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
+import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
 import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
-import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
-import { HomeStars } from './CoursesScreen';
+import { ConstellationComplete } from './ConstellationComplete';
+import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
+import { FirstStudyLoginModal } from './FirstStudyLoginModal';
 import type { RegisterQuizFooter } from './quizFooter';
+import {
+  CompletionResult,
+  CompletionStar,
+  EnergyIcon,
+  completionOrbSource,
+} from './CompletionResult';
 
 const completionStarSource = require('../../../assets/completion-star.png');
 const completionArcSource = require('../../../assets/completion-arc.png');
@@ -57,7 +51,6 @@ export default function StudyScreen() {
   return <Study key={generation} />;
 }
 function Study() {
-  const session = useIntegration();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
@@ -77,6 +70,11 @@ function Study() {
   const [lessonDone, setLessonDone] = useState(false),
     [reward, setReward] = useState<LessonCompleteResponse | null>(null);
   const [showConstellation, setShowConstellation] = useState(false);
+  // 온보딩 '첫 학습 시작하기'로 들어온 비회원(GUEST)의 첫 학습. 완료 후 로그인 유도 모달을 띄운다.
+  const { user } = useIntegration();
+  const [loginOpen, setLoginOpen] = useState(false);
+  // 레슨 시작 전 에너지. 완료 응답의 지갑 에너지와 비교해 실제로 쓴 만큼만 표시한다.
+  const [energyBefore, setEnergyBefore] = useState<number | null>(null);
   const [quizFooter, setQuizFooter] = useState<{
     quizId: number;
     enabled: boolean;
@@ -91,6 +89,12 @@ function Study() {
   }, []);
   const [constellationName, setConstellationName] = useState('별자리');
   const [constellationDate, setConstellationDate] = useState<string | null>(null);
+  // 별자리 완성 화면의 별 그림. API-906 의 별자리 ID·별 수·그림 주소.
+  const [constellationFigure, setConstellationFigure] = useState<{
+    constellationId: number | null;
+    starCount: number;
+    imageUrl: string | null;
+  } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [resumePosition, setResumePosition] = useState(0);
@@ -99,14 +103,15 @@ function Study() {
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
   const leaveStudy = () => router.replace('/quiz');
-  const firstGuestStudy = params.fromWelcome === 'true' && session.user?.status === 'GUEST';
-  const finishStudyFlow = () =>
-    firstGuestStudy
-      ? router.replace({ pathname: '/quiz', params: { view: 'join' } })
-      : router.replace('/quiz');
   useEffect(() => {
     let active = true;
     void task.run(async () => {
+      try {
+        const balance = await api.benefits.wallet();
+        if (active && typeof balance.energy === 'number') setEnergyBefore(balance.energy);
+      } catch {
+        // 에너지 표시는 선택 정보라 조회 실패와 관계없이 학습을 시작한다.
+      }
       const data = await api.learning.start(lessonId, replay);
       if (!active) return data;
       loadedLessonId.current = lessonId;
@@ -128,9 +133,7 @@ function Study() {
       setResumePosition(replay ? 0 : index);
       if (!replay && (params.resume === 'true' || data.progress.lastContentId !== null))
         setResumeOpen(true);
-      setCompleted(
-        replay ? new Set() : new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)),
-      );
+      setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
       return data;
     });
     return () => {
@@ -157,6 +160,7 @@ function Study() {
           { source: completionStarSource, width: 212, height: 212 },
           { source: completionArcSource, width: 402, height: 463 },
           { source: completionDustSource, width: 18, height: 20 },
+          ...(replay ? [{ source: completionOrbSource, width: 164, height: 164 }] : []),
           ...Object.entries(localStudyImages)
             .filter(([mediaUrl]) =>
               start.contents.some(
@@ -172,29 +176,9 @@ function Study() {
   const narrationStage = !lessonDone && current?.contentType === 'TEXT';
   const conceptStage = !lessonDone && current?.contentType === 'IMAGE';
   const designedStage = quizStage || narrationStage || conceptStage;
-  const oxStage = quizStage && current.quiz?.type === 'OX';
-  const fillBlankStage = quizStage && !!current.quiz && hasFillBlankChoices(current.quiz);
-  const matchingStage = quizStage && !!current.quiz && hasMatchingPairs(current.quiz);
-  const singleChoiceStage = quizStage && !!current.quiz && hasSingleChoiceOptions(current.quiz);
-  const multiChoiceStage = quizStage && !!current.quiz && hasMultiChoiceOptions(current.quiz);
-  const chosungStage = quizStage && isChosungQuiz(current.quiz);
-  const sliderStage = quizStage && isSliderQuiz(current.quiz);
-  // 목업 range 퀴즈는 HtmlLessonQuiz 가 그리지만 SLIDER 와 같은 SliderQuizView 를 쓰고
-  // 손을 떼면 바로 제출한다(정답 확인 버튼 없음).
-  const mockRangeStage = quizStage && useMockApi && current.quiz?.options?.mockHtmlType === 'range';
-  const instantQuiz =
-    quizStage &&
-    (current.quiz?.type === 'OX' ||
-      chosungStage ||
-      sliderStage ||
-      mockRangeStage ||
-      fillBlankStage ||
-      matchingStage ||
-      multiChoiceStage ||
-      (current.quiz?.type === 'MULTIPLE_CHOICE' &&
-        (!useMockApi || current.quiz.options?.mockHtmlType === 'single')) ||
-      current.quiz?.options?.mockHtmlType === 'blank' ||
-      current.quiz?.options?.mockHtmlType === 'single');
+  // 문항 유형 판별은 복습 화면과 같은 QuizStage 기준을 쓴다.
+  const quizKind = quizStage ? quizStageKind(current.quiz) : null;
+  const instantQuiz = !!quizKind?.instant;
   const quizScale = Math.min(windowWidth / 402, windowHeight / 874, 1);
   const progressLabel = current?.quiz?.options?.mockHtmlType
     ? String(current.quiz.options.label ?? params.title ?? '학습')
@@ -220,21 +204,29 @@ function Study() {
       try {
         const lesson = await api.learning.lesson(lessonId);
         const constellations = await api.benefits.constellations();
-        setConstellationName(
-          constellations.constellations.find((item) => item.courseId === lesson.courseId)?.name ??
-            '별자리',
+        const constellation = constellations.constellations.find(
+          (item) => item.courseId === lesson.courseId,
         );
-        if (completion?.rewards.some((item) => item.type === 'CONSTELLATION')) {
+        setConstellationName(constellation?.name ?? '별자리');
+        setConstellationFigure(
+          constellation
+            ? {
+                constellationId: constellation.constellationId,
+                starCount: constellation.starCount,
+                imageUrl: constellation.imageUrl,
+              }
+            : null,
+        );
+        if (completion?.rewards.some(isConstellationReward)) {
           let cursor: string | null = null;
           do {
             const page = await api.benefits.rewards({ size: 100, ...(cursor ? { cursor } : {}) });
             const record = page.data.rewards.find(
               (item) =>
-                item.type === 'CONSTELLATION' && Number(item.source.courseId) === lesson.courseId,
+                isConstellationReward(item) && Number(item.source.courseId) === lesson.courseId,
             );
             if (record) {
-              const date = new Date(new Date(record.grantedAt).getTime() + 9 * 60 * 60 * 1000);
-              setConstellationDate(date.toISOString().slice(0, 10).replaceAll('-', '.'));
+              setConstellationDate(formatDotDate(record.grantedAt));
               break;
             }
             cursor = page.meta.nextCursor;
@@ -256,8 +248,9 @@ function Study() {
       setCompleted((previous) => new Set(previous).add(content.contentId));
       if (result.lessonCompleted) {
         setLessonDone(true);
+        // 다시 하기는 completion 이 null(이미 받은 레슨)이거나 미지급 별가루 지급 결과다(API-405).
         setReward(result.completion ?? null);
-        await refreshAfterDone(result.completion);
+        if (!replay) await refreshAfterDone(result.completion);
       }
       return result;
     });
@@ -280,7 +273,7 @@ function Study() {
       setDialogueReveal({ contentId: current.contentId, count: visibleDialogueCount + 1 });
       return;
     }
-    if (!replay && !completed.has(current.contentId)) {
+    if (!completed.has(current.contentId)) {
       const result = await completeContent(current);
       if (!result) {
         if (justGraded) throw new Error('다음 콘텐츠로 이동하지 못했습니다.');
@@ -289,7 +282,8 @@ function Study() {
       if (result.lessonCompleted) return;
     }
     if (position < contents.length - 1) setPosition(position + 1);
-    else if (!replay) {
+    else if (replay) leaveStudy();
+    else {
       const result = await completeLesson();
       if (!result && justGraded) throw new Error('레슨을 완료하지 못했습니다.');
     }
@@ -298,10 +292,7 @@ function Study() {
   const advanceConcept = () => {
     if (conceptTapLocked.current || task.busy) return;
     conceptTapLocked.current = true;
-    void (async () => {
-      if (replay && last) leaveStudy();
-      else await advance();
-    })().finally(() => {
+    void advance().finally(() => {
       conceptUnlockTimer.current = setTimeout(() => {
         conceptTapLocked.current = false;
       }, 400);
@@ -311,11 +302,18 @@ function Study() {
     reward?.rewards.find((item) => item.type === 'WALLET' && item.currency === 'STARDUST')
       ?.amount ?? 0;
   const constellationCompleted =
-    reward?.courseCompleted && reward.rewards.some((item) => item.type === 'CONSTELLATION');
+    reward?.courseCompleted && reward.rewards.some(isConstellationReward);
   const constellationBonus = constellationCompleted
     ? (reward?.rewards.filter((item) => item.type === 'WALLET' && item.currency === 'STARDUST')[1]
         ?.amount ?? 0)
     : 0;
+  const firstWelcomeStudy = params.fromWelcome === 'true' && user?.status === 'GUEST';
+  // 명세 LessonCompleteResponse.stardustSkipped: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
+  const stardustSkipped = reward?.stardustSkipped === true;
+  const energyAfter = reward?.wallet.energy;
+  const energySpent =
+    energyBefore !== null && typeof energyAfter === 'number' ? energyBefore - energyAfter : 0;
+  const replayOutcome = replayCompletion(reward);
   const completionView = Boolean(
     start && !start.reviewRequired && lessonDone && !showConstellation,
   );
@@ -326,11 +324,11 @@ function Study() {
       title={params.title ?? '학습'}
       scroll={false}
       showTitle={false}
-      dark={completionView}
+      dark={completionView || showConstellation}
       quiz={designedStage}
     >
       {designedStage ? <QuizBackdrop /> : null}
-      {completionView ? <StatusBar style="light" /> : null}
+      {completionView || showConstellation ? <StatusBar style="light" /> : null}
       {start ? (
         <View pointerEvents="none" style={s.imagePreload}>
           {preloadSources.map(({ source, width, height }, index) => (
@@ -395,7 +393,8 @@ function Study() {
           <UserStatus task={task} />
         </View>
       ) : (
-        <UserStatus task={task} />
+        // 콘텐츠 완료 보고 중 스피너가 흐름에 끼어 화면 전체가 내려갔다 올라오지 않게 띄워서 표시한다.
+        <UserStatus task={task} floatingBusy />
       )}
       {replay && !lessonDone ? (
         <Text
@@ -423,27 +422,38 @@ function Study() {
         <>
           <View style={s.content}>
             {lessonDone && showConstellation ? (
-              <View style={s.constellationCompletion}>
-                <Text style={s.constellationLabel}>탐험의 기록</Text>
-                <View style={s.constellationPicture}>
-                  <HomeStars progress={1} height={140} />
-                </View>
-                <Text style={s.constellationTitle}>{constellationName}</Text>
-                <Text style={s.constellationSubtitle}>작은 별들이 하나의 이야기가 되었어요.</Text>
-                <Text style={s.constellationDate}>
-                  {constellationDate ??
-                    new Date(Date.now() + 9 * 60 * 60 * 1000)
-                      .toISOString()
-                      .slice(0, 10)
-                      .replaceAll('-', '.')}{' '}
-                  완성
-                </Text>
-                {constellationBonus > 0 ? (
-                  <Text style={s.constellationReward}>
-                    완성 보너스 · 별가루 +{constellationBonus}
-                  </Text>
-                ) : null}
-              </View>
+              // Figma L04_1 별자리 완성(342:650)
+              <ConstellationComplete
+                name={constellationName}
+                completedOn={constellationDate ?? formatDotDate(new Date().toISOString())}
+                bonus={constellationBonus}
+                points={starLayout(
+                  constellationFigure?.constellationId,
+                  constellationFigure?.starCount ?? 0,
+                )}
+                image={constellationImage(
+                  constellationFigure?.constellationId,
+                  constellationFigure?.imageUrl,
+                )}
+                onRecord={() => router.replace({ pathname: '/quiz', params: { view: 'record' } })}
+                onHome={leaveStudy}
+              />
+            ) : lessonDone && replay ? (
+              replayOutcome.kind === 'replayRewarded' ? (
+                // Figma L06_4 다시 학습 / 미수령 보상 받음(656:3631)
+                <CompletionResult
+                  title="별가루를 받았어요"
+                  lessonTitle={params.title ?? '학습'}
+                  stardust={replayOutcome.stardust}
+                  energySpent={energySpent}
+                />
+              ) : (
+                // Figma L06_5 다시 학습 / 이미 보상 받음(656:3655)
+                <CompletionResult
+                  title="학습을 다시 마쳤어요"
+                  lessonTitle={params.title ?? '학습'}
+                />
+              )
             ) : lessonDone ? (
               <View style={s.completion}>
                 <Image
@@ -458,9 +468,15 @@ function Study() {
                   ]}
                 />
                 <View style={[s.completionStarWrap, { top: completionTop(124) }]}>
-                  <CompletionStar size={212 * completionScale} />
+                  <CompletionStar source={completionStarSource} size={212 * completionScale} />
                 </View>
-                <Text style={[s.resultTitle, { top: completionTop(400) }]}>별을 밝혔어요 !</Text>
+                <Text style={[s.resultTitle, { top: completionTop(400) }]}>
+                  {stardustSkipped
+                    ? '별을 밝혔어요'
+                    : firstWelcomeStudy
+                      ? '첫 별을 밝혔어요 !'
+                      : '별을 밝혔어요 !'}
+                </Text>
                 <View style={[s.resultSubtitleUnderline, { top: completionTop(458) }]}>
                   <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
                 </View>
@@ -474,8 +490,29 @@ function Study() {
                     <Text style={s.rewardAmount}>별가루 +{stardustReward}</Text>
                   </View>
                 ) : null}
-                {constellationCompleted || wallet || refreshNotice.startsWith('완료 처리됨') ? (
-                  <View style={[s.completionDetails, { top: completionTop(556) }]}>
+                {stardustSkipped ? (
+                  // Figma L06_3 학습 완료 / 에너지 없음(656:3753): 레슨명 아래 28
+                  <Text style={[s.noEnergyText, { top: completionTop(505) }]}>
+                    이번에는 에너지가 없어 보상이 없어요
+                  </Text>
+                ) : null}
+                {/* Figma L06_1 첫 학습 완료(342:445)·L06_2 일반 학습 완료: 별가루 아래 12 에 사용한 에너지 */}
+                {energySpent > 0 ? (
+                  <View style={[s.energyRow, { top: completionTop(551) }]}>
+                    <EnergyIcon />
+                    <Text style={s.energyText}>에너지 -{energySpent}</Text>
+                  </View>
+                ) : null}
+                {firstWelcomeStudy || stardustSkipped ? null : constellationCompleted ||
+                  wallet ||
+                  refreshNotice.startsWith('완료 처리됨') ? (
+                  // 에너지 줄이 있으면 그 아래(551 + 20 + 12)로 내려 겹치지 않게 한다.
+                  <View
+                    style={[
+                      s.completionDetails,
+                      { top: completionTop(energySpent > 0 ? 583 : 556) },
+                    ]}
+                  >
                     {constellationCompleted ? (
                       <Text style={s.completionDetail}>별자리가 완성되었어요.</Text>
                     ) : null}
@@ -496,10 +533,6 @@ function Study() {
                 source={dialogue?.source}
                 disabled={task.busy || lessonDone}
                 onAdvance={async () => {
-                  if (replay && last && visibleDialogueCount >= (dialogue?.messages.length ?? 0)) {
-                    leaveStudy();
-                    return;
-                  }
                   await advance();
                 }}
               />
@@ -521,22 +554,7 @@ function Study() {
                   keyboardShouldPersistTaps="handled"
                   contentContainerStyle={
                     current.contentType === 'QUIZ'
-                      ? fillBlankStage
-                        ? s.fillBlankScrollContent
-                        : matchingStage
-                          ? s.matchingScrollContent
-                          : singleChoiceStage
-                            ? s.singleChoiceScrollContent
-                            : multiChoiceStage
-                              ? s.multiChoiceScrollContent
-                              : sliderStage || mockRangeStage
-                                ? s.sliderScrollContent
-                                : [
-                                    s.quizScrollContent,
-                                    { paddingHorizontal: 36 * quizScale },
-                                    oxStage && s.oxScrollContent,
-                                    oxStage && { paddingTop: 200 * quizScale },
-                                  ]
+                      ? quizScrollContentStyle(quizStageKind(current.quiz), quizScale)
                       : s.scrollContent
                   }
                 >
@@ -552,172 +570,19 @@ function Study() {
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && current.quiz ? (
-                    sliderStage ? (
-                      <SliderQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
-                          return advance(true);
-                        }}
-                      />
-                    ) : chosungStage ? (
-                      <ChosungQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
-                          return advance(true);
-                        }}
-                      />
-                    ) : fillBlankStage ? (
-                      <FillBlankQuiz
-                        key={current.contentId}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submitChoiceIndex={
-                          useMockApi && current.quiz.options?.mockHtmlType === 'blank'
-                        }
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
-                          return advance();
-                        }}
-                      />
-                    ) : matchingStage ? (
-                      <MatchingQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
-                          return advance(true);
-                        }}
-                      />
-                    ) : singleChoiceStage ? (
-                      <SingleChoiceQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
-                          return advance(true);
-                        }}
-                      />
-                    ) : multiChoiceStage ? (
-                      <MultiChoiceQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
-                          return advance(true);
-                        }}
-                      />
-                    ) : useMockApi &&
-                      isHtmlLessonQuiz(current.quiz) &&
-                      current.quiz.type !== 'OX' ? (
-                      <HtmlLessonQuiz
-                        key={current.contentId}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        registerFooter={registerQuizFooter}
-                      />
-                    ) : useMockApi && current.quiz.type !== 'OX' ? (
-                      <LessonQuizWireframe
-                        key={current.contentId}
-                        lessonId={lessonId}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submitLegacy={(answer: QuizAnswer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onAnswered={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        stage
-                        registerFooter={registerQuizFooter}
-                      />
-                    ) : (
-                      <QuizCard
-                        key={current.contentId}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer: QuizAnswer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={(_result: AnswerResult) =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        stage
-                        registerFooter={registerQuizFooter}
-                      />
-                    )
+                    <QuizStageQuiz
+                      quiz={current.quiz}
+                      itemKey={current.contentId}
+                      scale={quizScale}
+                      lessonId={lessonId}
+                      disabled={answered.has(current.contentId)}
+                      submit={(answer) => api.learning.answer(current.quiz!.quizId, answer, replay)}
+                      onGraded={() =>
+                        setAnswered((previous) => new Set(previous).add(current.contentId))
+                      }
+                      onAdvance={(justGraded) => advance(justGraded)}
+                      registerFooter={registerQuizFooter}
+                    />
                   ) : null}
                   {current.contentType === 'QUIZ' && !current.quiz ? (
                     <Text style={styles.error}>퀴즈 내용을 불러오지 못했습니다.</Text>
@@ -730,7 +595,8 @@ function Study() {
               </View>
             )}
           </View>
-          {!narrationStage &&
+          {!showConstellation &&
+          !narrationStage &&
           !conceptStage &&
           !(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
             <View
@@ -741,88 +607,67 @@ function Study() {
                 completionView && { bottom: Math.max(12, 89 * completionScale - insets.bottom) },
               ]}
             >
-              {showConstellation ? (
-                <>
-                  <StudyAction
-                    label="별자리 기록 보기"
-                    onPress={() =>
-                      router.replace({ pathname: '/quiz', params: { view: 'record' } })
-                    }
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    style={s.constellationHomeLink}
-                    onPress={leaveStudy}
-                  >
-                    <Text style={s.constellationHomeText}>학습 홈으로</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <StudyAction
-                    completion={completionView}
-                    label={
-                      !lessonDone &&
-                      current?.contentType === 'QUIZ' &&
-                      !answered.has(current.contentId)
-                        ? '정답 확인'
-                        : lessonDone
-                          ? '완료'
-                          : replay && last
-                            ? '레슨 목록'
-                            : last
-                              ? '레슨 완료'
-                              : '다음'
-                    }
-                    secondary={current?.contentType === 'TEXT' && !lessonDone}
-                    disabled={
-                      !current ||
-                      task.busy ||
-                      (current.contentType === 'QUIZ' &&
-                        !answered.has(current.contentId) &&
-                        (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
-                    }
-                    onPress={
-                      !lessonDone &&
-                      current?.contentType === 'QUIZ' &&
-                      !answered.has(current.contentId)
-                        ? () => quizFooter?.onPress()
-                        : lessonDone
-                          ? () =>
-                              firstGuestStudy
-                                ? finishStudyFlow()
-                                : constellationCompleted
-                                  ? setShowConstellation(true)
-                                  : leaveStudy()
-                          : replay && last
-                            ? leaveStudy
-                            : () => void advance()
-                    }
-                  />
-                  {!completionView ? (
-                    <View style={s.previousSlot}>
-                      {!lessonDone && position > 0 ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          disabled={task.busy}
-                          onPress={() => setPosition(position - 1)}
-                          style={s.previous}
-                        >
-                          <Text style={s.previousText}>이전</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </>
-              )}
+              <>
+                <StudyAction
+                  completion={completionView}
+                  label={
+                    !lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId)
+                      ? '정답 확인'
+                      : lessonDone
+                        ? '완료'
+                        : replay && last
+                          ? '레슨 목록'
+                          : last
+                            ? '레슨 완료'
+                            : '다음'
+                  }
+                  secondary={current?.contentType === 'TEXT' && !lessonDone}
+                  disabled={
+                    !current ||
+                    task.busy ||
+                    (current.contentType === 'QUIZ' &&
+                      !answered.has(current.contentId) &&
+                      (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
+                  }
+                  onPress={
+                    !lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId)
+                      ? () => quizFooter?.onPress()
+                      : lessonDone
+                        ? () =>
+                            replay
+                              ? leaveStudy()
+                              : firstWelcomeStudy
+                                ? setLoginOpen(true)
+                                : params.fromWelcome === 'true'
+                                  ? leaveStudy()
+                                  : constellationCompleted
+                                    ? setShowConstellation(true)
+                                    : leaveStudy()
+                        : () => void advance()
+                  }
+                />
+                {!completionView ? (
+                  <View style={s.previousSlot}>
+                    {!lessonDone && position > 0 ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={task.busy}
+                        onPress={() => setPosition(position - 1)}
+                        style={s.previous}
+                      >
+                        <Text style={s.previousText}>이전</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+              </>
             </View>
           ) : null}
-          {quizStage &&
-          !fillBlankStage &&
-          !matchingStage &&
-          !singleChoiceStage &&
-          !multiChoiceStage &&
-          answered.has(current.contentId) ? (
+          {quizStage && !quizKind?.selfAdvancing && answered.has(current.contentId) ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="다음 학습 콘텐츠로 이동"
@@ -899,6 +744,16 @@ function Study() {
           </View>
         </View>
       </Modal>
+      {firstWelcomeStudy ? (
+        <FirstStudyLoginModal
+          visible={loginOpen}
+          onLater={() => {
+            setLoginOpen(false);
+            leaveStudy();
+          }}
+          onDismiss={() => setLoginOpen(false)}
+        />
+      ) : null}
     </UserScreen>
   );
 }
@@ -935,43 +790,6 @@ function StudyAction({
         {label}
       </Text>
     </Pressable>
-  );
-}
-
-function CompletionStar({ size }: { size: number }) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const started = useRef(false);
-  useEffect(() => {
-    return () => progress.stopAnimation();
-  }, [progress]);
-  const reveal = () => {
-    if (started.current) return;
-    started.current = true;
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 700,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-      useNativeDriver: Platform.OS !== 'web',
-    }).start();
-  };
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        opacity: progress,
-        transform: [
-          { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
-          { rotate: progress.interpolate({ inputRange: [0, 1], outputRange: ['-10deg', '0deg'] }) },
-        ],
-      }}
-    >
-      <Image
-        source={completionStarSource}
-        onLoad={reveal}
-        style={{ width: size, height: size }}
-        resizeMode="contain"
-      />
-    </Animated.View>
   );
 }
 
@@ -1057,6 +875,38 @@ const s = StyleSheet.create({
     gap: 8,
   },
   rewardIcon: { width: 18, height: 20 },
+  // Figma 656:2108: 아이콘·문구 간격 8, 높이 20, Pretendard Light 14 #e4e4e4, 1px #f1f1f1 그림자
+  noEnergyText: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    color: '#d9d9d9',
+    fontSize: 14,
+    fontFamily: 'PretendardMedium',
+    textAlign: 'center',
+  },
+  energyRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  energyText: {
+    color: '#e4e4e4',
+    fontSize: 14,
+    fontFamily: 'PretendardLight',
+    ...(Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 1px #f1f1f1' } as TextStyle)
+      : {
+          textShadowColor: '#f1f1f1',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 1,
+        }),
+  },
   completionDetails: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: 3 },
   completionDetail: { color: '#aaa', fontSize: 12, fontFamily: 'PretendardLight' },
   completionBalance: {
@@ -1066,28 +916,6 @@ const s = StyleSheet.create({
     fontWeight: '400',
     textAlign: 'center',
   },
-  constellationCompletion: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  constellationLabel: { color: '#a49caf', fontSize: 12, letterSpacing: 1 },
-  constellationPicture: { width: '100%', marginTop: 25 },
-  constellationTitle: { color: '#282636', fontSize: 25, fontWeight: '700', marginTop: 18 },
-  constellationSubtitle: { color: '#888591', fontSize: 14, marginTop: 17, textAlign: 'center' },
-  constellationDate: { color: '#888591', fontSize: 12, marginTop: 24 },
-  constellationReward: {
-    color: '#aa8746',
-    backgroundColor: '#faf6ec',
-    borderRadius: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    marginTop: 27,
-    fontSize: 13,
-  },
-  constellationHomeLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
-  constellationHomeText: { color: '#817790', fontSize: 13 },
   content: { flex: 1, minHeight: 0 },
   explanation: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 22 },
   scrollContent: {
@@ -1097,19 +925,6 @@ const s = StyleSheet.create({
     paddingVertical: 22,
     paddingHorizontal: 7,
   },
-  quizScrollContent: {
-    flexGrow: 1,
-    gap: 15,
-    paddingTop: 30,
-    paddingBottom: 16,
-    paddingHorizontal: 7,
-  },
-  fillBlankScrollContent: { flexGrow: 1 },
-  matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
-  singleChoiceScrollContent: { flexGrow: 1 },
-  multiChoiceScrollContent: { flexGrow: 1 },
-  sliderScrollContent: { flexGrow: 1 },
-  oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
