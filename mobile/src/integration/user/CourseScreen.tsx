@@ -26,7 +26,7 @@ type Lesson = CourseDetail['lessons'][number];
 
 // Figma L03_1 별자리 상세 / 완료한 별 목록(342:577).
 // 별자리(코스)의 레슨을 순서대로 보여 주고, 누르면 기존 학습 진입을 그대로 쓴다.
-// 완료한 레슨은 다시 하기(replay), 그 밖은 레슨 화면(/learn/lesson)으로 간다.
+// 완료한 레슨은 확인 모달 뒤 다시 하기(replay), 열린 레슨은 바로 학습 화면으로 간다.
 export default function CourseScreen() {
   const { courseId, completedOn: passedCompletedOn } = useLocalSearchParams<{
       courseId: string;
@@ -79,13 +79,19 @@ export default function CourseScreen() {
       params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
     });
   };
-  const openLesson = (lesson: Lesson) =>
-    lesson.status === 'COMPLETED'
-      ? setReplayTarget(lesson)
-      : router.push({
-          pathname: '/learn/lesson/[lessonId]',
-          params: { lessonId: String(lesson.lessonId), status: lesson.status },
-        });
+  // 잠긴 레슨은 누를 수 없다. 열린 레슨은 레슨 소개 화면 없이 바로 학습을 시작한다(홈 '다음 학습'과 같은 진입).
+  const openLesson = (lesson: Lesson) => {
+    if (lesson.status === 'COMPLETED') setReplayTarget(lesson);
+    else if (lesson.status !== 'LOCKED')
+      router.push({
+        pathname: '/learn/study/[lessonId]',
+        params: {
+          lessonId: String(lesson.lessonId),
+          title: lesson.title,
+          resume: lesson.status === 'IN_PROGRESS' ? 'true' : 'false',
+        },
+      });
+  };
   const next = course ? nextLessonOf(course.lessons) : null;
   const rowWidth = Math.min(332, width - 70);
   return (
@@ -122,6 +128,8 @@ export default function CourseScreen() {
                   key={lesson.lessonId}
                   accessibilityRole="button"
                   accessibilityLabel={`${lesson.title} ${status}`}
+                  accessibilityState={{ disabled: locked }}
+                  disabled={locked}
                   onPress={() => openLesson(lesson)}
                   style={[s.row, locked && s.rowLocked]}
                 >

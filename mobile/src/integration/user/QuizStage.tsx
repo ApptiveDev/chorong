@@ -1,8 +1,6 @@
-import { useRef } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { useMockApi } from '../runtime';
-import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { QuizCard } from './QuizCard';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
 import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
@@ -70,7 +68,6 @@ export function QuizStageQuiz({
   quiz,
   itemKey,
   scale,
-  lessonId,
   disabled,
   submit,
   onGraded,
@@ -80,18 +77,14 @@ export function QuizStageQuiz({
   // 학습은 contentId, 복습은 reviewItemId
   itemKey: number;
   scale: number;
-  // 목업 와이어프레임 퀴즈가 문항 목록을 찾을 때만 쓴다.
-  lessonId: number;
   disabled: boolean;
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
-  // 목업 와이어프레임 문항은 서버 채점 결과 없이 끝날 수 있어 result 가 없을 수 있다.
   onGraded: (result: AnswerResult | undefined) => void;
   // justGraded: 방금 채점한 문항에서 바로 넘어가는지(학습 화면 advance 와 같은 뜻).
   // 이동하지 못하면 예외를 던진다. 문항 컴포넌트가 오류를 보여 주고 다시 누를 수 있게 한다.
   onAdvance: (justGraded: boolean) => Promise<void>;
 }) {
   const kind = quizStageKind(quiz);
-  const lastResult = useRef<AnswerResult | null>(null);
   const typedKey = `${itemKey}:${quiz.quizId}`;
   if (kind.slider)
     return (
@@ -175,23 +168,10 @@ export function QuizStageQuiz({
         onGraded={onGraded}
       />
     );
-  if (useMockApi && quiz.type !== 'OX')
-    return (
-      <LessonQuizWireframe
-        key={itemKey}
-        lessonId={lessonId}
-        quiz={quiz}
-        disabled={disabled}
-        submitLegacy={async (answer: QuizAnswer) => {
-          const result = await submit(answer);
-          lastResult.current = result;
-          return result;
-        }}
-        // 와이어프레임은 대부분 자체 채점(quizApi.check)으로 끝나 서버 채점 결과가 없을 수 있다.
-        onAnswered={() => onGraded(lastResult.current ?? undefined)}
-        stage
-      />
-    );
+  // 디자인된 문항 화면만 쓴다. 문항 유형(type·interactionType)으로 고르고, 레슨·데이터 출처로 고르지 않는다.
+  // OX 는 QuizCard 의 퀴즈 무대 OX 화면을 쓴다. 디자인된 화면이 없는 형식은 예전 화면으로 대신하지 않고
+  // 콘텐츠를 불러오지 못한 것과 같이 진행을 막는다(contract.ts UnsupportedQuizError 와 같은 정책).
+  if (!kind.ox) return <Text style={s.unsupported}>지원하지 않는 퀴즈 형식입니다.</Text>;
   return (
     <QuizCard
       key={itemKey}
@@ -203,7 +183,6 @@ export function QuizStageQuiz({
     />
   );
 }
-
 const s = StyleSheet.create({
   quizScrollContent: {
     flexGrow: 1,
@@ -217,6 +196,12 @@ const s = StyleSheet.create({
   singleChoiceScrollContent: { flexGrow: 1 },
   multiChoiceScrollContent: { flexGrow: 1 },
   sliderScrollContent: { flexGrow: 1 },
+  unsupported: {
+    color: '#b56060',
+    fontFamily: 'PretendardMedium',
+    fontSize: 14,
+    textAlign: 'center',
+  },
   // 해설 시트가 화면 폭 전체를 쓰도록 안쪽 여백은 ChosungQuiz 가 정한다.
   chosungScrollContent: { flexGrow: 1 },
   oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },

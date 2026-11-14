@@ -570,7 +570,6 @@ function Study() {
                       quiz={current.quiz}
                       itemKey={current.contentId}
                       scale={quizScale}
-                      lessonId={lessonId}
                       disabled={answered.has(current.contentId)}
                       submit={(answer) => api.learning.answer(current.quiz!.quizId, answer, replay)}
                       onGraded={() =>

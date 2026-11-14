@@ -178,7 +178,6 @@ export function ReviewScreen() {
                 quiz={current.quiz}
                 itemKey={current.reviewItemId}
                 scale={quizScale}
-                lessonId={current.quiz.lessonId ?? 0}
                 disabled={done.includes(current.reviewItemId)}
                 submit={(answer) => api.review.answer(current.reviewItemId, answer)}
                 onGraded={onGraded(current.reviewItemId)}
