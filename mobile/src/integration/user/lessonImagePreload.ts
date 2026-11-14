@@ -1,5 +1,6 @@
 import { Image, type ImageSourcePropType } from 'react-native';
 import type { Content } from '../models';
+import { tileImageUrl } from './tileReveal';
 
 export const localStudyImages: Record<string, ImageSourcePropType> = {
   'mock-study-fusion': require('../../../assets/study-fusion-figma.png'),
@@ -11,12 +12,14 @@ export function studyImageSource(mediaUrl: string): ImageSourcePropType {
   return localStudyImages[mediaUrl] ?? { uri: mediaUrl, cache: 'force-cache' };
 }
 
+// IMAGE 콘텐츠와 타일 벗기기 문항의 사진을 함께 미리 받는다.
 export function lessonImageUrls(contents: Content[]): string[] {
   return [
     ...new Set(
       contents
-        .filter((content) => content.contentType === 'IMAGE')
-        .map((content) => content.mediaUrl)
+        .map((content) =>
+          content.contentType === 'IMAGE' ? content.mediaUrl : tileImageUrl(content.quiz),
+        )
         .filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url))),
     ),
   ];

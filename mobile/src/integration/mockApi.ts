@@ -4,6 +4,7 @@ import {
   chosungCountMockQuizId,
   chosungMockQuizId,
   sliderMockQuizId,
+  tileMockQuizId,
   courses,
   inventory,
   lessons,
@@ -329,6 +330,26 @@ const scoreChosungAnswer = (quizId: number, raw: unknown) => {
     explanation: expected.explanation,
   };
 };
+// 서버 채점 대역. SINGLE 표시 방식(TILE 등)은 일반 SINGLE 처럼 보기 순번 { answer } 로 채점한다.
+const presentedMockAnswers = new Map([
+  [
+    tileMockQuizId,
+    {
+      answer: 0,
+      explanation:
+        '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.\n가벼운 원자핵이 합쳐지며 빛을 내요.',
+    },
+  ],
+]);
+const scorePresentedAnswer = (quizId: number, raw: unknown) => {
+  const expected = presentedMockAnswers.get(quizId);
+  if (!expected) return null;
+  return {
+    correct: body(raw).answer === expected.answer,
+    expected: expected.answer,
+    explanation: expected.explanation,
+  };
+};
 // 서버 채점 대역. 명세대로 |answer - 정답| <= 허용 오차면 정답이고 closeness(0~100)를 돌려준다.
 // 정답 위치·오차는 응답 전에는 공개하지 않는다. 근접도 계산식은 목업용이며 서버 식과 다를 수 있다.
 const sliderMockAnswers = new Map([
@@ -617,6 +638,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         ? (scoreFirstLessonAnswer(quizId, input.answer) ??
           scoreChosungAnswer(quizId, input.answer) ??
           scoreSliderAnswer(quizId, input.answer) ??
+          scorePresentedAnswer(quizId, input.answer) ??
           scoreOtherLessonAnswer(quizId, input.answer))
         : null;
       if (!scored) throw new Error(`MOCK_QUIZ_NOT_FOUND: quizId=${quizId ?? 'unknown'}`);

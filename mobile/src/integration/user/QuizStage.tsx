@@ -8,6 +8,8 @@ import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
 import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
 import { AudioChoiceQuiz } from './AudioChoiceQuiz';
 import { isAudioChoiceQuiz } from './quizAudio';
+import { TileRevealQuiz } from './TileRevealQuiz';
+import { isTileRevealQuiz } from './tileReveal';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
@@ -20,6 +22,8 @@ export type QuizStageKind = {
   singleChoice: boolean;
   // SINGLE 중 presentation.type === 'AUDIO'(소리 듣고 고르기). singleChoice 와 겹치지 않는다.
   audioChoice: boolean;
+  // SINGLE 중 presentation.type === 'TILE'(타일 벗기기). singleChoice 와 겹치지 않는다.
+  tileReveal: boolean;
   multiChoice: boolean;
   chosung: boolean;
   slider: boolean;
@@ -36,7 +40,8 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
   const matching = !!quiz && hasMatchingPairs(quiz);
   const choiceOptions = !!quiz && hasSingleChoiceOptions(quiz);
   const audioChoice = choiceOptions && isAudioChoiceQuiz(quiz);
-  const singleChoice = choiceOptions && !audioChoice;
+  const tileReveal = choiceOptions && isTileRevealQuiz(quiz);
+  const singleChoice = choiceOptions && !audioChoice && !tileReveal;
   const multiChoice = !!quiz && hasMultiChoiceOptions(quiz);
   const chosung = isChosungQuiz(quiz);
   const slider = isSliderQuiz(quiz);
@@ -47,19 +52,21 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
     matching,
     singleChoice,
     audioChoice,
+    tileReveal,
     multiChoice,
     chosung,
     slider,
     mockRange,
     // CHOSUNG 은 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
-    selfAdvancing: fillBlank || matching || singleChoice || audioChoice || multiChoice || chosung,
+    selfAdvancing:
+      fillBlank || matching || singleChoice || audioChoice || tileReveal || multiChoice || chosung,
   };
 }
 
 export function quizScrollContentStyle(kind: QuizStageKind, scale: number) {
   if (kind.fillBlank) return s.fillBlankScrollContent;
   if (kind.matching) return s.matchingScrollContent;
-  if (kind.singleChoice || kind.audioChoice) return s.singleChoiceScrollContent;
+  if (kind.singleChoice || kind.audioChoice || kind.tileReveal) return s.singleChoiceScrollContent;
   if (kind.multiChoice) return s.multiChoiceScrollContent;
   if (kind.slider || kind.mockRange) return s.sliderScrollContent;
   if (kind.chosung) return s.chosungScrollContent;
@@ -156,6 +163,18 @@ export function QuizStageQuiz({
   if (kind.audioChoice)
     return (
       <AudioChoiceQuiz
+        key={typedKey}
+        quiz={quiz}
+        scale={scale}
+        disabled={disabled}
+        submit={submit}
+        onGraded={onGraded}
+        onAdvance={() => onAdvance(true)}
+      />
+    );
+  if (kind.tileReveal)
+    return (
+      <TileRevealQuiz
         key={typedKey}
         quiz={quiz}
         scale={scale}

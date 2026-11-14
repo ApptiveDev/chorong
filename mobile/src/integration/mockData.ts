@@ -506,6 +506,34 @@ const sliderMockContent = {
   },
 } as unknown as Content;
 
+// SINGLE 타일 벗기기 목업. 사진은 로컬 목업 키(lessonImagePreload.localStudyImages)를 쓴다.
+// 정답은 응답에 넣지 않고 mockApi 채점(presentedMockAnswers)에만 둔다.
+export const tileMockQuizId = 122;
+const tileMockContent = {
+  contentId: 1205,
+  order: 5,
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: tileMockQuizId,
+    interactionType: 'SINGLE',
+    question: '이것은  무엇일까요?',
+    instruction: '타일이 벗겨지는 사진을 보고 고르세요.',
+    quizOrder: 2,
+    config: {
+      options: ['핵융합', '핵분열', '연소'],
+      presentation: {
+        type: 'TILE',
+        mediaUrl: 'mock-study-fusion',
+        rows: 6,
+        columns: 8,
+        stages: [4, 8, 16, 32, 48],
+      },
+    },
+  },
+} as unknown as Content;
+
 export const lessons: Lesson[] = [
   {
     lessonId: 11,
@@ -519,12 +547,15 @@ export const lessons: Lesson[] = [
     courseId: 1,
     title: '달의 모양',
     description: '달의 모양이 달라 보이는 이유를 배웁니다.',
-    contents: pages(12, [
-      '달은 태양빛을 반사합니다.',
-      '달이 지구 둘레를 돕니다.',
-      '우리가 보는 밝은 부분이 달라집니다.',
-      '달의 모양은 날마다 달라 보입니다.',
-    ]),
+    contents: [
+      ...pages(12, [
+        '달은 태양빛을 반사합니다.',
+        '달이 지구 둘레를 돕니다.',
+        '우리가 보는 밝은 부분이 달라집니다.',
+        '달의 모양은 날마다 달라 보입니다.',
+      ]),
+      tileMockContent,
+    ],
   },
   {
     lessonId: 21,
