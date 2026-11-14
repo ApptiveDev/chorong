@@ -5,6 +5,7 @@ import {
   chosungMockQuizId,
   sliderMockQuizId,
   tileMockQuizId,
+  sharpenMockQuizId,
   courses,
   inventory,
   lessons,
@@ -338,6 +339,13 @@ const presentedMockAnswers = new Map([
       answer: 0,
       explanation:
         '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.\n가벼운 원자핵이 합쳐지며 빛을 내요.',
+    },
+  ],
+  [
+    sharpenMockQuizId,
+    {
+      answer: 0,
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.\n흐릴 때 맞히면 더 대단해요.',
     },
   ],
 ]);

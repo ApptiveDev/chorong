@@ -1,5 +1,5 @@
 import { StyleSheet, Text } from 'react-native';
-import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import type { AnswerResult, Quiz, QuizAnswer, SinglePresentation } from '../models';
 import { useMockApi } from '../runtime';
 import { QuizCard } from './QuizCard';
 import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
@@ -7,12 +7,21 @@ import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
 import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
 import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
 import { AudioChoiceQuiz } from './AudioChoiceQuiz';
-import { isAudioChoiceQuiz } from './quizAudio';
+import { SharpenQuiz } from './SharpenQuiz';
 import { TileRevealQuiz } from './TileRevealQuiz';
-import { isTileRevealQuiz } from './tileReveal';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
+
+// SINGLE 표시 방식별 전용 화면. 여기 없는 방식(ZOOM_OUT·INLINE_WORD)은 일반 SINGLE 화면으로 보인다.
+const PRESENTED_SCREENS = {
+  AUDIO: AudioChoiceQuiz,
+  TILE: TileRevealQuiz,
+  SHARPEN: SharpenQuiz,
+} satisfies Partial<Record<SinglePresentation['type'], typeof AudioChoiceQuiz>>;
+type PresentedType = keyof typeof PRESENTED_SCREENS;
+const isPresentedType = (type: string | undefined): type is PresentedType =>
+  !!type && Object.prototype.hasOwnProperty.call(PRESENTED_SCREENS, type);
 
 // 학습(StudyScreen)과 복습(ReviewScreen)이 같은 퀴즈 화면을 쓰도록 문항 유형 판별·배치·컴포넌트 선택을 모은다.
 export type QuizStageKind = {
@@ -20,10 +29,8 @@ export type QuizStageKind = {
   fillBlank: boolean;
   matching: boolean;
   singleChoice: boolean;
-  // SINGLE 중 presentation.type === 'AUDIO'(소리 듣고 고르기). singleChoice 와 겹치지 않는다.
-  audioChoice: boolean;
-  // SINGLE 중 presentation.type === 'TILE'(타일 벗기기). singleChoice 와 겹치지 않는다.
-  tileReveal: boolean;
+  // SINGLE 중 전용 화면이 있는 표시 방식(config.presentation.type). 있으면 singleChoice 는 false 다.
+  presented: PresentedType | null;
   multiChoice: boolean;
   chosung: boolean;
   slider: boolean;
@@ -39,9 +46,9 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
   const fillBlank = !!quiz && hasFillBlankChoices(quiz);
   const matching = !!quiz && hasMatchingPairs(quiz);
   const choiceOptions = !!quiz && hasSingleChoiceOptions(quiz);
-  const audioChoice = choiceOptions && isAudioChoiceQuiz(quiz);
-  const tileReveal = choiceOptions && isTileRevealQuiz(quiz);
-  const singleChoice = choiceOptions && !audioChoice && !tileReveal;
+  const presentationType = quiz?.config?.presentation?.type;
+  const presented = choiceOptions && isPresentedType(presentationType) ? presentationType : null;
+  const singleChoice = choiceOptions && !presented;
   const multiChoice = !!quiz && hasMultiChoiceOptions(quiz);
   const chosung = isChosungQuiz(quiz);
   const slider = isSliderQuiz(quiz);
@@ -51,22 +58,20 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
     fillBlank,
     matching,
     singleChoice,
-    audioChoice,
-    tileReveal,
+    presented,
     multiChoice,
     chosung,
     slider,
     mockRange,
     // CHOSUNG 은 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
-    selfAdvancing:
-      fillBlank || matching || singleChoice || audioChoice || tileReveal || multiChoice || chosung,
+    selfAdvancing: fillBlank || matching || singleChoice || !!presented || multiChoice || chosung,
   };
 }
 
 export function quizScrollContentStyle(kind: QuizStageKind, scale: number) {
   if (kind.fillBlank) return s.fillBlankScrollContent;
   if (kind.matching) return s.matchingScrollContent;
-  if (kind.singleChoice || kind.audioChoice || kind.tileReveal) return s.singleChoiceScrollContent;
+  if (kind.singleChoice || kind.presented) return s.singleChoiceScrollContent;
   if (kind.multiChoice) return s.multiChoiceScrollContent;
   if (kind.slider || kind.mockRange) return s.sliderScrollContent;
   if (kind.chosung) return s.chosungScrollContent;
@@ -160,9 +165,10 @@ export function QuizStageQuiz({
         onAdvance={() => onAdvance(true)}
       />
     );
-  if (kind.audioChoice)
+  if (kind.presented) {
+    const Presented = PRESENTED_SCREENS[kind.presented];
     return (
-      <AudioChoiceQuiz
+      <Presented
         key={typedKey}
         quiz={quiz}
         scale={scale}
@@ -172,18 +178,7 @@ export function QuizStageQuiz({
         onAdvance={() => onAdvance(true)}
       />
     );
-  if (kind.tileReveal)
-    return (
-      <TileRevealQuiz
-        key={typedKey}
-        quiz={quiz}
-        scale={scale}
-        disabled={disabled}
-        submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
-      />
-    );
+  }
   if (kind.multiChoice)
     return (
       <MultiChoiceQuiz

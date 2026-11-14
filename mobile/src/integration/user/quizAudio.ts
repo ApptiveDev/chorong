@@ -13,10 +13,6 @@ export function quizAudioUrl(quiz: Quiz | null | undefined): string | null {
   return url && url === url.trim() && /^https?:\/\/[^/\s]+/i.test(url) ? url : null;
 }
 
-export function isAudioChoiceQuiz(quiz: Quiz | null | undefined): boolean {
-  return quiz?.config?.presentation?.type === 'AUDIO';
-}
-
 export function lessonAudioUrls(contents: Content[]): string[] {
   return [
     ...new Set(

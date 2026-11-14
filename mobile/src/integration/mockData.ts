@@ -533,6 +533,30 @@ const tileMockContent = {
     },
   },
 } as unknown as Content;
+// SINGLE 점점 선명 목업. 같은 레슨에서 타일 다음 문항으로 둔다.
+export const sharpenMockQuizId = 123;
+const sharpenMockContent = {
+  contentId: 1206,
+  order: 6,
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: sharpenMockQuizId,
+    interactionType: 'SINGLE',
+    question: '이것은  무엇일까요?',
+    instruction: '점점 선명해지는 사진을 보고 고르세요.',
+    quizOrder: 3,
+    config: {
+      options: ['핵융합', '핵분열', '연소'],
+      presentation: {
+        type: 'SHARPEN',
+        mediaUrl: 'mock-study-fusion',
+        stages: [24, 12, 4, 0],
+      },
+    },
+  },
+} as unknown as Content;
 
 export const lessons: Lesson[] = [
   {
@@ -555,6 +579,7 @@ export const lessons: Lesson[] = [
         '달의 모양은 날마다 달라 보입니다.',
       ]),
       tileMockContent,
+      sharpenMockContent,
     ],
   },
   {

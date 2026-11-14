@@ -1,6 +1,6 @@
 import { Image, type ImageSourcePropType } from 'react-native';
 import type { Content } from '../models';
-import { tileImageUrl } from './tileReveal';
+import { presentationImageUrl } from './presentationImage';
 
 export const localStudyImages: Record<string, ImageSourcePropType> = {
   'mock-study-fusion': require('../../../assets/study-fusion-figma.png'),
@@ -12,13 +12,13 @@ export function studyImageSource(mediaUrl: string): ImageSourcePropType {
   return localStudyImages[mediaUrl] ?? { uri: mediaUrl, cache: 'force-cache' };
 }
 
-// IMAGE 콘텐츠와 타일 벗기기 문항의 사진을 함께 미리 받는다.
+// IMAGE 콘텐츠와 사진형 SINGLE 문항(TILE·ZOOM_OUT·SHARPEN)의 사진을 함께 미리 받는다.
 export function lessonImageUrls(contents: Content[]): string[] {
   return [
     ...new Set(
       contents
         .map((content) =>
-          content.contentType === 'IMAGE' ? content.mediaUrl : tileImageUrl(content.quiz),
+          content.contentType === 'IMAGE' ? content.mediaUrl : presentationImageUrl(content.quiz),
         )
         .filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url))),
     ),

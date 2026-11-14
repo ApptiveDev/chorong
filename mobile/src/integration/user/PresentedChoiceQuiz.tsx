@@ -43,10 +43,14 @@ export function PresentedChoiceQuiz({
   // Figma 기준 진도 바 아래 여백과 질문·미디어·보기 사이 간격(디자인 폭 기준 px).
   topSpace,
   gap,
+  // 미디어·보기를 가운데로 모은다(질문은 왼쪽 정렬 유지). Figma 점점 선명(740:1337)처럼
+  // 미디어가 보기(320)보다 넓을 때 쓴다.
+  centered = false,
 }: PresentedChoiceProps & {
   media: (state: PresentedMediaState) => ReactNode;
   topSpace: number;
   gap: number;
+  centered?: boolean;
 }) {
   const choices = choicesFor(quiz);
   const [phase, setPhase] = useState<Phase>('UNANSWERED');
@@ -133,7 +137,10 @@ export function PresentedChoiceQuiz({
         pointerEvents="box-none"
         style={[s.body, { paddingTop: topSpace * scale, paddingHorizontal: 36 * scale }]}
       >
-        <View pointerEvents="box-none" style={[s.group, { gap: gap * scale }]}>
+        <View
+          pointerEvents="box-none"
+          style={[s.group, centered && s.groupCentered, { gap: gap * scale }]}
+        >
           <Text lineBreakStrategyIOS="hangul-word" style={s.question}>
             {quiz.question.replace(/\s*\n\s*/g, ' ')}
           </Text>
@@ -193,7 +200,9 @@ const s = StyleSheet.create({
   stage: { flexGrow: 1, width: '100%' },
   body: { alignItems: 'center' },
   group: { width: '100%', maxWidth: 330 },
+  groupCentered: { alignItems: 'center' },
   question: {
+    width: '100%',
     color: color.base,
     fontFamily: 'PretendardBold',
     fontSize: 20,

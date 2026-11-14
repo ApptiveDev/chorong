@@ -23,11 +23,11 @@ import {
   TILE_STEP_REVEAL,
   pickHiddenTiles,
   randomCount,
-  tileImageUrl,
 } from './tileReveal';
+import { presentationImageUrl } from './presentationImage';
 
 export function TileRevealQuiz(props: PresentedChoiceProps) {
-  const url = tileImageUrl(props.quiz);
+  const url = presentationImageUrl(props.quiz, 'TILE');
   return (
     <PresentedChoiceQuiz
       {...props}

@@ -1,7 +1,6 @@
 // 타일 벗기기(SINGLE + config.presentation.type === 'TILE') 공개 규칙.
 // 사진을 8×6 으로 덮고, 처음에 무작위 3~5칸을 열어 둔 뒤 일정 간격마다 무작위 2~4칸씩 더 연다.
 // 서버의 rows·columns·stages 는 아직 쓰지 않는다(화면 규칙을 앱이 정한다).
-import type { Quiz } from '../models';
 
 export const TILE_COLUMNS = 8;
 export const TILE_ROWS = 6;
@@ -12,18 +11,6 @@ export const TILE_STEP_INTERVAL_MS = 2000;
 export const TILE_FADE_MS = 600;
 
 type Random = () => number;
-
-/** 타일 벗기기 문항이면 사진 주소(또는 목업 이미지 키), 아니면 null. */
-export function tileImageUrl(quiz: Quiz | null | undefined): string | null {
-  const presentation = quiz?.config?.presentation;
-  if (presentation?.type !== 'TILE') return null;
-  const url = presentation.mediaUrl?.trim();
-  return url ? url : null;
-}
-
-export function isTileRevealQuiz(quiz: Quiz | null | undefined): boolean {
-  return quiz?.config?.presentation?.type === 'TILE';
-}
 
 export function randomCount(range: { min: number; max: number }, random: Random = Math.random) {
   return range.min + Math.floor(random() * (range.max - range.min + 1));
