@@ -2269,3 +2269,133 @@ test('목업 복습 세트: 문제가 없으면 모달 분기, rewardEligible �
     restoreMockSnapshot(original);
   }
 });
+
+const {
+  constellationImage,
+  fallbackLayout,
+  litStars,
+  nextLessonOf,
+  recordStars,
+  segmentStyle,
+  starLayout,
+} = require('../.expo/integration-tests/user/constellationRecord');
+const {
+  constellationLayouts,
+  layoutsByStarCount,
+} = require('../.expo/integration-tests/user/constellationLayouts');
+
+const lessonSummary = (lessonId, order, status) => ({
+  lessonId,
+  title: `레슨 ${lessonId}`,
+  order,
+  status,
+  unlocksAt: null,
+  completedAt: null,
+});
+
+test('별자리 기록: 완료는 흰 별, 다음 학습은 ?, 나머지는 빈 별이며 레슨 순서대로 놓인다', () => {
+  const lessons = [
+    lessonSummary(13, 3, 'LOCKED'),
+    lessonSummary(11, 1, 'COMPLETED'),
+    lessonSummary(12, 2, 'UNLOCKED'),
+  ];
+  // 다음 학습은 기존 규칙(목록에서 처음 나오는 IN_PROGRESS·UNLOCKED)을 그대로 쓴다.
+  assert.equal(nextLessonOf(lessons).lessonId, 12);
+  const stars = recordStars(lessons, 12, null);
+  assert.deepEqual(
+    stars.map((star) => [star.lessonId, star.state]),
+    [
+      [11, 'done'],
+      [12, 'next'],
+      [13, 'todo'],
+    ],
+  );
+  assert.equal(litStars(stars), 1);
+  // 별 3개는 Figma 임시 배치를 쓴다.
+  assert.deepEqual(
+    stars.map((star) => star.point),
+    layoutsByStarCount[3].stars,
+  );
+  assert.equal(segmentStyle('done'), 'solid');
+  assert.equal(segmentStyle('next'), 'dashed');
+  assert.equal(segmentStyle('todo'), 'dashed');
+
+  // 다음 학습이 없으면(전부 완료·잠김) ? 별을 만들지 않는다.
+  const finished = recordStars(
+    [lessonSummary(1, 1, 'COMPLETED'), lessonSummary(2, 2, 'LOCKED')],
+    null,
+    null,
+  );
+  assert.deepEqual(
+    finished.map((star) => star.state),
+    ['done', 'todo'],
+  );
+  assert.equal(nextLessonOf([lessonSummary(1, 1, 'COMPLETED')]), null);
+  // 진행 중 레슨이 다음 학습이다.
+  assert.equal(
+    nextLessonOf([lessonSummary(1, 1, 'COMPLETED'), lessonSummary(2, 2, 'IN_PROGRESS')]).lessonId,
+    2,
+  );
+});
+
+test('별 위치는 별자리별 설정 → 별 개수별 기본 → 자동 배치 순이고 그림은 서버 imageUrl 이 먼저다', () => {
+  for (const count of [0, 1, 2, 4, 7, 15]) {
+    const points = fallbackLayout(count);
+    assert.equal(points.length, count);
+    assert.ok(points.every(({ x, y }) => x >= 0 && x <= 1 && y >= 0 && y <= 1));
+    assert.deepEqual(starLayout(999, count), count === 3 ? layoutsByStarCount[3].stars : points);
+  }
+  const custom = { stars: [0.1, 0.3, 0.5, 0.7].map((x) => ({ x, y: x })), image: 42 };
+  constellationLayouts[77] = custom;
+  try {
+    assert.deepEqual(starLayout(77, 3), custom.stars.slice(0, 3));
+    assert.deepEqual(starLayout(77, 4), custom.stars);
+    // 설정보다 별이 많으면 설정을 쓰지 않는다.
+    assert.equal(starLayout(77, 5).length, 5);
+    assert.equal(constellationImage(77, null), 42);
+    assert.deepEqual(constellationImage(77, 'https://img.example/77.png'), {
+      uri: 'https://img.example/77.png',
+    });
+  } finally {
+    delete constellationLayouts[77];
+  }
+  assert.equal(constellationImage(null, null), null);
+});
+
+test('목업: 레슨을 마치고 코스 상세를 다시 읽으면 흰 별이 늘고 ? 가 다음 레슨으로 옮겨 간다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    assert.equal(
+      restoreMockSnapshot({ ...original, startedLessons: [], rewardedLessons: [], completed: [] }),
+      true,
+    );
+    const course = mockApi('API-401', {}).data.data.courses[0];
+    const detail = () => mockApi('API-402', { path: { courseId: course.courseId } }).data.data;
+    const before = detail();
+    const next = nextLessonOf(before.lessons);
+    assert.ok(next, '목업 첫 코스에 진행할 레슨이 있어야 한다');
+    const beforeStars = recordStars(
+      before.lessons,
+      next.lessonId,
+      before.constellation?.constellationId,
+    );
+    assert.equal(beforeStars.find((star) => star.lessonId === next.lessonId).state, 'next');
+
+    mockApi('API-404', { path: { lessonId: next.lessonId }, body: { replay: false } });
+    const contents = mockApi('API-403', { path: { lessonId: next.lessonId } }).data.data.contents;
+    for (const content of contents) mockApi('API-405', { path: { contentId: content.contentId } });
+
+    const after = detail();
+    const afterNext = nextLessonOf(after.lessons);
+    const afterStars = recordStars(
+      after.lessons,
+      afterNext?.lessonId ?? null,
+      after.constellation?.constellationId,
+    );
+    assert.equal(afterStars.find((star) => star.lessonId === next.lessonId).state, 'done');
+    assert.equal(litStars(afterStars), litStars(beforeStars) + 1);
+    assert.ok(afterStars.filter((star) => star.state === 'next').length <= 1);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});

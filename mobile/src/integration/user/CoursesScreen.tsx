@@ -8,10 +8,13 @@ import { isConstellationReward } from '../contract';
 import { useIntegration, useTask } from '../hooks';
 import type { Course, CourseDetail } from '../models';
 import { UserScreen, UserStatus } from './Screen';
+import { LearningHome } from './LearningHome';
+import { constellationImage, litStars, nextLessonOf, recordStars } from './constellationRecord';
 
 type Section = 'home' | 'map' | 'list';
 type MapTab = 'map' | 'record';
 type NextLesson = CourseDetail['lessons'][number] | null;
+type Wallet = Awaited<ReturnType<typeof api.benefits.wallet>>;
 type ConstellationRecord = Awaited<
   ReturnType<typeof api.benefits.constellations>
 >['constellations'][number];
@@ -57,17 +60,23 @@ function Courses() {
   const [currentCourseId, setCurrentCourseId] = useState<number | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [nextLesson, setNextLesson] = useState<NextLesson>(null);
+  // 현재 코스의 레슨 목록(API-402). 별자리 기록의 별 하나 = 레슨 하나.
+  const [courseLessons, setCourseLessons] = useState<CourseDetail['lessons']>([]);
+  // 에너지·별가루(API-904). 조회 실패면 칩에 '—'를 보여 준다.
+  const [wallet, setWallet] = useState<Wallet | null>(null);
   const load = () =>
     task.run(async () => {
       const result = await api.learning.courses();
       setCourses(result.courses);
-      const [progress, constellationResult, records] = await Promise.all([
+      const [progress, constellationResult, records, walletResult] = await Promise.all([
         api.learning.progress().catch(() => null),
         api.benefits.constellations().catch(() => null),
         loadConstellationDates().catch(() => ({})),
+        api.benefits.wallet().catch(() => null),
       ]);
       setConstellations(constellationResult?.constellations ?? null);
       setRecordDates(records);
+      setWallet(walletResult);
       const candidate =
         result.courses.find((course) => course.courseId === progress?.current?.courseId) ??
         result.courses.find((course) => course.completedLessons < course.totalLessons) ??
@@ -76,15 +85,16 @@ function Courses() {
       if (candidate) {
         try {
           const detail = await api.learning.course(candidate.courseId);
-          setNextLesson(
-            detail.lessons.find(
-              (lesson) => lesson.status === 'IN_PROGRESS' || lesson.status === 'UNLOCKED',
-            ) ?? null,
-          );
+          setCourseLessons(detail.lessons);
+          setNextLesson(nextLessonOf(detail.lessons));
         } catch {
+          setCourseLessons([]);
           setNextLesson(null);
         }
-      } else setNextLesson(null);
+      } else {
+        setCourseLessons([]);
+        setNextLesson(null);
+      }
       return result;
     });
   useFocusEffect(
@@ -109,9 +119,6 @@ function Courses() {
   const categories = [...new Set(courses.map((course) => course.category))];
   const listed = category ? courses.filter((course) => course.category === category) : courses;
   const currentCourse = courses.find((course) => course.courseId === currentCourseId);
-  const completedLessons = currentCourse?.completedLessons ?? 0;
-  const totalLessons = currentCourse?.totalLessons ?? 0;
-  const courseProgress = totalLessons ? Math.min(1, completedLessons / totalLessons) : 0;
   const completedConstellations = constellations?.filter((item) => item.badgeEarned) ?? [];
   const openCourse = (courseId: number) => router.push(`/learn/course/${courseId}`);
   const openLesson = () => {
@@ -125,6 +132,105 @@ function Courses() {
         },
       });
   };
+  const currentConstellation = currentCourse
+    ? constellations?.find((item) => item.courseId === currentCourse.courseId)
+    : undefined;
+  const constellationId =
+    currentConstellation?.constellationId ?? currentCourse?.constellation?.constellationId;
+  const stars = currentCourse
+    ? recordStars(courseLessons, nextLesson?.lessonId ?? null, constellationId)
+    : [];
+  const joinModal = (
+    <Modal
+      visible={joinPromptOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setJoinPromptOpen(false)}
+    >
+      <View style={s.joinOverlay}>
+        <ScrollView style={s.joinPanel} contentContainerStyle={s.joinContent}>
+          <Text style={s.joinTitle}>첫 탐험을 오래 간직해요</Text>
+          <Text style={s.joinCopy}>밝힌 별과 꾸민 우주선을 계정에 저장해요.</Text>
+          <View style={s.joinAuthOptions}>
+            <Pressable
+              accessibilityRole="button"
+              style={[s.joinAuthOption, s.joinAppleOption]}
+              onPress={() => setJoinSocialNotice(true)}
+            >
+              <Text style={[s.joinAuthOptionText, s.joinAppleText]}>Apple로 계속하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={s.joinAuthOption}
+              onPress={() => setJoinSocialNotice(true)}
+            >
+              <Text style={s.joinAuthOptionText}>Google로 계속하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={s.joinAuthOption}
+              onPress={() => setJoinSocialNotice(true)}
+            >
+              <Text style={s.joinAuthOptionText}>카카오로 계속하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={s.joinAuthOption}
+              onPress={() => {
+                setJoinPromptOpen(false);
+                router.push('/account');
+              }}
+            >
+              <Text style={s.joinAuthOptionText}>이메일로 로그인하기</Text>
+            </Pressable>
+          </View>
+          {joinSocialNotice ? <Text style={s.joinNotice}>소셜 로그인은 준비 중입니다.</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            style={s.joinSecondary}
+            onPress={() => setJoinPromptOpen(false)}
+          >
+            <Text style={s.joinSecondaryText}>나중에 하기</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+  if (section === 'home' && auth.authenticated)
+    return (
+      <>
+        <LearningHome
+          task={task}
+          notice={auth.notice || null}
+          constellation={
+            currentCourse
+              ? {
+                  name:
+                    currentConstellation?.name ??
+                    currentCourse.constellation?.name ??
+                    currentCourse.title,
+                  stars,
+                  lit: litStars(stars),
+                  image: constellationImage(constellationId, currentConstellation?.imageUrl),
+                }
+              : null
+          }
+          wallet={wallet}
+          nextTitle={
+            nextLesson?.title ?? (courses.length ? '학습할 레슨을 선택하세요' : '별자리가 없습니다')
+          }
+          nextDisabled={!courses.length}
+          onOpenRecord={() => {
+            setMapTab('record');
+            setSection('map');
+          }}
+          onNext={nextLesson ? openLesson : () => setSection('list')}
+          onReview={() => router.push('/review-start')}
+          onRetry={() => void load()}
+        />
+        {joinModal}
+      </>
+    );
   return (
     <UserScreen
       title={
@@ -150,84 +256,6 @@ function Courses() {
               <Ionicons name="chevron-back" size={18} color={navy} />
               <Text style={s.muted}>뒤로</Text>
             </Pressable>
-          ) : null}
-          {section === 'home' ? (
-            <>
-              <View style={s.homeHeader}>
-                <Text style={s.homeTitle}>학습</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setMapTab('map');
-                    setSection('map');
-                  }}
-                >
-                  <Text style={s.textLink}>내 별자리 ↗</Text>
-                </Pressable>
-              </View>
-              <View style={s.greeting}>
-                <Text style={s.eyebrow}>별지기의 작은 탐험</Text>
-                <Text style={s.greetingTitle}>오늘은 어떤 별을 밝힐까요?</Text>
-              </View>
-              {currentCourse ? (
-                <View style={s.skyCard}>
-                  <HomeStars progress={courseProgress} />
-                  <View style={s.skyCaption}>
-                    <Text style={s.skyName}>
-                      {currentCourse.constellation?.name ?? currentCourse.title}
-                    </Text>
-                    <Text style={s.skyCount}>
-                      {completedLessons} / {totalLessons}
-                    </Text>
-                  </View>
-                  <View style={s.progressTrack}>
-                    <View style={[s.progressFill, { width: `${courseProgress * 100}%` }]} />
-                  </View>
-                  <Text style={s.skyHint}>
-                    {completedLessons >= totalLessons
-                      ? '모든 레슨을 마쳤어요.'
-                      : `${totalLessons - completedLessons}개 레슨이 남았어요.`}
-                  </Text>
-                </View>
-              ) : null}
-              <View style={s.lessonCard}>
-                <Text style={s.lessonMeta}>
-                  {currentCourse ? `${currentCourse.category} · ${currentCourse.title}` : '학습'}
-                </Text>
-                <Text style={s.lessonTitle}>
-                  {nextLesson?.title ??
-                    (courses.length ? '학습할 레슨을 선택하세요' : '별자리가 없습니다')}
-                </Text>
-                <Text style={s.lessonDescription}>
-                  {nextLesson
-                    ? nextLesson.status === 'IN_PROGRESS'
-                      ? '진행 중인 레슨을 이어서 학습하세요.'
-                      : '다음 레슨을 시작하세요.'
-                    : '별자리 목록에서 레슨을 선택하세요.'}
-                </Text>
-                <Action
-                  title={
-                    !nextLesson
-                      ? '레슨 목록 보기'
-                      : nextLesson.status === 'IN_PROGRESS'
-                        ? '이어서 학습하기'
-                        : '학습하기'
-                  }
-                  disabled={!courses.length}
-                  onPress={nextLesson ? openLesson : () => setSection('list')}
-                />
-              </View>
-              <View style={s.reviewEntry}>
-                <Text style={s.reviewPrompt}>배운 내용을 떠올려볼까요?</Text>
-                <Pressable accessibilityRole="button" onPress={() => router.push('/review-start')}>
-                  <Text style={s.textLink}>복습하기 ›</Text>
-                </Pressable>
-              </View>
-              <View style={s.catBubble}>
-                <HomeCat />
-                <Text style={s.catText}>작은 배움도 우리 우주에 오래 남는다냥.</Text>
-              </View>
-            </>
           ) : null}
           {section === 'map' ? (
             <>
@@ -358,62 +386,7 @@ function Courses() {
           {task.error ? <Outline title="다시 불러오기" onPress={() => void load()} /> : null}
         </>
       )}
-      <Modal
-        visible={joinPromptOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setJoinPromptOpen(false)}
-      >
-        <View style={s.joinOverlay}>
-          <ScrollView style={s.joinPanel} contentContainerStyle={s.joinContent}>
-            <Text style={s.joinTitle}>첫 탐험을 오래 간직해요</Text>
-            <Text style={s.joinCopy}>밝힌 별과 꾸민 우주선을 계정에 저장해요.</Text>
-            <View style={s.joinAuthOptions}>
-              <Pressable
-                accessibilityRole="button"
-                style={[s.joinAuthOption, s.joinAppleOption]}
-                onPress={() => setJoinSocialNotice(true)}
-              >
-                <Text style={[s.joinAuthOptionText, s.joinAppleText]}>Apple로 계속하기</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={s.joinAuthOption}
-                onPress={() => setJoinSocialNotice(true)}
-              >
-                <Text style={s.joinAuthOptionText}>Google로 계속하기</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={s.joinAuthOption}
-                onPress={() => setJoinSocialNotice(true)}
-              >
-                <Text style={s.joinAuthOptionText}>카카오로 계속하기</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={s.joinAuthOption}
-                onPress={() => {
-                  setJoinPromptOpen(false);
-                  router.push('/account');
-                }}
-              >
-                <Text style={s.joinAuthOptionText}>이메일로 로그인하기</Text>
-              </Pressable>
-            </View>
-            {joinSocialNotice ? (
-              <Text style={s.joinNotice}>소셜 로그인은 준비 중입니다.</Text>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              style={s.joinSecondary}
-              onPress={() => setJoinPromptOpen(false)}
-            >
-              <Text style={s.joinSecondaryText}>나중에 하기</Text>
-            </Pressable>
-          </ScrollView>
-        </View>
-      </Modal>
+      {joinModal}
     </UserScreen>
   );
 }
@@ -567,29 +540,6 @@ export function HomeStars({ progress, height = 170 }: { progress: number; height
   );
 }
 
-function HomeCat() {
-  return (
-    <Svg width={35} height={35} viewBox="0 0 64 64" accessibilityLabel="초롱이">
-      <Path
-        d="M14 29L12 10l17 12h9L53 9l-2 22c7 14 1 25-17 25S9 47 14 29z"
-        fill="#f6f0de"
-        stroke="#7d6e68"
-        strokeWidth={2}
-      />
-      <Path d="M18 22l-2-7 9 8M41 23l8-9-1 10" fill="#deb7ac" />
-      <Path d="M23 35v4M42 35v4" stroke="#6c5e5c" strokeWidth={3} strokeLinecap="round" />
-      <Path
-        d="M30 40l3 3 3-3M33 43v3m0 0l-4 2m4-2 4 2"
-        fill="none"
-        stroke="#b18f85"
-        strokeWidth={1.5}
-      />
-      <Path d="M8 37l12 3M7 45l12-2M47 40l12-3M47 44l13 1" stroke="#bfae9e" strokeWidth={1.5} />
-      <Path d="M29 25l2 5M36 25l-1 5" stroke="#d5bc99" strokeWidth={2.5} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
 function Action({
   title,
   onPress,
@@ -682,68 +632,6 @@ const s = StyleSheet.create({
     textAlign: 'center',
     marginTop: 18,
   },
-  homeHeader: {
-    marginHorizontal: 6,
-    marginTop: 4,
-    marginBottom: 8,
-    minHeight: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  homeTitle: { color: '#282636', fontSize: 21, fontWeight: '700' },
-  textLink: { color: '#817790', fontSize: 13, paddingVertical: 8 },
-  greeting: { marginHorizontal: 6, gap: 5, marginBottom: 6 },
-  eyebrow: { color: '#888591', fontSize: 12 },
-  greetingTitle: { color: '#282636', fontSize: 25, fontWeight: '700', lineHeight: 36 },
-  skyCard: {
-    marginHorizontal: 6,
-    marginBottom: 8,
-    borderRadius: 24,
-    backgroundColor: '#f5f3fa',
-    padding: 22,
-    gap: 8,
-  },
-  skyCaption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  skyName: { color: '#8b819b', fontSize: 12 },
-  skyCount: { color: '#8b819b', fontSize: 12 },
-  progressTrack: { height: 5, borderRadius: 5, backgroundColor: '#e9e5ef', overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 5, backgroundColor: '#9a86b3' },
-  skyHint: { color: '#888591', fontSize: 12, lineHeight: 19 },
-  lessonCard: {
-    marginHorizontal: 6,
-    marginBottom: 4,
-    borderWidth: 1,
-    borderColor: '#eae6ef',
-    borderRadius: 21,
-    padding: 20,
-    gap: 8,
-  },
-  lessonMeta: { color: '#9e92ad', fontSize: 12 },
-  lessonTitle: { color: '#282636', fontSize: 21, fontWeight: '700', lineHeight: 30 },
-  lessonDescription: { color: '#888591', fontSize: 13, lineHeight: 21, marginBottom: 9 },
-  reviewEntry: {
-    marginHorizontal: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    minHeight: 44,
-  },
-  reviewPrompt: { color: '#888591', fontSize: 12 },
-  catBubble: {
-    marginHorizontal: 6,
-    marginTop: 5,
-    borderWidth: 1,
-    borderColor: '#eeeaf1',
-    borderRadius: 18,
-    padding: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  catText: { color: '#8c8298', fontSize: 12, lineHeight: 19, flex: 1 },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   heading: { color: navy, fontSize: 15, fontWeight: '700' },
   muted: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
   panel: { borderWidth: 1, borderColor: '#dce2e8', borderRadius: 4, padding: 13, gap: 5 },

@@ -20,16 +20,27 @@ const completionDustSource = require('../../../assets/completion-dust.png');
 // Figma 656:3634 Frame 70(164×164, 고리 없는 별). 기존 completion-star.png 는 고리가 있는 L06_1~3 용이다.
 export const completionOrbSource = require('../../../assets/completion-orb.png');
 
-// Figma 656:2109 에너지 아이콘(Group 25, 8×14)
-export function EnergyIcon() {
+// Figma 656:2109 에너지 아이콘(Group 25, 8×14). 학습 홈 칩(757:3122)은 몸통 #F1F1F1,
+// 팝오버(669:1384)는 같은 모양을 9.14×16 으로 키우고 몸통 #161616 · 칸 #F1F1F1 로 쓴다.
+export function EnergyIcon({
+  width = 8,
+  height = 14,
+  body = '#E4E4E4',
+  cell = '#161616',
+}: {
+  width?: number;
+  height?: number;
+  body?: string;
+  cell?: string;
+}) {
   return (
-    <Svg width={8} height={14} viewBox="0 0 8 14" fill="none">
+    <Svg width={width} height={height} viewBox="0 0 8 14" fill="none">
       <Path
         d="M7 2C7.55228 2 8 2.44772 8 3V13C8 13.5523 7.55228 14 7 14H1C0.447715 14 1.61065e-08 13.5523 0 13V3C0 2.44772 0.447715 2 1 2H2V1C2 0.447715 2.44772 0 3 0H5C5.55228 0 6 0.447715 6 1V2H7Z"
-        fill="#E4E4E4"
+        fill={body}
       />
-      <Rect x={1} y={11} width={6} height={2} fill="#161616" />
-      <Rect x={1} y={8} width={6} height={2} fill="#161616" />
+      <Rect x={1} y={11} width={6} height={2} fill={cell} />
+      <Rect x={1} y={8} width={6} height={2} fill={cell} />
     </Svg>
   );
 }

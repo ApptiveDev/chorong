@@ -43,8 +43,28 @@ export function ShipTabsHeader({
   onMine?: () => void;
   onBrowse?: () => void;
 }) {
-  const tab = (key: 'mine' | 'browse', label: string, onPress?: () => void) => (
+  return (
+    <DotTabsHeader
+      active={active}
+      tabs={[
+        { key: 'mine', label: '내 우주선', onPress: onMine },
+        { key: 'browse', label: '구경하기', onPress: onBrowse },
+      ]}
+    />
+  );
+}
+
+// 'A • B' 두 칸 헤더. 내 우주선(651:1361)과 학습 홈(757:3109 '학습 • 별자리 기록')이 같이 쓴다.
+export function DotTabsHeader<K extends string>({
+  active,
+  tabs,
+}: {
+  active: K;
+  tabs: [DotTab<K>, DotTab<K>];
+}) {
+  const tab = ({ key, label, onPress }: DotTab<K>) => (
     <Pressable
+      key={key}
       accessibilityRole="tab"
       accessibilityState={{ selected: active === key }}
       onPress={active === key ? undefined : onPress}
@@ -55,7 +75,7 @@ export function ShipTabsHeader({
   );
   return (
     <View style={s.header} accessibilityRole="tablist">
-      {tab('mine', '내 우주선', onMine)}
+      {tab(tabs[0])}
       <View style={s.headerStar}>
         <Svg width={6.9282} height={8} viewBox="0 0 6.9282 8" fill="none">
           <Path
@@ -64,10 +84,11 @@ export function ShipTabsHeader({
           />
         </Svg>
       </View>
-      {tab('browse', '구경하기', onBrowse)}
+      {tab(tabs[1])}
     </View>
   );
 }
+type DotTab<K extends string> = { key: K; label: string; onPress?: () => void };
 
 export function StardustCount({ value }: { value: number | null }) {
   return (
