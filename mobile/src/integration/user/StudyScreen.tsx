@@ -459,7 +459,8 @@ function Study() {
                 <View style={[s.resultSubtitleUnderline, { top: completionTop(458) }]}>
                   <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
                 </View>
-                {stardustReward > 0 ? (
+                {/* 에너지 없음 화면(L06_3)에는 별가루 줄이 없다. */}
+                {stardustReward > 0 && !stardustSkipped ? (
                   <View style={[s.rewardRow, { top: completionTop(520) }]}>
                     <Image
                       source={completionDustSource}

@@ -1601,6 +1601,52 @@ test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', a
   }
 });
 
+test('에너지 없이 별자리 마지막 레슨을 마치면 완성 보너스 별가루도 주지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 5 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+      completedConstellations: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    const finish = (lessonId) => {
+      mockApi('API-404', { path: { lessonId }, body: { replay: false } });
+      let result;
+      for (const content of mockApi('API-403', { path: { lessonId } }).data.data.contents)
+        result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+      return result;
+    };
+    const lessons = mockApi('API-402', { path: { courseId: 3 } }).data.data.lessons;
+    for (const lesson of lessons.slice(0, -1)) finish(lesson.lessonId);
+
+    const snapshot = JSON.parse(JSON.stringify(mockSnapshot()));
+    assert.equal(
+      restoreMockSnapshot({ ...snapshot, wallet: { ...snapshot.wallet, energy: 0 } }),
+      true,
+    );
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const result = finish(lessons.at(-1).lessonId);
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion.courseCompleted, true);
+    assert.equal(result.completion.stardustSkipped, true);
+    assert.equal(
+      result.completion.rewards.some((item) => item.type === 'WALLET'),
+      false,
+    );
+    assert.equal(
+      result.completion.rewards.some((item) => item.type === 'CONSTELLATION'),
+      true,
+    );
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
 test('목업 레슨 시작은 처음 시작할 때만 에너지를 쓰고, 에너지 없이 마치면 별가루를 주지 않는다', () => {
   const original = JSON.parse(JSON.stringify(mockSnapshot()));
   try {

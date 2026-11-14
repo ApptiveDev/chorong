@@ -171,9 +171,11 @@ const completion = (courseId?: number, newBadge = false, stardustSkipped = false
     ...(stardustSkipped
       ? []
       : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]),
+    ...(newBadge && !stardustSkipped
+      ? [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 }]
+      : []),
     ...(newBadge
       ? [
-          { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 },
           {
             type: 'CONSTELLATION' as const,
             badge: {
@@ -580,7 +582,9 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           !state.completedConstellations.has(selected.courseId)
         ) {
           state.completedConstellations.set(selected.courseId, new Date().toISOString());
-          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 10 };
+          // 에너지 없이 마친 학습은 별자리 완성 보너스 별가루도 주지 않는다(stardustSkipped 화면과 맞춘다).
+          if (!stardustSkipped)
+            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 10 };
           newBadge = true;
         }
       }
