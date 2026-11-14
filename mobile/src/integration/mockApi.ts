@@ -346,15 +346,14 @@ const presentedMockAnswers = new Map([
     sharpenMockQuizId,
     {
       answer: 0,
-      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.\n흐릴 때 맞히면 더 대단해요.',
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
     },
   ],
   [
     zoomOutMockQuizId,
     {
       answer: 0,
-      explanation:
-        '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.\n크게 확대됐을 때 맞히면 더 대단해요.',
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
     },
   ],
 ]);

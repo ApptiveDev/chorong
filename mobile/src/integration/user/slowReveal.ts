@@ -12,6 +12,7 @@ export function useSlowReveal({
   finish,
   durationMs,
   finishMs = SLOW_REVEAL_FINISH_MS,
+  onPause,
 }: {
   // 사진이 떴는지. 그 전에는 시작하지 않는다.
   started: boolean;
@@ -21,12 +22,15 @@ export function useSlowReveal({
   finish: boolean;
   durationMs: number;
   finishMs?: number;
+  // 보기를 골라 멈춘 순간의 진행 값. 몇 단계에서 맞혔는지 보여 줄 때 쓴다.
+  onPause?: (progress: number) => void;
 }): Animated.Value {
   const progress = useRef(new Animated.Value(0)).current;
   const current = useRef(0);
+  const pauseHandler = useRef(onPause);
+  pauseHandler.current = onPause;
 
   useEffect(() => {
-    if (!started) return;
     let active = true;
     const run = (duration: number, easing: (value: number) => number) =>
       AccessibilityInfo.isReduceMotionEnabled()
@@ -43,12 +47,18 @@ export function useSlowReveal({
           }).start();
         });
     if (finish) void run(finishMs, Easing.out(Easing.cubic));
-    else if (!paused)
+    else if (paused)
+      // 네이티브 드라이버 값은 콜백으로만 읽을 수 있다(비동기). 채점이 빨라 콜백보다 마무리가
+      // 먼저 시작돼도, 값은 조회를 보낸 시점(멈춘 값)이므로 그대로 넘긴다.
+      progress.stopAnimation((value) => {
+        current.current = value;
+        pauseHandler.current?.(value);
+      });
+    else if (started)
       // 멈췄다 다시 시작하면(제출 실패) 남은 만큼만 같은 속도로 이어 간다.
       void run(durationMs * (1 - current.current), Easing.linear);
     return () => {
       active = false;
-      // 네이티브 드라이버 중에는 리스너가 값을 받지 못하므로 멈출 때 받은 값으로 위치를 기억한다.
       progress.stopAnimation((value) => {
         current.current = value;
       });

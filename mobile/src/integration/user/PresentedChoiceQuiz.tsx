@@ -46,11 +46,14 @@ export function PresentedChoiceQuiz({
   // 미디어·보기를 가운데로 모은다(질문은 왼쪽 정렬 유지). Figma 점점 선명(740:1337)처럼
   // 미디어가 보기(320)보다 넓을 때 쓴다.
   centered = false,
+  correctNote,
 }: PresentedChoiceProps & {
   media: (state: PresentedMediaState) => ReactNode;
   topSpace: number;
   gap: number;
   centered?: boolean;
+  // 정답일 때 해설 시트에 덧붙이는 문구(QuizFeedbackSheet.correctNote).
+  correctNote?: string | null;
 }) {
   const choices = choicesFor(quiz);
   const [phase, setPhase] = useState<Phase>('UNANSWERED');
@@ -190,6 +193,7 @@ export function PresentedChoiceQuiz({
           progress={sheetProgress}
           nextDisabled={phase !== 'GRADED'}
           onNext={advance}
+          correctNote={correctNote}
         />
       ) : null}
     </View>

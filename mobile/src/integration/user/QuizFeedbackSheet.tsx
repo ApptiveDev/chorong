@@ -25,15 +25,19 @@ export function QuizFeedbackSheet({
   progress,
   nextDisabled,
   onNext,
+  correctNote,
 }: {
   result: AnswerResult;
   // 0 → 1 로 움직이면 시트가 아래에서 올라온다.
   progress: Animated.Value;
   nextDisabled: boolean;
   onNext: () => void;
+  // 정답일 때 해설 다음 줄에 붙이는 앱 문구. 예: '1단계에서 맞췄어요.'(Figma 740:1392)
+  correctNote?: string | null;
 }) {
   const resultColor = result.isCorrect ? color.correct : color.wrong;
   const explanation = result.explanation?.trim() ? result.explanation.trim().split(/\s*\n\s*/) : [];
+  if (result.isCorrect && correctNote) explanation.push(correctNote);
   return (
     <Animated.View
       accessibilityLiveRegion="polite"
