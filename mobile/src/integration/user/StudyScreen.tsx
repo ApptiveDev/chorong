@@ -31,7 +31,8 @@ import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
 import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
-import { HomeStars } from './CoursesScreen';
+import { ConstellationComplete } from './ConstellationComplete';
+import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
 import { FirstStudyLoginModal } from './FirstStudyLoginModal';
 import type { RegisterQuizFooter } from './quizFooter';
 import {
@@ -88,6 +89,12 @@ function Study() {
   }, []);
   const [constellationName, setConstellationName] = useState('별자리');
   const [constellationDate, setConstellationDate] = useState<string | null>(null);
+  // 별자리 완성 화면의 별 그림. API-906 의 별자리 ID·별 수·그림 주소.
+  const [constellationFigure, setConstellationFigure] = useState<{
+    constellationId: number | null;
+    starCount: number;
+    imageUrl: string | null;
+  } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [resumePosition, setResumePosition] = useState(0);
@@ -197,9 +204,18 @@ function Study() {
       try {
         const lesson = await api.learning.lesson(lessonId);
         const constellations = await api.benefits.constellations();
-        setConstellationName(
-          constellations.constellations.find((item) => item.courseId === lesson.courseId)?.name ??
-            '별자리',
+        const constellation = constellations.constellations.find(
+          (item) => item.courseId === lesson.courseId,
+        );
+        setConstellationName(constellation?.name ?? '별자리');
+        setConstellationFigure(
+          constellation
+            ? {
+                constellationId: constellation.constellationId,
+                starCount: constellation.starCount,
+                imageUrl: constellation.imageUrl,
+              }
+            : null,
         );
         if (completion?.rewards.some(isConstellationReward)) {
           let cursor: string | null = null;
@@ -210,8 +226,7 @@ function Study() {
                 isConstellationReward(item) && Number(item.source.courseId) === lesson.courseId,
             );
             if (record) {
-              const date = new Date(new Date(record.grantedAt).getTime() + 9 * 60 * 60 * 1000);
-              setConstellationDate(date.toISOString().slice(0, 10).replaceAll('-', '.'));
+              setConstellationDate(formatDotDate(record.grantedAt));
               break;
             }
             cursor = page.meta.nextCursor;
@@ -309,11 +324,11 @@ function Study() {
       title={params.title ?? '학습'}
       scroll={false}
       showTitle={false}
-      dark={completionView}
+      dark={completionView || showConstellation}
       quiz={designedStage}
     >
       {designedStage ? <QuizBackdrop /> : null}
-      {completionView ? <StatusBar style="light" /> : null}
+      {completionView || showConstellation ? <StatusBar style="light" /> : null}
       {start ? (
         <View pointerEvents="none" style={s.imagePreload}>
           {preloadSources.map(({ source, width, height }, index) => (
@@ -407,27 +422,22 @@ function Study() {
         <>
           <View style={s.content}>
             {lessonDone && showConstellation ? (
-              <View style={s.constellationCompletion}>
-                <Text style={s.constellationLabel}>탐험의 기록</Text>
-                <View style={s.constellationPicture}>
-                  <HomeStars progress={1} height={140} />
-                </View>
-                <Text style={s.constellationTitle}>{constellationName}</Text>
-                <Text style={s.constellationSubtitle}>작은 별들이 하나의 이야기가 되었어요.</Text>
-                <Text style={s.constellationDate}>
-                  {constellationDate ??
-                    new Date(Date.now() + 9 * 60 * 60 * 1000)
-                      .toISOString()
-                      .slice(0, 10)
-                      .replaceAll('-', '.')}{' '}
-                  완성
-                </Text>
-                {constellationBonus > 0 ? (
-                  <Text style={s.constellationReward}>
-                    완성 보너스 · 별가루 +{constellationBonus}
-                  </Text>
-                ) : null}
-              </View>
+              // Figma L04_1 별자리 완성(342:650)
+              <ConstellationComplete
+                name={constellationName}
+                completedOn={constellationDate ?? formatDotDate(new Date().toISOString())}
+                bonus={constellationBonus}
+                points={starLayout(
+                  constellationFigure?.constellationId,
+                  constellationFigure?.starCount ?? 0,
+                )}
+                image={constellationImage(
+                  constellationFigure?.constellationId,
+                  constellationFigure?.imageUrl,
+                )}
+                onRecord={() => router.replace({ pathname: '/quiz', params: { view: 'record' } })}
+                onHome={leaveStudy}
+              />
             ) : lessonDone && replay ? (
               replayOutcome.kind === 'replayRewarded' ? (
                 // Figma L06_4 다시 학습 / 미수령 보상 받음(656:3631)
@@ -585,7 +595,8 @@ function Study() {
               </View>
             )}
           </View>
-          {!narrationStage &&
+          {!showConstellation &&
+          !narrationStage &&
           !conceptStage &&
           !(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
             <View
@@ -596,82 +607,64 @@ function Study() {
                 completionView && { bottom: Math.max(12, 89 * completionScale - insets.bottom) },
               ]}
             >
-              {showConstellation ? (
-                <>
-                  <StudyAction
-                    label="별자리 기록 보기"
-                    onPress={() =>
-                      router.replace({ pathname: '/quiz', params: { view: 'record' } })
-                    }
-                  />
-                  <Pressable
-                    accessibilityRole="button"
-                    style={s.constellationHomeLink}
-                    onPress={leaveStudy}
-                  >
-                    <Text style={s.constellationHomeText}>학습 홈으로</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <StudyAction
-                    completion={completionView}
-                    label={
-                      !lessonDone &&
-                      current?.contentType === 'QUIZ' &&
-                      !answered.has(current.contentId)
-                        ? '정답 확인'
-                        : lessonDone
-                          ? '완료'
-                          : replay && last
-                            ? '레슨 목록'
-                            : last
-                              ? '레슨 완료'
-                              : '다음'
-                    }
-                    secondary={current?.contentType === 'TEXT' && !lessonDone}
-                    disabled={
-                      !current ||
-                      task.busy ||
-                      (current.contentType === 'QUIZ' &&
-                        !answered.has(current.contentId) &&
-                        (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
-                    }
-                    onPress={
-                      !lessonDone &&
-                      current?.contentType === 'QUIZ' &&
-                      !answered.has(current.contentId)
-                        ? () => quizFooter?.onPress()
-                        : lessonDone
-                          ? () =>
-                              replay
-                                ? leaveStudy()
-                                : firstWelcomeStudy
-                                  ? setLoginOpen(true)
-                                  : params.fromWelcome === 'true'
-                                    ? leaveStudy()
-                                    : constellationCompleted
-                                      ? setShowConstellation(true)
-                                      : leaveStudy()
-                          : () => void advance()
-                    }
-                  />
-                  {!completionView ? (
-                    <View style={s.previousSlot}>
-                      {!lessonDone && position > 0 ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          disabled={task.busy}
-                          onPress={() => setPosition(position - 1)}
-                          style={s.previous}
-                        >
-                          <Text style={s.previousText}>이전</Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </>
-              )}
+              <>
+                <StudyAction
+                  completion={completionView}
+                  label={
+                    !lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId)
+                      ? '정답 확인'
+                      : lessonDone
+                        ? '완료'
+                        : replay && last
+                          ? '레슨 목록'
+                          : last
+                            ? '레슨 완료'
+                            : '다음'
+                  }
+                  secondary={current?.contentType === 'TEXT' && !lessonDone}
+                  disabled={
+                    !current ||
+                    task.busy ||
+                    (current.contentType === 'QUIZ' &&
+                      !answered.has(current.contentId) &&
+                      (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
+                  }
+                  onPress={
+                    !lessonDone &&
+                    current?.contentType === 'QUIZ' &&
+                    !answered.has(current.contentId)
+                      ? () => quizFooter?.onPress()
+                      : lessonDone
+                        ? () =>
+                            replay
+                              ? leaveStudy()
+                              : firstWelcomeStudy
+                                ? setLoginOpen(true)
+                                : params.fromWelcome === 'true'
+                                  ? leaveStudy()
+                                  : constellationCompleted
+                                    ? setShowConstellation(true)
+                                    : leaveStudy()
+                        : () => void advance()
+                  }
+                />
+                {!completionView ? (
+                  <View style={s.previousSlot}>
+                    {!lessonDone && position > 0 ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={task.busy}
+                        onPress={() => setPosition(position - 1)}
+                        style={s.previous}
+                      >
+                        <Text style={s.previousText}>이전</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+              </>
             </View>
           ) : null}
           {quizStage && !quizKind?.selfAdvancing && answered.has(current.contentId) ? (
@@ -923,28 +916,6 @@ const s = StyleSheet.create({
     fontWeight: '400',
     textAlign: 'center',
   },
-  constellationCompletion: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-  },
-  constellationLabel: { color: '#a49caf', fontSize: 12, letterSpacing: 1 },
-  constellationPicture: { width: '100%', marginTop: 25 },
-  constellationTitle: { color: '#282636', fontSize: 25, fontWeight: '700', marginTop: 18 },
-  constellationSubtitle: { color: '#888591', fontSize: 14, marginTop: 17, textAlign: 'center' },
-  constellationDate: { color: '#888591', fontSize: 12, marginTop: 24 },
-  constellationReward: {
-    color: '#aa8746',
-    backgroundColor: '#faf6ec',
-    borderRadius: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    marginTop: 27,
-    fontSize: 13,
-  },
-  constellationHomeLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
-  constellationHomeText: { color: '#817790', fontSize: 13 },
   content: { flex: 1, minHeight: 0 },
   explanation: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 22 },
   scrollContent: {

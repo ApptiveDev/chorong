@@ -2399,3 +2399,106 @@ test('목업: 레슨을 마치고 코스 상세를 다시 읽으면 흰 별이 �
     restoreMockSnapshot(original);
   }
 });
+
+const {
+  completedConstellations,
+  constellationCompletedOn,
+  formatDotDate,
+  isConstellationComplete,
+} = require('../.expo/integration-tests/user/constellationRecord');
+
+test('별자리 완성은 소속 레슨 전체 완료로 계산하고, 목록은 서버 이름·순서를 쓴다', () => {
+  assert.equal(isConstellationComplete({ totalLessons: 3, completedLessons: 3 }), true);
+  assert.equal(isConstellationComplete({ totalLessons: 3, completedLessons: 2 }), false);
+  // 레슨이 없는 코스는 완성으로 보지 않는다.
+  assert.equal(isConstellationComplete({ totalLessons: 0, completedLessons: 0 }), false);
+
+  const course = (courseId, completedLessons, totalLessons, constellation) => ({
+    courseId,
+    title: `코스 ${courseId}`,
+    completedLessons,
+    totalLessons,
+    constellation,
+  });
+  const courses = [
+    course(2, 4, 4, { constellationId: 20, name: '코스 별자리' }),
+    course(1, 1, 3, { constellationId: 10, name: '진행 중' }),
+    course(3, 3, 3, null),
+  ];
+  const constellations = [
+    { constellationId: 20, courseId: 2, name: '서버 별자리', starCount: 4, imageUrl: null },
+  ];
+  const list = completedConstellations(courses, constellations, { 2: '2026. 11. 05' });
+  assert.deepEqual(
+    list.map((item) => [item.courseId, item.name, item.completedOn, item.points.length]),
+    [
+      [2, '서버 별자리', '2026. 11. 05', 4],
+      [3, '코스 3', null, 3],
+    ],
+  );
+  // 별자리 조회(API-906)가 실패해도 코스 정보로 목록을 만든다.
+  assert.equal(completedConstellations(courses, null, {})[0].name, '코스 별자리');
+  // 완성한 별자리가 없으면 빈 목록(빈 상태 화면).
+  assert.deepEqual(completedConstellations([course(1, 0, 3, null)], constellations, {}), []);
+});
+
+test('완성일은 한국시간 YYYY. MM. DD 이고, 상세 완성일은 모든 레슨 완료 때만 마지막 완료 시각이다', () => {
+  // 2026-11-04T15:30Z = 2026-11-05 00:30 KST
+  assert.equal(formatDotDate('2026-11-04T15:30:00Z'), '2026. 11. 05');
+  const done = (completedAt) => ({ status: 'COMPLETED', completedAt });
+  assert.equal(
+    constellationCompletedOn([done('2026-11-01T01:00:00Z'), done('2026-11-04T15:30:00Z')]),
+    '2026. 11. 05',
+  );
+  assert.equal(
+    constellationCompletedOn([
+      done('2026-11-01T01:00:00Z'),
+      { status: 'UNLOCKED', completedAt: null },
+    ]),
+    null,
+  );
+  assert.equal(constellationCompletedOn([]), null);
+  assert.equal(constellationCompletedOn([done(null)]), null);
+});
+
+test('목업: 코스의 레슨을 모두 마치면 완성 별자리 목록에 나타나고, 그 전에는 빈 목록이다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    assert.equal(
+      restoreMockSnapshot({
+        ...original,
+        startedLessons: [],
+        rewardedLessons: [],
+        completed: [],
+        completedConstellations: [],
+      }),
+      true,
+    );
+    const read = () => {
+      const courses = mockApi('API-401', {}).data.data.courses;
+      return completedConstellations(courses, mockApi('API-906', {}).data.data.constellations, {});
+    };
+    const target = mockApi('API-401', {}).data.data.courses.find(
+      (course) => course.completedLessons === 0,
+    );
+    assert.ok(target, '아직 시작하지 않은 목업 코스가 있어야 한다');
+    assert.equal(
+      read().some((item) => item.courseId === target.courseId),
+      false,
+    );
+
+    const detail = mockApi('API-402', { path: { courseId: target.courseId } }).data.data;
+    for (const lesson of detail.lessons) {
+      mockApi('API-404', { path: { lessonId: lesson.lessonId }, body: { replay: false } });
+      const contents = mockApi('API-403', { path: { lessonId: lesson.lessonId } }).data.data
+        .contents;
+      for (const content of contents)
+        mockApi('API-405', { path: { contentId: content.contentId } });
+    }
+    const after = read().find((item) => item.courseId === target.courseId);
+    assert.ok(after, '레슨을 모두 마친 코스는 완성 목록에 있어야 한다');
+    assert.equal(after.points.length, target.totalLessons);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});

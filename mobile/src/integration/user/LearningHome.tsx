@@ -11,17 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, {
-  Circle,
-  Defs,
-  FeGaussianBlur,
-  FeMerge,
-  FeMergeNode,
-  Filter,
-  G,
-  Line,
-  Path,
-} from 'react-native-svg';
+import Svg, { Circle, Defs, G, Line, Path } from 'react-native-svg';
 import type { useTask } from '../hooks';
 import type { ConstellationImage } from './constellationLayouts';
 import { segmentStyle, type RecordStar, type StarState } from './constellationRecord';
@@ -29,6 +19,7 @@ import { EnergyIcon } from './CompletionResult';
 import { DotTabsHeader, StarIcon } from './ShipStatus';
 import { UserStatus } from './Screen';
 import { WalletPopover, type PopoverAnchor } from './WalletPopover';
+import { GlowFilter, HUD_CORNER, HUD_DOTTED, HUD_RULER } from './constellationArt';
 
 // Figma L01-01 학습 홈(757:3107). 표시할 값은 모두 CoursesScreen 이 서버 응답에서 읽어 넘긴다.
 const color = { base: '#161616', fale: '#f1f1f1', yellow: '#ffde23' };
@@ -43,17 +34,6 @@ const nextStarSource = require('../../../assets/constellation-star-next.png');
 // 그래서 이미지 왼쪽 위가 아니라 ? 원의 중심(픽셀 측정: 지름 44, 중심 (22, 44))을 별 위치에 맞춘다.
 const NEXT_IMAGE = { width: 96, height: 85, centerX: 22, centerY: 44 };
 
-const CORNER = 'M0.5 18.6513V4.5C0.5 2.29086 2.29086 0.5 4.5 0.5H18.555';
-const DOTTED =
-  'M0 0.5H0.977982M58.6789 0.5H57.7009M2.93394 0.5H4.88991M6.84587 0.5H8.80184M10.7578 0.5H12.7138M14.6697 0.5H16.6257M18.5817 0.5H20.5376M22.4936 0.5H24.4495M26.4055 0.5H28.3615M30.3174 0.5H32.2734M34.2294 0.5H36.1853M38.1413 0.5H40.0972M42.0532 0.5H44.0092M45.9651 0.5H47.9211M49.8771 0.5H51.833M53.789 0.5H55.745';
-const RULER = [1, 27, 53, 79, 105, 131]
-  .map((x) => `M${x} 0V0.6M${x} 12V11.4M${x} 3V6.6`)
-  .concat(
-    [14, 40, 66, 92, 118].map(
-      (x) => `M${x} 0V0.444444M${x} 8V7.55556M${x} 1.77778V3.55556M${x} 4.44444V5.77778`,
-    ),
-  )
-  .join('');
 const PLAY =
   'M14.6632 5C15.433 3.66667 17.3575 3.66667 18.1273 5L28.5196 23C29.2894 24.3333 28.3272 26 26.7876 26H6.00298C4.46338 26 3.50113 24.3333 4.27093 23L14.6632 5Z';
 
@@ -175,40 +155,6 @@ export function LearningHome({
   );
 }
 
-// Figma 와 같은 흰 빛 번짐. 도형과 같은 색 그림자(blur)를 도형 아래에 합친다.
-// 번짐 영역은 각 캔버스(viewBox) 크기에 바깥 80 씩 더해 잡는다. 영역 밖 도형은 그려지지 않는다.
-function GlowFilter({
-  id,
-  blur,
-  soften = 0,
-  width,
-  height,
-}: {
-  id: string;
-  blur: number;
-  soften?: number;
-  width: number;
-  height: number;
-}) {
-  return (
-    <Filter
-      id={id}
-      x={-80}
-      y={-80}
-      width={width + 160}
-      height={height + 160}
-      filterUnits="userSpaceOnUse"
-    >
-      <FeGaussianBlur in="SourceGraphic" stdDeviation={blur} result="blur" />
-      <FeMerge result="glow">
-        <FeMergeNode in="blur" />
-        <FeMergeNode in="SourceGraphic" />
-      </FeMerge>
-      {soften ? <FeGaussianBlur in="glow" stdDeviation={soften} /> : null}
-    </Filter>
-  );
-}
-
 function ConstellationCanvas({
   k,
   stars,
@@ -272,13 +218,17 @@ function ConstellationCanvas({
         <Circle cx={163} cy={301} r={1} fill={color.fale} filter="url(#dot)" />
         {/* HUD(757:3131): 네 모서리, 위 점선, 아래 눈금 */}
         <G stroke={color.fale} fill="none">
-          <Path d={CORNER} transform="translate(-0.5 42.5587)" />
-          <Path d={CORNER} transform="translate(328.5 42.5587) scale(-1 1)" />
-          <Path d={CORNER} transform="translate(-0.5 367.6513) scale(1 -1)" />
-          <Path d={CORNER} transform="translate(328.5 367.6513) scale(-1 -1)" />
-          <Path d={DOTTED} transform="translate(45.1376 42.5587)" />
-          <Path d={DOTTED} transform="translate(224.6851 42.5587)" />
-          <Path d={RULER} strokeWidth={2} transform="translate(228.4954 367.0502) rotate(180)" />
+          <Path d={HUD_CORNER} transform="translate(-0.5 42.5587)" />
+          <Path d={HUD_CORNER} transform="translate(328.5 42.5587) scale(-1 1)" />
+          <Path d={HUD_CORNER} transform="translate(-0.5 367.6513) scale(1 -1)" />
+          <Path d={HUD_CORNER} transform="translate(328.5 367.6513) scale(-1 -1)" />
+          <Path d={HUD_DOTTED} transform="translate(45.1376 42.5587)" />
+          <Path d={HUD_DOTTED} transform="translate(224.6851 42.5587)" />
+          <Path
+            d={HUD_RULER}
+            strokeWidth={2}
+            transform="translate(228.4954 367.0502) rotate(180)"
+          />
         </G>
         {segments.map((segment) =>
           segment.visible ? (
