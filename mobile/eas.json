@@ -14,7 +14,9 @@
       "environment": "preview",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api-chorong-dev.bawibase.com",
-        "EXPO_PUBLIC_USE_MOCK": "true"
+        "EXPO_PUBLIC_USE_MOCK": "true",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "132361929925-jdn0p4dlv439ji7m60p8b08920lqhuca.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "132361929925-tfdlathgv2lbu4ebuvg48sjlsstffbo5.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk"

@@ -35,7 +35,7 @@ export function FirstStudyLoginModal({
   const signIn = (provider: SocialProvider) => {
     if (task.busy || leaving.current) return;
     void task.run(async () => {
-      await continueWithSocial(provider, session.authenticated);
+      if (!(await continueWithSocial(provider, session.authenticated))) return;
       leaving.current = true;
       // 로그인 후 이동은 기존 로그인 화면과 같은 기본 경로(학습 홈)를 따른다.
       router.replace('/quiz');
