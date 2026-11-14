@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient, Stop } from 'react-native-svg';
-import { UserScreen } from './Screen';
+import { integrationApi as api } from '../runtime';
+import { useIntegration, useTask } from '../hooks';
+import { storage } from '../storage';
+import { positiveId } from '../ui';
+import { UserScreen, UserStatus } from './Screen';
+import { ReviewEmptyModal } from './ReviewEmptyModal';
+import { checkReviewStart, reviewRewardNotice, reviewRewardedToday } from './reviewStart';
 
 const orbitStars = [
   { x: 301, y: 538, radius: 23, glow: 24 },
@@ -54,10 +60,58 @@ export default function ReviewStartScreen() {
     if (router.canGoBack()) router.back();
     else router.replace('/quiz');
   };
-  const startReview = () => {
+  const task = useTask();
+  // 오늘 보상 세션이 남았는지(API-501 rewardEligible). null 은 아직 모름.
+  const [rewardEligible, setRewardEligible] = useState<boolean | null>(null);
+  const [emptyOpen, setEmptyOpen] = useState(false);
+  // 이 사용자가 오늘(KST) 복습 완료(API-503)에 성공했는지. null 은 아직 읽는 중.
+  const userId = useIntegration().user?.userId;
+  const [rewardedToday, setRewardedToday] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    reviewRewardedToday(storage, userId)
+      .then((value) => {
+        if (active) setRewardedToday(value);
+      })
+      .catch(() => {
+        // 기록을 읽지 못하면 기록이 없는 것으로 보고 서버 rewardEligible 만 따른다.
+        if (active) setRewardedToday(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+  const loadReviewSet = async () => api.review.next(lessonId ? positiveId(lessonId) : undefined);
+  useEffect(() => {
+    let active = true;
+    // 진입할 때마다 서버 값을 읽어 날짜가 바뀐 뒤 재진입해도 그날 기준으로 표시한다.
+    loadReviewSet()
+      .then((set) => {
+        if (active) setRewardEligible(set.rewardEligible);
+      })
+      .catch(() => {
+        // 안내 문구는 선택 정보다. 실패하면 셋째 줄을 비워 두고, 시작 버튼에서 다시 확인한다.
+      });
+    return () => {
+      active = false;
+    };
+  }, [lessonId]);
+  const navigateToReview = () => {
     if (lessonId) router.replace({ pathname: '/review', params: { lessonId } });
     else router.replace('/review');
   };
+  const startReview = () => {
+    if (task.busy || emptyOpen) return;
+    void task.run(
+      () => checkReviewStart(loadReviewSet, (set) => setRewardEligible(set.rewardEligible)),
+      (action) => {
+        if (action.kind === 'empty') setEmptyOpen(true);
+        else navigateToReview();
+      },
+    );
+  };
+  const rewardNotice = reviewRewardNotice({ rewardEligible, rewardedToday });
 
   return (
     <UserScreen title="복습하기" showTitle={false} scroll={false} dark>
@@ -99,27 +153,41 @@ export default function ReviewStartScreen() {
           <Text style={[s.heading, { fontSize: 24 * scale }]}>복습하기</Text>
         </Pressable>
 
+        {/* Figma 342:540 · 656:3917: 286×148, 테두리 4, 위아래 20, 줄 간격 20 */}
         <View
           style={[
             s.card,
-            { top: top(355), width: 280 * scale, height: 126 * scale, paddingTop: 25 * scale },
+            {
+              top: top(325.5),
+              width: 286 * scale,
+              height: 148 * scale,
+              paddingTop: 20 * scale,
+              gap: 20 * scale,
+            },
           ]}
         >
           <View style={[s.cardTitleWrap, { width: 214 * scale, height: 32 * scale }]}>
             <Text style={[s.cardTitle, { fontSize: 16 * scale }]}>배운 내용을 다시 확인해요</Text>
           </View>
-          <Text
-            style={[
-              s.cardDescription,
-              { marginTop: 20 * scale, fontSize: 14 * scale, lineHeight: 16 * scale },
-            ]}
-          >
-            학습한 퀴즈 5개를 통해 복습해봐요!
-          </Text>
+          <View style={[s.cardLine, { width: 214 * scale, height: 14 * scale }]}>
+            <Text style={[s.cardDescription, { fontSize: 14 * scale }]}>
+              학습한 퀴즈 5개를 통해 복습해봐요!
+            </Text>
+          </View>
+          <View style={[s.cardLine, { width: 214 * scale, height: 14 * scale }]}>
+            {rewardNotice ? (
+              <Text style={[s.cardReward, { fontSize: 10.8 * scale }]}>{rewardNotice}</Text>
+            ) : null}
+          </View>
         </View>
 
+        <View style={[s.status, { bottom: Math.max(12, 88 * scale - insets.bottom) + 56 * scale }]}>
+          <UserStatus task={task} />
+        </View>
         <Pressable
           accessibilityRole="button"
+          accessibilityState={{ disabled: task.busy }}
+          disabled={task.busy}
           onPress={startReview}
           style={[
             s.startButton,
@@ -133,6 +201,14 @@ export default function ReviewStartScreen() {
           <Text style={[s.startButtonText, { fontSize: 16 * scale }]}>복습 시작</Text>
         </Pressable>
       </View>
+      <ReviewEmptyModal
+        visible={emptyOpen}
+        onClose={() => setEmptyOpen(false)}
+        onGoHome={() => {
+          setEmptyOpen(false);
+          router.replace('/quiz');
+        }}
+      />
     </UserScreen>
   );
 }
@@ -185,16 +261,32 @@ const s = StyleSheet.create({
   },
   cardTitle: {
     color: '#161616',
-    fontFamily: 'PretendardLight',
+    fontFamily: 'PretendardSemiBold',
     textAlign: 'center',
     includeFontPadding: false,
   },
+  // Figma 텍스트 칸 높이 14. 글자는 칸 위에서 시작한다.
+  cardLine: { alignItems: 'center' },
   cardDescription: {
     color: '#161616',
-    fontFamily: 'PretendardRegular',
+    fontFamily: 'PretendardMedium',
     textAlign: 'center',
     includeFontPadding: false,
   },
+  cardReward: {
+    color: '#161616',
+    fontFamily: 'PretendardBold',
+    textAlign: 'center',
+    includeFontPadding: false,
+    ...(Platform.OS === 'web'
+      ? ({ textShadow: '0px 0px 4px #ffffff' } as TextStyle)
+      : {
+          textShadowColor: '#ffffff',
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 4,
+        }),
+  },
+  status: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 40 },
   startButton: {
     position: 'absolute',
     alignSelf: 'center',

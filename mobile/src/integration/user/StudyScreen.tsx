@@ -3,8 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  Animated,
-  Easing,
   Image,
   type ImageSourcePropType,
   Linking,
@@ -19,37 +17,29 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type {
-  Content,
-  LessonStartResponse,
-  LessonCompleteResponse,
-  QuizAnswer,
-  AnswerResult,
-} from '../models';
-import { integrationApi as api, useMockApi } from '../runtime';
+import type { Content, LessonStartResponse, LessonCompleteResponse } from '../models';
+import { integrationApi as api } from '../runtime';
 import { isConstellationReward } from '../contract';
+import { replayCompletion } from '../completionResult';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
-import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
-import { HtmlLessonQuiz, isHtmlLessonQuiz } from './HtmlLessonQuiz';
-import { FillBlankQuiz, hasFillBlankChoices } from './FillBlankQuiz';
-import { MatchingQuiz, hasMatchingPairs } from './MatchingQuiz';
-import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
-import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
-import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
-import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
+import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
 import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
-import { LessonQuizWireframe } from '../../components/quiz/LessonQuizWireframe';
 import { HomeStars } from './CoursesScreen';
 import { FirstStudyLoginModal } from './FirstStudyLoginModal';
-import Svg, { Path, Rect } from 'react-native-svg';
 import type { RegisterQuizFooter } from './quizFooter';
+import {
+  CompletionResult,
+  CompletionStar,
+  EnergyIcon,
+  completionOrbSource,
+} from './CompletionResult';
 
 const completionStarSource = require('../../../assets/completion-star.png');
 const completionArcSource = require('../../../assets/completion-arc.png');
@@ -163,6 +153,7 @@ function Study() {
           { source: completionStarSource, width: 212, height: 212 },
           { source: completionArcSource, width: 402, height: 463 },
           { source: completionDustSource, width: 18, height: 20 },
+          ...(replay ? [{ source: completionOrbSource, width: 164, height: 164 }] : []),
           ...Object.entries(localStudyImages)
             .filter(([mediaUrl]) =>
               start.contents.some(
@@ -178,29 +169,9 @@ function Study() {
   const narrationStage = !lessonDone && current?.contentType === 'TEXT';
   const conceptStage = !lessonDone && current?.contentType === 'IMAGE';
   const designedStage = quizStage || narrationStage || conceptStage;
-  const oxStage = quizStage && current.quiz?.type === 'OX';
-  const fillBlankStage = quizStage && !!current.quiz && hasFillBlankChoices(current.quiz);
-  const matchingStage = quizStage && !!current.quiz && hasMatchingPairs(current.quiz);
-  const singleChoiceStage = quizStage && !!current.quiz && hasSingleChoiceOptions(current.quiz);
-  const multiChoiceStage = quizStage && !!current.quiz && hasMultiChoiceOptions(current.quiz);
-  const chosungStage = quizStage && isChosungQuiz(current.quiz);
-  const sliderStage = quizStage && isSliderQuiz(current.quiz);
-  // 목업 range 퀴즈는 HtmlLessonQuiz 가 그리지만 SLIDER 와 같은 SliderQuizView 를 쓰고
-  // 손을 떼면 바로 제출한다(정답 확인 버튼 없음).
-  const mockRangeStage = quizStage && useMockApi && current.quiz?.options?.mockHtmlType === 'range';
-  const instantQuiz =
-    quizStage &&
-    (current.quiz?.type === 'OX' ||
-      chosungStage ||
-      sliderStage ||
-      mockRangeStage ||
-      fillBlankStage ||
-      matchingStage ||
-      multiChoiceStage ||
-      (current.quiz?.type === 'MULTIPLE_CHOICE' &&
-        (!useMockApi || current.quiz.options?.mockHtmlType === 'single')) ||
-      current.quiz?.options?.mockHtmlType === 'blank' ||
-      current.quiz?.options?.mockHtmlType === 'single');
+  // 문항 유형 판별은 복습 화면과 같은 QuizStage 기준을 쓴다.
+  const quizKind = quizStage ? quizStageKind(current.quiz) : null;
+  const instantQuiz = !!quizKind?.instant;
   const quizScale = Math.min(windowWidth / 402, windowHeight / 874, 1);
   const progressLabel = current?.quiz?.options?.mockHtmlType
     ? String(current.quiz.options.label ?? params.title ?? '학습')
@@ -260,10 +231,11 @@ function Study() {
     task.run(async () => {
       const result = await api.learning.completeContent(content.contentId);
       setCompleted((previous) => new Set(previous).add(content.contentId));
-      if (result.lessonCompleted && !replay) {
+      if (result.lessonCompleted) {
         setLessonDone(true);
+        // 다시 하기는 completion 이 null(이미 받은 레슨)이거나 미지급 별가루 지급 결과다(API-405).
         setReward(result.completion ?? null);
-        await refreshAfterDone(result.completion);
+        if (!replay) await refreshAfterDone(result.completion);
       }
       return result;
     });
@@ -292,7 +264,7 @@ function Study() {
         if (justGraded) throw new Error('다음 콘텐츠로 이동하지 못했습니다.');
         return;
       }
-      if (result.lessonCompleted && !replay) return;
+      if (result.lessonCompleted) return;
     }
     if (position < contents.length - 1) setPosition(position + 1);
     else if (replay) leaveStudy();
@@ -326,6 +298,7 @@ function Study() {
   const energyAfter = reward?.wallet.energy;
   const energySpent =
     energyBefore !== null && typeof energyAfter === 'number' ? energyBefore - energyAfter : 0;
+  const replayOutcome = replayCompletion(reward);
   const completionView = Boolean(
     start && !start.reviewRequired && lessonDone && !showConstellation,
   );
@@ -455,6 +428,22 @@ function Study() {
                   </Text>
                 ) : null}
               </View>
+            ) : lessonDone && replay ? (
+              replayOutcome.kind === 'replayRewarded' ? (
+                // Figma L06_4 다시 학습 / 미수령 보상 받음(656:3631)
+                <CompletionResult
+                  title="별가루를 받았어요"
+                  lessonTitle={params.title ?? '학습'}
+                  stardust={replayOutcome.stardust}
+                  energySpent={energySpent}
+                />
+              ) : (
+                // Figma L06_5 다시 학습 / 이미 보상 받음(656:3655)
+                <CompletionResult
+                  title="학습을 다시 마쳤어요"
+                  lessonTitle={params.title ?? '학습'}
+                />
+              )
             ) : lessonDone ? (
               <View style={s.completion}>
                 <Image
@@ -469,7 +458,7 @@ function Study() {
                   ]}
                 />
                 <View style={[s.completionStarWrap, { top: completionTop(124) }]}>
-                  <CompletionStar size={212 * completionScale} />
+                  <CompletionStar source={completionStarSource} size={212 * completionScale} />
                 </View>
                 <Text style={[s.resultTitle, { top: completionTop(400) }]}>
                   {stardustSkipped
@@ -555,22 +544,7 @@ function Study() {
                   keyboardShouldPersistTaps="handled"
                   contentContainerStyle={
                     current.contentType === 'QUIZ'
-                      ? fillBlankStage
-                        ? s.fillBlankScrollContent
-                        : matchingStage
-                          ? s.matchingScrollContent
-                          : singleChoiceStage
-                            ? s.singleChoiceScrollContent
-                            : multiChoiceStage
-                              ? s.multiChoiceScrollContent
-                              : sliderStage || mockRangeStage
-                                ? s.sliderScrollContent
-                                : [
-                                    s.quizScrollContent,
-                                    { paddingHorizontal: 36 * quizScale },
-                                    oxStage && s.oxScrollContent,
-                                    oxStage && { paddingTop: 200 * quizScale },
-                                  ]
+                      ? quizScrollContentStyle(quizStageKind(current.quiz), quizScale)
                       : s.scrollContent
                   }
                 >
@@ -586,148 +560,19 @@ function Study() {
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && current.quiz ? (
-                    sliderStage ? (
-                      <SliderQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          return advance(true);
-                        }}
-                      />
-                    ) : chosungStage ? (
-                      <ChosungQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          return advance(true);
-                        }}
-                      />
-                    ) : fillBlankStage ? (
-                      <FillBlankQuiz
-                        key={current.contentId}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submitChoiceIndex={
-                          useMockApi && current.quiz.options?.mockHtmlType === 'blank'
-                        }
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          return advance();
-                        }}
-                      />
-                    ) : matchingStage ? (
-                      <MatchingQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          return advance(true);
-                        }}
-                      />
-                    ) : singleChoiceStage ? (
-                      <SingleChoiceQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          return advance(true);
-                        }}
-                      />
-                    ) : multiChoiceStage ? (
-                      <MultiChoiceQuiz
-                        key={`${current.contentId}:${current.quiz.quizId}`}
-                        quiz={current.quiz}
-                        scale={quizScale}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        onAdvance={() => {
-                          return advance(true);
-                        }}
-                      />
-                    ) : useMockApi &&
-                      isHtmlLessonQuiz(current.quiz) &&
-                      current.quiz.type !== 'OX' ? (
-                      <HtmlLessonQuiz
-                        key={current.contentId}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        registerFooter={registerQuizFooter}
-                      />
-                    ) : useMockApi && current.quiz.type !== 'OX' ? (
-                      <LessonQuizWireframe
-                        key={current.contentId}
-                        lessonId={lessonId}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submitLegacy={(answer: QuizAnswer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onAnswered={() =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        stage
-                        registerFooter={registerQuizFooter}
-                      />
-                    ) : (
-                      <QuizCard
-                        key={current.contentId}
-                        quiz={current.quiz}
-                        disabled={answered.has(current.contentId)}
-                        submit={(answer: QuizAnswer) =>
-                          api.learning.answer(current.quiz!.quizId, answer, replay)
-                        }
-                        onGraded={(_result: AnswerResult) =>
-                          setAnswered((previous) => new Set(previous).add(current.contentId))
-                        }
-                        stage
-                        registerFooter={registerQuizFooter}
-                      />
-                    )
+                    <QuizStageQuiz
+                      quiz={current.quiz}
+                      itemKey={current.contentId}
+                      scale={quizScale}
+                      lessonId={lessonId}
+                      disabled={answered.has(current.contentId)}
+                      submit={(answer) => api.learning.answer(current.quiz!.quizId, answer, replay)}
+                      onGraded={() =>
+                        setAnswered((previous) => new Set(previous).add(current.contentId))
+                      }
+                      onAdvance={(justGraded) => advance(justGraded)}
+                      registerFooter={registerQuizFooter}
+                    />
                   ) : null}
                   {current.contentType === 'QUIZ' && !current.quiz ? (
                     <Text style={styles.error}>퀴즈 내용을 불러오지 못했습니다.</Text>
@@ -799,13 +644,15 @@ function Study() {
                         ? () => quizFooter?.onPress()
                         : lessonDone
                           ? () =>
-                              firstWelcomeStudy
-                                ? setLoginOpen(true)
-                                : params.fromWelcome === 'true'
-                                  ? leaveStudy()
-                                  : constellationCompleted
-                                    ? setShowConstellation(true)
-                                    : leaveStudy()
+                              replay
+                                ? leaveStudy()
+                                : firstWelcomeStudy
+                                  ? setLoginOpen(true)
+                                  : params.fromWelcome === 'true'
+                                    ? leaveStudy()
+                                    : constellationCompleted
+                                      ? setShowConstellation(true)
+                                      : leaveStudy()
                           : () => void advance()
                     }
                   />
@@ -827,12 +674,7 @@ function Study() {
               )}
             </View>
           ) : null}
-          {quizStage &&
-          !fillBlankStage &&
-          !matchingStage &&
-          !singleChoiceStage &&
-          !multiChoiceStage &&
-          answered.has(current.contentId) ? (
+          {quizStage && !quizKind?.selfAdvancing && answered.has(current.contentId) ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="다음 학습 콘텐츠로 이동"
@@ -955,57 +797,6 @@ function StudyAction({
         {label}
       </Text>
     </Pressable>
-  );
-}
-
-// Figma 656:2109 에너지 아이콘(Group 25, 8×14)
-function EnergyIcon() {
-  return (
-    <Svg width={8} height={14} viewBox="0 0 8 14" fill="none">
-      <Path
-        d="M7 2C7.55228 2 8 2.44772 8 3V13C8 13.5523 7.55228 14 7 14H1C0.447715 14 1.61065e-08 13.5523 0 13V3C0 2.44772 0.447715 2 1 2H2V1C2 0.447715 2.44772 0 3 0H5C5.55228 0 6 0.447715 6 1V2H7Z"
-        fill="#E4E4E4"
-      />
-      <Rect x={1} y={11} width={6} height={2} fill="#161616" />
-      <Rect x={1} y={8} width={6} height={2} fill="#161616" />
-    </Svg>
-  );
-}
-
-function CompletionStar({ size }: { size: number }) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const started = useRef(false);
-  useEffect(() => {
-    return () => progress.stopAnimation();
-  }, [progress]);
-  const reveal = () => {
-    if (started.current) return;
-    started.current = true;
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 700,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-      useNativeDriver: Platform.OS !== 'web',
-    }).start();
-  };
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        opacity: progress,
-        transform: [
-          { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) },
-          { rotate: progress.interpolate({ inputRange: [0, 1], outputRange: ['-10deg', '0deg'] }) },
-        ],
-      }}
-    >
-      <Image
-        source={completionStarSource}
-        onLoad={reveal}
-        style={{ width: size, height: size }}
-        resizeMode="contain"
-      />
-    </Animated.View>
   );
 }
 
@@ -1163,19 +954,6 @@ const s = StyleSheet.create({
     paddingVertical: 22,
     paddingHorizontal: 7,
   },
-  quizScrollContent: {
-    flexGrow: 1,
-    gap: 15,
-    paddingTop: 30,
-    paddingBottom: 16,
-    paddingHorizontal: 7,
-  },
-  fillBlankScrollContent: { flexGrow: 1 },
-  matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
-  singleChoiceScrollContent: { flexGrow: 1 },
-  multiChoiceScrollContent: { flexGrow: 1 },
-  sliderScrollContent: { flexGrow: 1 },
-  oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
   quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },

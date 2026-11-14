@@ -41,8 +41,12 @@ export const client = new IntegrationClient(
 );
 if (useMockApi) {
   const initialize = client.initialize;
+  // 저장된 목업 상태는 앱 시작 때 한 번만 읽는다. 화면마다(useIntegration) 다시 읽으면
+  // 진행 중인 복습 문항 연결(activeReview)·다시 하기 진행이 지워져 MOCK_QUIZ_NOT_FOUND 가 난다.
+  let restored: Promise<void> | null = null;
   client.initialize = async () => {
-    await restoreMockState();
+    restored ??= restoreMockState();
+    await restored;
     return initialize();
   };
 }

@@ -5,7 +5,7 @@ import { shipColor as color, StarIcon } from './ShipStatus';
 // 우주선 꾸미기 확인 모달 3종. SessionConfirmModal 과 같은 틀(배경 #F1F1F1 · 모서리 8 · 버튼 48)을 쓰되
 // 가격 줄, 버튼 1개, 내용 폭 버튼처럼 공용 모달이 표현하지 못하는 차이를 여기서만 둔다.
 
-function Frame({
+export function Frame({
   visible,
   onRequestClose,
   padding,
@@ -44,11 +44,11 @@ function Frame({
   );
 }
 
-function Bullet() {
+export function Bullet() {
   return <Text style={s.bullet}>{'>'}</Text>;
 }
 
-function DialogButton({
+export function DialogButton({
   label,
   primary = false,
   bordered = true,

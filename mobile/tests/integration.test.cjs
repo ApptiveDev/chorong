@@ -1997,3 +1997,275 @@ test('mock replay completion keeps saved progress, rewards and wallet unchanged'
     restoreMockSnapshot(original);
   }
 });
+
+const {
+  grantedStardust,
+  replayCompletion,
+  reviewCompletion,
+  reviewScore,
+} = require('../.expo/integration-tests/completionResult');
+
+test('완료 화면 분기는 응답 rewards 의 별가루 지급량만 기준으로 한다', () => {
+  const stardust = (amount) => ({ type: 'WALLET', currency: 'STARDUST', amount });
+  const completion = (rewards, extra = {}) => ({
+    rewards,
+    wallet: { stardust: 0, energy: 0 },
+    courseCompleted: false,
+    ...extra,
+  });
+  assert.equal(
+    grantedStardust([
+      stardust(2),
+      stardust(null),
+      { type: 'CONSTELLATION', badge: {} },
+      { type: 'WALLET', currency: null, amount: 9 },
+    ]),
+    2,
+  );
+  // 다시 하기: 이미 받은 레슨(null), 이번에도 에너지 없음(stardustSkipped), 미지급 별가루 지급
+  assert.deepEqual(replayCompletion(null), { kind: 'replayPlain' });
+  assert.deepEqual(replayCompletion(undefined), { kind: 'replayPlain' });
+  assert.deepEqual(replayCompletion(completion([], { stardustSkipped: true })), {
+    kind: 'replayPlain',
+  });
+  assert.deepEqual(replayCompletion(completion([stardust(1)], { stardustSkipped: false })), {
+    kind: 'replayRewarded',
+    stardust: 1,
+  });
+  // 오늘의 복습: 지급 / 하루 한도 초과·이미 끝난 세션(rewards=[])
+  assert.deepEqual(reviewCompletion([stardust(3)]), { kind: 'reviewRewarded', stardust: 3 });
+  assert.deepEqual(reviewCompletion([]), { kind: 'reviewAlreadyRewarded' });
+  assert.deepEqual(reviewScore({ 1: true, 2: false, 3: true }, [1, 2, 3]), {
+    correct: 2,
+    total: 3,
+  });
+  assert.equal(reviewScore({ 1: true }, [1, 2]), null);
+  assert.equal(reviewScore({}, []), null);
+});
+
+test('목업 다시 하기: 에너지 없이 마친 레슨은 에너지를 쓰고 다시 마치면 별가루를 한 번만 준다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 0 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: false } });
+    const contents = mockApi('API-403', { path: { lessonId: 21 } }).data.data.contents;
+    let first;
+    for (const content of contents)
+      first = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+    assert.equal(first.completion.stardustSkipped, true);
+
+    // 다음 날 에너지가 다시 생긴 상태
+    const finished = mockSnapshot();
+    assert.equal(
+      restoreMockSnapshot({ ...finished, wallet: { ...finished.wallet, energy: 2 } }),
+      true,
+    );
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const replayLesson = () => {
+      mockApi('API-404', { path: { lessonId: 21 }, body: { replay: true } });
+      let result;
+      for (const content of contents)
+        result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+      return result;
+    };
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: true } });
+    assert.equal(mockApi('API-904', {}).data.data.energy, 1);
+    const rewarded = replayLesson();
+    // 이어서 시작해도 에너지를 다시 쓰지 않는다.
+    assert.equal(rewarded.completion.wallet.energy, 1);
+    assert.equal(rewarded.lessonCompleted, true);
+    assert.deepEqual(rewarded.completion.rewards, [
+      { type: 'WALLET', currency: 'STARDUST', amount: 5 },
+    ]);
+    assert.equal(rewarded.completion.stardustSkipped, false);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.deepEqual(replayCompletion(rewarded.completion), {
+      kind: 'replayRewarded',
+      stardust: 5,
+    });
+
+    // 같은 레슨을 또 다시 하면 에너지·별가루 모두 변하지 않는다.
+    const plain = replayLesson();
+    assert.equal(plain.lessonCompleted, true);
+    assert.equal(plain.completion, null);
+    assert.equal(mockApi('API-904', {}).data.data.energy, 1);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.deepEqual(replayCompletion(plain.completion), { kind: 'replayPlain' });
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('목업 다시 하기: 미지급 레슨도 에너지가 없으면 이번에도 별가루를 주지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 0 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: false } });
+    const contents = mockApi('API-403', { path: { lessonId: 21 } }).data.data.contents;
+    for (const content of contents) mockApi('API-405', { path: { contentId: content.contentId } });
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    mockApi('API-404', { path: { lessonId: 21 }, body: { replay: true } });
+    let result;
+    for (const content of contents)
+      result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion.stardustSkipped, true);
+    assert.deepEqual(result.completion.rewards, []);
+    assert.equal(mockApi('API-904', {}).data.data.energy, 0);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
+    assert.deepEqual(replayCompletion(result.completion), { kind: 'replayPlain' });
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+test('목업 복습 완료는 하루 3세션까지 보상하고 같은 키 재요청은 다시 지급하지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const complete = (key) =>
+      mockApi('API-503', { body: { reviewItemIds: [1, 2, 3, 4, 5] }, key }).data.data;
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const first = complete('review-test-1');
+    assert.deepEqual(reviewCompletion(first.rewards), { kind: 'reviewRewarded', stardust: 3 });
+    assert.deepEqual(complete('review-test-1'), first);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 3);
+    complete('review-test-2');
+    complete('review-test-3');
+    const fourth = complete('review-test-4');
+    assert.deepEqual(fourth.rewards, []);
+    assert.deepEqual(reviewCompletion(fourth.rewards), { kind: 'reviewAlreadyRewarded' });
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 9);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const {
+  checkReviewStart,
+  kstDate,
+  markReviewRewardedToday,
+  reviewRewardNotice,
+  reviewRewardedToday,
+} = require('../.expo/integration-tests/user/reviewStart');
+
+test('복습 안내 셋째 줄: 오늘 완료 기록 또는 rewardEligible=false 면 보상 받음, 모르면 비워 둔다', () => {
+  const first = '오늘 첫 복습 완료 시 별가루 +5';
+  const already = '오늘의 복습 보상은 이미 받았어요.';
+  const notice = (rewardEligible, rewardedToday) =>
+    reviewRewardNotice({ rewardEligible, rewardedToday });
+  assert.equal(notice(null, null), null);
+  assert.equal(notice(true, null), null);
+  assert.equal(notice(null, false), null);
+  assert.equal(notice(true, false), first);
+  // 하루 3세션 중 첫 완료 뒤에도 서버 rewardEligible 은 true 지만 완료 기록으로 ② 를 보여 준다.
+  assert.equal(notice(true, true), already);
+  assert.equal(notice(null, true), already);
+  assert.equal(notice(false, false), already);
+  assert.equal(notice(false, null), already);
+});
+
+test('복습 완료 기록은 사용자별·KST 날짜별이며 재실행 뒤에도 저장소에서 읽힌다', async () => {
+  const entries = new Map();
+  const storage = {
+    get: async (key) => entries.get(key) ?? null,
+    set: async (key, value) => {
+      entries.set(key, value);
+    },
+    remove: async (key) => {
+      entries.delete(key);
+    },
+  };
+  // 2026-11-14 23:30 KST = 2026-11-14T14:30Z, 다음 날 00:10 KST = 2026-11-14T15:10Z
+  const lateNight = Date.parse('2026-11-14T14:30:00Z');
+  const afterMidnight = Date.parse('2026-11-14T15:10:00Z');
+  assert.equal(kstDate(lateNight), '2026-11-14');
+  assert.equal(kstDate(afterMidnight), '2026-11-15');
+  assert.equal(await reviewRewardedToday(storage, 7, lateNight), false);
+  await markReviewRewardedToday(storage, 7, lateNight);
+  assert.equal(await reviewRewardedToday(storage, 7, lateNight), true);
+  // 같은 기기의 다른 사용자, 날짜가 바뀐 뒤에는 기록이 적용되지 않는다.
+  assert.equal(await reviewRewardedToday(storage, 8, lateNight), false);
+  assert.equal(await reviewRewardedToday(storage, 7, afterMidnight), false);
+  // SecureStore 키 규칙([A-Za-z0-9._-])을 지킨다.
+  assert.ok([...entries.keys()].every((key) => /^[A-Za-z0-9._-]+$/.test(key)));
+});
+
+test('복습 시작은 문항 0개면 모달, 1개 이상이면 이동, 조회 실패는 문제 없음으로 바꾸지 않는다', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32030, 'SINGLE', { options: ['가', '나'] });
+  let reply;
+  const requested = [];
+  c.http.defaults.adapter = async (config) => {
+    requested.push({ url: config.url, params: config.params });
+    return reply(config);
+  };
+  const seen = [];
+  const check = (lessonId) =>
+    checkReviewStart(
+      () => api.review.next(lessonId),
+      (set) => seen.push(set.rewardEligible),
+    );
+
+  reply = (config) =>
+    respond(config, {
+      data: { reviewItems: [], message: '더 이상 복습할 문제가 없어요', rewardEligible: false },
+    });
+  assert.deepEqual(await check(), { kind: 'empty' });
+
+  reply = (config) =>
+    respond(config, {
+      data: { reviewItems: [{ reviewItemId: 32931, quiz }], message: null, rewardEligible: true },
+    });
+  assert.deepEqual(await check(7), { kind: 'start' });
+  assert.deepEqual(seen, [false, true]);
+  assert.deepEqual(requested, [
+    { url: '/reviews/next', params: undefined },
+    { url: '/reviews/next', params: { lessonId: 7 } },
+  ]);
+
+  // 서버 오류와 계약에 맞지 않는 응답은 예외로 올라가 기존 오류 표시로 간다.
+  reply = (config) => fail(config, 500, 'INTERNAL_ERROR');
+  await assert.rejects(check());
+  reply = (config) => respond(config, { data: { message: null, rewardEligible: true } });
+  await assert.rejects(check());
+  reply = (config) =>
+    respond(config, {
+      data: { reviewItems: [{ reviewItemId: 1, quiz: { quizId: 1 } }], rewardEligible: true },
+    });
+  await assert.rejects(check());
+  assert.deepEqual(seen, [false, true]);
+});
+
+test('목업 복습 세트: 문제가 없으면 모달 분기, rewardEligible 은 오늘 보상 세션이 남았는지 따른다', async () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    assert.equal(restoreMockSnapshot({ ...original, rewardedLessons: [], studyAnswers: [] }), true);
+    const next = () => Promise.resolve(contract.reviewSet(mockApi('API-501', {}).data.data));
+    assert.deepEqual(await checkReviewStart(next), { kind: 'empty' });
+    // 오늘 보상 세션을 모두 쓰면 rewardEligible=false 로 바뀐다.
+    for (let index = 0; index < 4; index += 1)
+      mockApi('API-503', { body: { reviewItemIds: [1, 2, 3, 4, 5] }, key: `eligible-${index}` });
+    assert.equal((await next()).rewardEligible, false);
+    assert.equal(
+      reviewRewardNotice({ rewardEligible: (await next()).rewardEligible, rewardedToday: false }),
+      '오늘의 복습 보상은 이미 받았어요.',
+    );
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
