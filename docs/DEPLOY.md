@@ -46,4 +46,23 @@ AWS_PROFILE=bawi terraform apply
 
 ## 네이티브 앱
 
-S3/CloudFront 에는 웹 빌드만 간다. iOS/Android 바이너리는 `mobile/` 에서 EAS Build 로 만든다 (별도 설정 필요, 이 템플릿 범위 밖).
+S3/CloudFront 에는 웹 빌드만 간다. iOS/Android 바이너리는 `mobile/` 에서 EAS Build 로 만든다.
+
+EAS 프로젝트는 `@bawibase-inc/chorong` 이다. 소유 조직은 Expo 조직 `bawibase-inc` 이다. 프로젝트 ID 는 `app.json` 의 `extra.eas.projectId` 에 있다.
+
+빌드 프로필은 `mobile/eas.json` 에 있다.
+
+- preview: 내부 배포용이다. dev API 를 가리키고 dev 웹과 같이 Mock 을 켠다. Android 는 APK 로 만든다
+- preview-simulator: preview 와 같은 설정으로 iOS 시뮬레이터용 앱을 만든다. Apple Developer 계정이 필요 없다
+- production: 스토어 배포용이다. prod API 를 가리킨다. 빌드 번호는 EAS 가 원격에서 올린다
+
+```bash
+cd mobile
+npx eas-cli@latest login
+npx eas-cli@latest build -p ios --profile preview
+npx eas-cli@latest build -p android --profile preview
+npx eas-cli@latest build -p ios --profile production
+npx eas-cli@latest submit -p ios --latest
+```
+
+첫 iOS 빌드에서 EAS 가 Apple Developer 로그인을 요구한다. 인증서와 프로비저닝 프로파일은 EAS 원격 저장소에 보관한다. 첫 Android 스토어 제출은 Play Console 에서 수동 업로드를 한 번 해야 한다.
