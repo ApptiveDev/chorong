@@ -1,4 +1,4 @@
-import { TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { styles } from './shared';
 
 export function FillBlankQuiz({
@@ -22,9 +22,20 @@ export function FillBlankQuiz({
           autoCorrect={false}
           value={text}
           onChangeText={(value) => onChange(texts.map((t, i) => (i === index ? value : t)))}
-          style={styles.input}
+          style={[styles.input, blankStyles.input]}
         />
       ))}
     </View>
   );
 }
+
+const blankStyles = StyleSheet.create({
+  input: {
+    borderColor: '#e6e0ec',
+    borderRadius: 13,
+    minHeight: 54,
+    fontSize: 17,
+    color: '#594567',
+    textAlign: 'center',
+  },
+});

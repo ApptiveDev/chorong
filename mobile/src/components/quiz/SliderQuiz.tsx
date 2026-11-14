@@ -1,9 +1,9 @@
 import { useRef } from 'react';
-import { Text, View, type GestureResponderEvent } from 'react-native';
+import { StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import { sliderIndex, sliderSteps, sliderValue } from '../../lib/quiz-state';
 import type { SliderConfig } from '../../types/quiz';
 import { useDrag, windowPoint } from './gestures';
-import { QuizButton, styles } from './shared';
+import { styles } from './shared';
 
 export function SliderQuiz({
   config,
@@ -48,8 +48,8 @@ export function SliderQuiz({
   return (
     <View style={styles.stack}>
       {config.showValue !== false ? (
-        <Text accessibilityLiveRegion="polite">
-          현재 값: {value}
+        <Text style={rangeStyles.value} accessibilityLiveRegion="polite">
+          {value}
           {config.unit ?? ''}
         </Text>
       ) : null}
@@ -70,12 +70,9 @@ export function SliderQuiz({
         onAccessibilityAction={(e) => {
           if (!disabled) change(index + (e.nativeEvent.actionName === 'increment' ? 1 : -1));
         }}
-        style={[styles.gesture, { padding: 0, height: 44, justifyContent: 'center' }]}
+        style={[styles.gesture, rangeStyles.track]}
       >
-        <View
-          pointerEvents="none"
-          style={{ height: 6, backgroundColor: '#aab8c8', borderRadius: 3 }}
-        />
+        <View pointerEvents="none" style={rangeStyles.rail} />
         <View
           pointerEvents="none"
           style={{
@@ -85,27 +82,28 @@ export function SliderQuiz({
             width: 22,
             height: 22,
             borderRadius: 11,
-            backgroundColor: '#273a52',
+            backgroundColor: '#746284',
           }}
         />
       </View>
-      <Text style={styles.muted}>
-        {config.min}
-        {config.unit ?? ''} ~ {config.max}
-        {config.unit ?? ''} · 간격 {config.step}
-      </Text>
-      <View style={styles.row}>
-        <QuizButton
-          label="값 감소"
-          disabled={disabled || index <= 0}
-          onPress={() => change(index - 1)}
-        />
-        <QuizButton
-          label="값 증가"
-          disabled={disabled || index >= steps}
-          onPress={() => change(index + 1)}
-        />
+      <View style={rangeStyles.ticks}>
+        {[0, Math.round(steps / 3), Math.round((steps * 2) / 3), steps]
+          .filter((tick, position, all) => all.indexOf(tick) === position)
+          .map((tick) => (
+            <Text key={tick} style={rangeStyles.tick}>
+              {sliderValue(config, tick)}
+              {config.unit ?? ''}
+            </Text>
+          ))}
       </View>
     </View>
   );
 }
+
+const rangeStyles = StyleSheet.create({
+  value: { color: '#746284', fontSize: 31, fontWeight: '600', textAlign: 'center' },
+  track: { padding: 0, height: 54, justifyContent: 'center', backgroundColor: 'transparent' },
+  rail: { height: 6, backgroundColor: '#e6e0ec', borderRadius: 3 },
+  ticks: { flexDirection: 'row', justifyContent: 'space-between' },
+  tick: { color: '#aaa1b3', fontSize: 11 },
+});

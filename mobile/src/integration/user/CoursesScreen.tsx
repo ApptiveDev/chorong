@@ -1,16 +1,30 @@
-import { useEffect, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Course, CourseDetail } from '../models';
 import { UserScreen, UserStatus } from './Screen';
-import { LearningMap } from './LearningMap';
+import { LearningHome } from './LearningHome';
+import {
+  completedConstellations,
+  constellationImage,
+  litStars,
+  nextLessonOf,
+  recordStars,
+} from './constellationRecord';
+import { ConstellationRecordView } from './ConstellationRecordView';
+import { loadConstellationDates } from './constellationDates';
 
 type Section = 'home' | 'map' | 'list';
+type MapTab = 'map' | 'record';
 type NextLesson = CourseDetail['lessons'][number] | null;
-const navy = '#273a52';
+type Wallet = Awaited<ReturnType<typeof api.benefits.wallet>>;
+type ConstellationRecord = Awaited<
+  ReturnType<typeof api.benefits.constellations>
+>['constellations'][number];
+const navy = '#4d425b';
 
 export default function CoursesScreen() {
   const { generation } = useIntegration();
@@ -19,54 +33,210 @@ export default function CoursesScreen() {
 
 function Courses() {
   const router = useRouter();
+  const { view } = useLocalSearchParams<{ view?: string }>();
   const auth = useIntegration();
   const task = useTask();
   const [section, setSection] = useState<Section>('home');
+  const [mapTab, setMapTab] = useState<MapTab>('record');
   const [courses, setCourses] = useState<Course[]>([]);
+  const [constellations, setConstellations] = useState<ConstellationRecord[] | null>(null);
+  const [recordDates, setRecordDates] = useState<Record<number, string>>({});
+  const [joinPromptOpen, setJoinPromptOpen] = useState(false);
+  const [joinSocialNotice, setJoinSocialNotice] = useState(false);
   const [currentCourseId, setCurrentCourseId] = useState<number | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [nextLesson, setNextLesson] = useState<NextLesson>(null);
+  // 현재 코스의 레슨 목록(API-402). 별자리 기록의 별 하나 = 레슨 하나.
+  const [courseLessons, setCourseLessons] = useState<CourseDetail['lessons']>([]);
+  // 에너지·별가루(API-904). 조회 실패면 칩에 '—'를 보여 준다.
+  const [wallet, setWallet] = useState<Wallet | null>(null);
   const load = () =>
     task.run(async () => {
       const result = await api.learning.courses();
       setCourses(result.courses);
-      const progress = await api.learning.progress().catch(() => null);
+      const [progress, constellationResult, records, walletResult] = await Promise.all([
+        api.learning.progress().catch(() => null),
+        api.benefits.constellations().catch(() => null),
+        loadConstellationDates().catch(() => ({})),
+        api.benefits.wallet().catch(() => null),
+      ]);
+      setConstellations(constellationResult?.constellations ?? null);
+      setRecordDates(records);
+      setWallet(walletResult);
       const candidate =
         result.courses.find((course) => course.courseId === progress?.current?.courseId) ??
-        result.courses.find((course) => course.completedLessons < course.totalLessons);
+        result.courses.find((course) => course.completedLessons < course.totalLessons) ??
+        result.courses[0];
       setCurrentCourseId(candidate?.courseId ?? null);
       if (candidate) {
         try {
           const detail = await api.learning.course(candidate.courseId);
-          setNextLesson(
-            detail.lessons.find(
-              (lesson) => lesson.status === 'IN_PROGRESS' || lesson.status === 'UNLOCKED',
-            ) ?? null,
-          );
+          setCourseLessons(detail.lessons);
+          setNextLesson(nextLessonOf(detail.lessons));
         } catch {
+          setCourseLessons([]);
           setNextLesson(null);
         }
-      } else setNextLesson(null);
+      } else {
+        setCourseLessons([]);
+        setNextLesson(null);
+      }
       return result;
     });
+  useFocusEffect(
+    useCallback(() => {
+      if (auth.ready && auth.authenticated) void load();
+    }, [auth.ready, auth.authenticated]),
+  );
   useEffect(() => {
-    if (auth.ready && auth.authenticated) void load();
-  }, [auth.ready, auth.authenticated]);
+    if (view !== 'record') return;
+    setSection('map');
+    setMapTab('record');
+    router.setParams({ view: '' });
+  }, [view, router]);
+  useEffect(() => {
+    if (view !== 'join') return;
+    if (auth.user?.status === 'GUEST') {
+      setJoinSocialNotice(false);
+      setJoinPromptOpen(true);
+    }
+    router.setParams({ view: '' });
+  }, [view, auth.user?.status, router]);
   const categories = [...new Set(courses.map((course) => course.category))];
   const listed = category ? courses.filter((course) => course.category === category) : courses;
+  const currentCourse = courses.find((course) => course.courseId === currentCourseId);
   const openCourse = (courseId: number) => router.push(`/learn/course/${courseId}`);
   const openLesson = () => {
     if (nextLesson)
       router.push({
-        pathname: '/learn/lesson/[lessonId]',
-        params: { lessonId: String(nextLesson.lessonId), status: nextLesson.status },
+        pathname: '/learn/study/[lessonId]',
+        params: {
+          lessonId: String(nextLesson.lessonId),
+          title: nextLesson.title,
+          resume: nextLesson.status === 'IN_PROGRESS' ? 'true' : 'false',
+        },
       });
   };
+  const currentConstellation = currentCourse
+    ? constellations?.find((item) => item.courseId === currentCourse.courseId)
+    : undefined;
+  const constellationId =
+    currentConstellation?.constellationId ?? currentCourse?.constellation?.constellationId;
+  const stars = currentCourse
+    ? recordStars(courseLessons, nextLesson?.lessonId ?? null, constellationId)
+    : [];
+  const joinModal = (
+    <Modal
+      visible={joinPromptOpen}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setJoinPromptOpen(false)}
+    >
+      <View style={s.joinOverlay}>
+        <ScrollView style={s.joinPanel} contentContainerStyle={s.joinContent}>
+          <Text style={s.joinTitle}>첫 탐험을 오래 간직해요</Text>
+          <Text style={s.joinCopy}>밝힌 별과 꾸민 우주선을 계정에 저장해요.</Text>
+          <View style={s.joinAuthOptions}>
+            <Pressable
+              accessibilityRole="button"
+              style={[s.joinAuthOption, s.joinAppleOption]}
+              onPress={() => setJoinSocialNotice(true)}
+            >
+              <Text style={[s.joinAuthOptionText, s.joinAppleText]}>Apple로 계속하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={s.joinAuthOption}
+              onPress={() => setJoinSocialNotice(true)}
+            >
+              <Text style={s.joinAuthOptionText}>Google로 계속하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={s.joinAuthOption}
+              onPress={() => setJoinSocialNotice(true)}
+            >
+              <Text style={s.joinAuthOptionText}>카카오로 계속하기</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={s.joinAuthOption}
+              onPress={() => {
+                setJoinPromptOpen(false);
+                router.push('/account');
+              }}
+            >
+              <Text style={s.joinAuthOptionText}>이메일로 로그인하기</Text>
+            </Pressable>
+          </View>
+          {joinSocialNotice ? <Text style={s.joinNotice}>소셜 로그인은 준비 중입니다.</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            style={s.joinSecondary}
+            onPress={() => setJoinPromptOpen(false)}
+          >
+            <Text style={s.joinSecondaryText}>나중에 하기</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+  if (section === 'map' && auth.authenticated)
+    return (
+      <>
+        <ConstellationRecordView
+          mode={mapTab}
+          items={completedConstellations(courses, constellations, recordDates)}
+          task={task}
+          onToggleMode={() => setMapTab((value) => (value === 'map' ? 'record' : 'map'))}
+          onHome={() => setSection('home')}
+          onOpen={openCourse}
+          onRetry={() => void load()}
+        />
+        {joinModal}
+      </>
+    );
+  if (section === 'home' && auth.authenticated)
+    return (
+      <>
+        <LearningHome
+          task={task}
+          notice={auth.notice || null}
+          constellation={
+            currentCourse
+              ? {
+                  name:
+                    currentConstellation?.name ??
+                    currentCourse.constellation?.name ??
+                    currentCourse.title,
+                  stars,
+                  lit: litStars(stars),
+                  image: constellationImage(constellationId, currentConstellation?.imageUrl),
+                }
+              : null
+          }
+          wallet={wallet}
+          nextTitle={
+            nextLesson?.title ?? (courses.length ? '학습할 레슨을 선택하세요' : '별자리가 없습니다')
+          }
+          nextDisabled={!courses.length}
+          onOpenRecord={() => {
+            setMapTab('record');
+            setSection('map');
+          }}
+          onNext={nextLesson ? openLesson : () => setSection('list')}
+          onReview={() => router.push('/review-start')}
+          onRetry={() => void load()}
+        />
+        {joinModal}
+      </>
+    );
   return (
     <UserScreen
       title={
         section === 'home' ? '학습 홈' : section === 'map' ? '전체 별자리 지도' : '별자리 목록'
       }
+      showTitle={section === 'list'}
     >
       {!auth.authenticated ? (
         <View style={s.panel}>
@@ -77,7 +247,7 @@ function Courses() {
       ) : (
         <>
           <UserStatus task={task} />
-          {section !== 'home' ? (
+          {section === 'list' ? (
             <Pressable
               accessibilityRole="button"
               style={s.back}
@@ -86,46 +256,6 @@ function Courses() {
               <Ionicons name="chevron-back" size={18} color={navy} />
               <Text style={s.muted}>뒤로</Text>
             </Pressable>
-          ) : null}
-          {section === 'home' ? (
-            <>
-              <View style={s.topRow}>
-                <View>
-                  <Text style={s.muted}>현재 별자리</Text>
-                  <Text style={s.heading}>
-                    {courses.find((course) => course.courseId === currentCourseId)?.constellation
-                      ?.name ?? '학습을 시작하세요'}
-                  </Text>
-                </View>
-                <Outline title="별자리 지도" onPress={() => setSection('map')} />
-              </View>
-              <LearningMap courses={courses} compact onSelect={openCourse} />
-              <View style={s.panel}>
-                <Text style={s.muted}>다음 학습</Text>
-                <Text style={s.heading}>
-                  {nextLesson?.title ??
-                    (courses.length ? '학습할 레슨을 선택하세요' : '별자리가 없습니다')}
-                </Text>
-                <Text style={s.muted}>
-                  {nextLesson
-                    ? '이어 학습할 레슨을 확인하세요.'
-                    : '별자리 목록에서 레슨을 선택하세요.'}
-                </Text>
-              </View>
-              <Action
-                title="학습 시작"
-                disabled={!courses.length}
-                onPress={nextLesson ? openLesson : () => setSection('list')}
-              />
-              <Outline title="별자리 목록 보기" onPress={() => setSection('list')} />
-            </>
-          ) : null}
-          {section === 'map' ? (
-            <>
-              <Text style={s.muted}>별자리를 선택하면 레슨 목록으로 이동합니다.</Text>
-              <LearningMap courses={courses} onSelect={openCourse} />
-              <Outline title="목록 보기" onPress={() => setSection('list')} />
-            </>
           ) : null}
           {section === 'list' ? (
             <>
@@ -178,6 +308,7 @@ function Courses() {
           {task.error ? <Outline title="다시 불러오기" onPress={() => void load()} /> : null}
         </>
       )}
+      {joinModal}
     </UserScreen>
   );
 }
@@ -212,29 +343,27 @@ function Outline({ title, onPress }: { title: string; onPress: () => void }) {
 }
 
 const s = StyleSheet.create({
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   heading: { color: navy, fontSize: 15, fontWeight: '700' },
   muted: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
   panel: { borderWidth: 1, borderColor: '#dce2e8', borderRadius: 4, padding: 13, gap: 5 },
   primary: {
-    backgroundColor: navy,
-    borderRadius: 4,
-    minHeight: 45,
+    backgroundColor: '#373044',
+    borderRadius: 13,
+    minHeight: 52,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
   primaryText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   outline: {
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 4,
-    minHeight: 39,
+    borderRadius: 13,
+    minHeight: 52,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,
+    backgroundColor: '#f3f1f6',
   },
-  outlineText: { color: navy, fontSize: 12, fontWeight: '600' },
+  outlineText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
   back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 3 },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   filter: {
@@ -264,4 +393,50 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  joinOverlay: {
+    flex: 1,
+    backgroundColor: '#34273c63',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  joinPanel: {
+    width: '100%',
+    flexGrow: 0,
+    maxWidth: 354,
+    maxHeight: '90%',
+    borderRadius: 23,
+    backgroundColor: '#fff',
+  },
+  joinContent: { padding: 25 },
+  joinTitle: {
+    color: '#282636',
+    fontSize: 20,
+    lineHeight: 30,
+    letterSpacing: -0.7,
+    fontWeight: '700',
+  },
+  joinCopy: { color: '#807188', fontSize: 13, lineHeight: 23, marginTop: 12 },
+  joinAuthOptions: { gap: 10, marginTop: 20, marginBottom: 10 },
+  joinAuthOption: {
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: '#f3f0f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  joinAuthOptionText: { color: '#282636', fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  joinAppleOption: { backgroundColor: '#29262f' },
+  joinAppleText: { color: '#fff' },
+  joinNotice: { color: '#8c8296', fontSize: 12, textAlign: 'center' },
+  joinSecondary: {
+    minHeight: 45,
+    borderRadius: 13,
+    backgroundColor: '#f3f1f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 22,
+  },
+  joinSecondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
 });

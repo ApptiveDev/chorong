@@ -20,7 +20,11 @@ export type OAuthCredential = {
   authorizationCode?: string;
 };
 export type QuizAnswer =
-  { answer: number | string | boolean } | { answers: number[] } | { pairs: string[][] };
+  | { index: number }
+  | { texts: string[] }
+  | { value: boolean }
+  | { order: number[] }
+  | { position: number };
 export type PageQuery = { cursor?: string; size?: number };
 export type ReportReason = 'INAPPROPRIATE_NAME' | 'ABUSE' | 'SPAM' | 'OTHER';
 export const status = enumeration('GUEST', 'ACTIVE', 'WITHDRAWN');
@@ -33,7 +37,11 @@ export const authResponse = object({
   user: userBrief,
   isNew: bool,
 });
-export const wallet = object({ star: num, stardust: num });
+export const wallet = object({
+  stardust: num,
+  energy: optional(num),
+  energyResetsAt: optional(str),
+});
 export const providers = object({
   providers: array(enumeration('EMAIL', 'GOOGLE', 'KAKAO', 'APPLE', 'GUEST')),
 });
@@ -68,22 +76,65 @@ const courseFields = {
   completedLessons: num,
   constellation: nullable(object({ constellationId: num, name: str })),
 };
-export const courseSummary = object(courseFields);
-export const courseDetail = object({
+const courseBase = object(courseFields);
+export const courseSummary = (value: unknown, path = '$') => {
+  const course = courseBase(value, path);
+  optional(str)((value as Record<string, unknown>).topic, `${path}.topic`);
+  return course as typeof course & { topic?: string };
+};
+const courseDetailBase = object({
   ...courseFields,
   description: str,
   lessons: array(lessonSummary),
 });
-export const quiz = object({
-  quizId: num,
-  interactionType: enumeration('OX', 'SINGLE', 'MULTI', 'BLANK', 'SLIDER', 'MATCH', 'CHOSUNG'),
-  question: str,
-  instruction: str,
-  config: unknownObject,
+export const courseDetail = (value: unknown, path = '$') => {
+  courseSummary(value, path);
+  return courseDetailBase(value, path) as Infer<typeof courseDetailBase> & { topic?: string };
+};
+export const quizInteractionType = enumeration(
+  'OX',
+  'SINGLE',
+  'MULTI',
+  'BLANK',
+  'SLIDER',
+  'MATCH',
+  'CHOSUNG',
+);
+const singlePresentation = object({
+  type: enumeration('AUDIO', 'TILE', 'ZOOM_OUT', 'SHARPEN', 'INLINE_WORD'),
+  mediaUrl: optional(str),
+  stages: optional(array(num)),
+  rows: optional(num),
+  columns: optional(num),
+});
+export type SinglePresentation = Pick<Infer<typeof singlePresentation>, 'type'> &
+  Partial<Omit<Infer<typeof singlePresentation>, 'type'>>;
+const quizConfig = (value: unknown, path = '$') => {
+  const config = unknownObject(value, path);
+  if (config.presentation !== undefined)
+    singlePresentation(config.presentation, `${path}.presentation`);
+  return config as Record<string, unknown> & { presentation?: SinglePresentation };
+};
+export const quizMetadata = object({
+  interactionType: optional(quizInteractionType),
+  config: optional(quizConfig),
+  instruction: optional(str),
   difficulty: optional(str),
   quizOrder: optional(num),
+  lessonId: optional(num),
 });
-export const content = object({
+const quizBase = object({
+  quizId: num,
+  type: enumeration('MULTIPLE_CHOICE', 'FILL_BLANK', 'OX', 'ORDERING', 'CHOSUNG', 'SLIDER'),
+  question: str,
+  options: nullable(unknownObject),
+  hint: nullable(str),
+});
+export const quiz = (value: unknown, path = '$') => {
+  quizMetadata(value, path);
+  return quizBase(value, path) as Infer<typeof quizBase> & Partial<Infer<typeof quizMetadata>>;
+};
+const contentBase = object({
   contentId: num,
   order: num,
   contentType: enumeration('TEXT', 'IMAGE', 'VIDEO', 'QUIZ'),
@@ -91,13 +142,41 @@ export const content = object({
   mediaUrl: nullable(str),
   quiz: nullable(quiz),
 });
-export const lessonDetail = object({
+// API v2 에서만 오는 선택 필드. TEXT 콘텐츠의 화자별 대사(배열 순서대로 표시)와 출처를
+// body 와 별도로 보존한다. 목업 콘텐츠는 생략할 수 있게 선택 속성으로 둔다.
+const contentExtra = object({
+  dialogue: optional(array(object({ speaker: str, text: str }))),
+  source: optional(str),
+  segmentId: optional(str),
+});
+export const content = (v: unknown, p = '$') => {
+  contentExtra(v, p);
+  return contentBase(v, p) as Infer<typeof contentBase> & Partial<Infer<typeof contentExtra>>;
+};
+const lessonExtra = object({
+  segments: optional(
+    array(
+      object({
+        segmentId: str,
+        title: str,
+        order: num,
+        contentIds: array(num),
+      }),
+    ),
+  ),
+});
+const lessonDetailBase = object({
   lessonId: num,
   courseId: num,
   title: str,
   description: str,
   contents: array(content),
 });
+export const lessonDetail = (value: unknown, path = '$') => {
+  lessonExtra(value, path);
+  return lessonDetailBase(value, path) as Infer<typeof lessonDetailBase> &
+    Partial<Infer<typeof lessonExtra>>;
+};
 export const progress = object({
   status: lessonStatus,
   lastContentId: nullable(num),
@@ -109,31 +188,43 @@ export const reviewSet = object({
   message: nullable(str),
   rewardEligible: bool,
 });
-export const lessonStart = object({
+const lessonStartBase = object({
   reviewRequired: bool,
   review: nullable(reviewSet),
   progress,
   contents: array(content),
 });
+export const lessonStart = (value: unknown, path = '$') => {
+  lessonExtra(value, path);
+  return lessonStartBase(value, path) as Infer<typeof lessonStartBase> &
+    Partial<Infer<typeof lessonExtra>>;
+};
 export const answerResult = object({
-  attemptId: num,
+  attemptId: optional(num),
   isCorrect: bool,
   completed: optional(bool),
-  correctAnswer: optional(nullable(unknownObject)),
-  explanation: optional(nullable(str)),
-  streakDays: num,
+  correctAnswer: unknownObject,
+  explanation: optional(str),
   closeness: optional(num),
   source: optional(str),
+  streakDays: optional(num),
 });
 export const reward = object({
-  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION'),
-  currency: optional(nullable(enumeration('STAR', 'STARDUST'))),
+  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION', 'ARTWORK'),
+  currency: optional(nullable(enumeration('STARDUST'))),
   amount: optional(nullable(num)),
   itemId: optional(nullable(num)),
   badge: optional(nullable(unknownObject)),
+  artwork: optional(unknownObject),
 });
 export const rewards = object({ rewards: array(reward), wallet });
-export const lessonComplete = object({ rewards: array(reward), wallet, courseCompleted: bool });
+export const lessonComplete = object({
+  rewards: array(reward),
+  wallet,
+  courseCompleted: bool,
+  quizSummary: optional(object({ correctCount: num, totalCount: num })),
+  stardustSkipped: optional(bool),
+});
 export const contentComplete = object({
   progress,
   lessonCompleted: bool,
@@ -150,14 +241,19 @@ export const overallProgress = object({
 });
 export const housing = object({ housingId: num, name: str, isPublic: bool, likeCount: num });
 export const housingArea = enumeration('INTERIOR', 'EXTERIOR');
-export const transform = object({ x: real, y: real, rotation: num, layer: num });
+const transformBase = object({ x: real, y: real, rotation: num, layer: num });
+export const transform = (value: unknown, path = '$') => {
+  const result = transformBase(value, path);
+  optional(bool)((value as Record<string, unknown>).flippedX, `${path}.flippedX`);
+  return result as typeof result & { flippedX?: boolean };
+};
 export const placement = object({
   placementId: num,
   inventoryId: str,
   area: housingArea,
   transform,
   itemId: num,
-  optionId: num,
+  optionId: optional(num),
   option: unknownObject,
 });
 export const housingDetail = object({
@@ -174,7 +270,7 @@ export const itemType = enumeration('FURNITURE', 'OBJECT');
 export const shopOption = object({
   optionId: num,
   option: unknownObject,
-  currency: enumeration('STAR', 'STARDUST'),
+  currency: enumeration('STARDUST'),
   price: num,
   previewAsset: str,
   owned: bool,
@@ -185,19 +281,37 @@ export const shopItem = object({
   itemType,
   unlocked: bool,
   unlockHint: nullable(str),
-  minPrice: object({ currency: enumeration('STAR', 'STARDUST'), amount: num }),
+  minPrice: object({ currency: enumeration('STARDUST'), amount: num }),
   options: array(shopOption),
 });
 export const inventoryItem = object({
   inventoryId: str,
   itemId: num,
-  optionId: num,
+  optionId: optional(num),
   itemType,
   name: str,
   option: unknownObject,
   acquiredVia: enumeration('PURCHASE', 'REWARD', 'STARTER'),
   acquiredAt: str,
   placed: bool,
+});
+export const inventoryGroup = object({
+  itemId: num,
+  optionId: optional(num),
+  itemType,
+  name: str,
+  option: unknownObject,
+  ownedCount: num,
+  placedCount: num,
+  availableCount: num,
+  copies: array(
+    object({
+      inventoryId: str,
+      acquiredVia: enumeration('PURCHASE', 'REWARD', 'STARTER'),
+      acquiredAt: str,
+      placed: bool,
+    }),
+  ),
 });
 export type PlacementInput = {
   inventoryId: string;
@@ -215,7 +329,7 @@ export const housingCard = object({
 });
 export const housingVisit = object({
   housing,
-  placements: array(unknownObject),
+  placements: array(placement),
   avatar: unknownObject,
   ownerNickname: str,
   likedByMe: bool,
@@ -232,9 +346,10 @@ export const constellation = object({
   imageUrl: nullable(str),
 });
 export const rewardRecord = object({
-  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION'),
+  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION', 'ARTWORK'),
   source: unknownObject,
   grantedAt: str,
+  badge: optional(nullable(unknownObject)),
 });
 export const pageMeta = object({ nextCursor: nullable(str) });
 export type Me = Infer<typeof me>;

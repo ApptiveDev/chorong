@@ -1,176 +1,272 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { integrationApi as api, useMockApi } from '../../src/integration/runtime';
-import { mockVisibility } from '../../src/integration/mockVisibility';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import {
+  ControlSettingRow,
+  ControlSettingsScreen,
+  figma,
+} from '../../src/components/settings/ControlSettingsUI';
 import { useIntegration, useTask } from '../../src/integration/hooks';
-import type { Me } from '../../src/integration/models';
-import { UserStatus } from '../../src/integration/user/Screen';
+import { housingVisibility, useHousingVisibility } from '../../src/integration/housingVisibility';
+import type { BlockedUser, Me } from '../../src/integration/models';
+import { integrationApi as api } from '../../src/integration/runtime';
+import { SessionConfirmModal } from '../../src/integration/user/SessionConfirmModal';
+import {
+  PrivateConfirmModal,
+  PublicConfirmModal,
+} from '../../src/integration/user/VisibilityConfirmModals';
 
+// Figma S03_1 · 우주선 관리 (497:454)
 export default function UniverseSettings() {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
   const [me, setMe] = useState<Me | null>(null);
-  const [confirmPublic, setConfirmPublic] = useState<boolean | null>(null);
-  const mockPublic = useSyncExternalStore(
-    mockVisibility.subscribe,
-    mockVisibility.get,
-    mockVisibility.get,
-  );
-  const isPublic = useMockApi ? mockPublic : (me?.housing.isPublic ?? false);
+  const [users, setUsers] = useState<BlockedUser[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [confirmPrivate, setConfirmPrivate] = useState(false);
+  const [confirmPublic, setConfirmPublic] = useState(false);
+  const [visibilityRequested, setVisibilityRequested] = useState(false);
+  const [unblockUser, setUnblockUser] = useState<BlockedUser | null>(null);
+  const [unblockRequested, setUnblockRequested] = useState(false);
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const sharedPublic = useHousingVisibility();
+  const isPublic = sharedPublic ?? me?.housing.isPublic ?? false;
+  const member = session.ready && session.user?.status === 'ACTIVE';
+
   const load = () =>
     task.run(async () => {
-      const data = await api.account.me();
-      setMe(data);
+      const [account, page] = await Promise.all([
+        api.account.me(),
+        api.social.blocks({ size: 20 }),
+      ]);
+      setMe(account);
+      housingVisibility.set(account.housing.isPublic);
+      setUsers(page.data.users);
+      setCursor(page.meta.nextCursor);
     });
+
   useEffect(() => {
-    if (session.ready && session.authenticated) void load();
-  }, [session.ready, session.authenticated]);
-  const togglePush = () =>
+    if (member) void load();
+  }, [member]);
+
+  const changeVisibility = (value: boolean) => {
+    if (task.busy) return;
+    setVisibilityRequested(true);
     void task.run(async () => {
-      if (!me) return;
-      setMe(await api.account.update({ pushEnabled: !me.pushEnabled }));
+      const housing = await housingVisibility.update(value);
+      setMe((current) =>
+        current
+          ? { ...current, housing: { ...current.housing, isPublic: housing.isPublic } }
+          : current,
+      );
+      setDialogVisible(false);
+      setConfirmPublic(false);
+      setVisibilityRequested(false);
     });
+  };
+
+  const closeVisibility = () => {
+    if (task.busy) return;
+    setDialogVisible(false);
+    setConfirmPublic(false);
+    setVisibilityRequested(false);
+  };
+
+  const loadMore = () =>
+    void task.run(async () => {
+      if (!cursor) return;
+      const page = await api.social.blocks({ size: 20, cursor });
+      setUsers((current) => [...current, ...page.data.users]);
+      setCursor(page.meta.nextCursor);
+    });
+
+  const closeUnblock = () => {
+    if (task.busy) return;
+    setDialogVisible(false);
+    setUnblockUser(null);
+    setUnblockRequested(false);
+  };
+
+  const unblock = () => {
+    if (task.busy || !unblockUser) return;
+    const userId = unblockUser.userId;
+    setUnblockRequested(true);
+    void task.run(async () => {
+      await api.social.unblock(userId);
+      setUsers((current) => current.filter((user) => user.userId !== userId));
+      setDialogVisible(false);
+      setUnblockUser(null);
+      setUnblockRequested(false);
+      const page = await api.social.blocks({ size: 20 });
+      setUsers(page.data.users);
+      setCursor(page.meta.nextCursor);
+    });
+  };
+
   return (
-    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={s.content}>
-        <Pressable accessibilityRole="button" style={s.back} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={18} color="#273a52" />
-          <Text style={s.text}>제어실</Text>
-        </Pressable>
-        <Text style={s.title}>우주선 관리하기</Text>
-        <UserStatus task={task} />
-        {!session.authenticated ? (
-          <Text style={s.text}>로그인하면 설정을 볼 수 있습니다.</Text>
-        ) : (
-          <>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: session.user?.status !== 'ACTIVE' }}
-              disabled={session.user?.status !== 'ACTIVE'}
-              style={s.row}
-              onPress={() => router.push('/settings/blocked')}
-            >
-              <Text style={s.text}>차단한 사용자</Text>
-              <Ionicons name="chevron-forward" size={17} color="#7b8795" />
-            </Pressable>
-            <View style={s.row}>
-              <View>
-                <Text style={s.text}>우주선 공개</Text>
-                <Text style={s.caption}>
-                  {useMockApi
-                    ? '공개하면 다른 우주선을 구경할 수 있어요.'
-                    : '공개 설정 API 확정 대기'}
-                </Text>
+    <ControlSettingsScreen title="우주선 관리하기" onBack={() => router.replace('/more')}>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <ControlSettingRow
+          label="우주선 공개"
+          value={isPublic}
+          disabled={!me || task.busy}
+          onPress={() => {
+            if (!me || task.busy) return;
+            setUnblockUser(null);
+            setConfirmPrivate(isPublic);
+            setConfirmPublic(!isPublic);
+            setVisibilityRequested(false);
+            setDialogVisible(true);
+          }}
+        />
+
+        {/* 차단한 사용자: 제목(왼쪽 8)과 목록 사이 12 */}
+        <View style={s.blocked}>
+          <Text style={s.blockedTitle}>차단한 사용자</Text>
+          <View style={s.card}>
+            {users.length === 0 && !task.busy && !task.error ? (
+              <Text style={s.empty}>차단한 사용자가 없습니다.</Text>
+            ) : null}
+            {users.map((user) => (
+              <View key={user.userId} style={s.item}>
+                <View style={s.who}>
+                  <View style={s.star}>
+                    <BlockedStar />
+                  </View>
+                  <Text style={s.nickname} numberOfLines={1}>
+                    {user.nickname}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${user.nickname} 차단 해제`}
+                  disabled={task.busy}
+                  hitSlop={10}
+                  onPress={() => {
+                    if (task.busy) return;
+                    setConfirmPrivate(false);
+                    setConfirmPublic(false);
+                    setUnblockUser(user);
+                    setUnblockRequested(false);
+                    setDialogVisible(true);
+                  }}
+                >
+                  {({ pressed }) => (
+                    <View style={s.unblock}>
+                      <UnblockLabel color={pressed ? '#424242' : figma.base} />
+                    </View>
+                  )}
+                </Pressable>
               </View>
-              <Switch
-                accessibilityLabel="우주선 공개"
-                value={isPublic}
-                disabled={!useMockApi || !me}
-                onValueChange={setConfirmPublic}
-              />
-            </View>
-            <View style={s.row}>
-              <Text style={s.text}>학습 알림</Text>
-              <Switch
-                accessibilityLabel="학습 알림"
-                value={me?.pushEnabled ?? false}
-                disabled={!me || task.busy}
-                onValueChange={togglePush}
-              />
-            </View>
-          </>
-        )}
-      </ScrollView>
-      <Modal
-        visible={confirmPublic !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setConfirmPublic(null)}
-      >
-        <View style={s.overlay}>
-          <View style={s.dialog}>
-            <Text style={s.dialogTitle}>
-              {confirmPublic ? '공개하고 구경할까요?' : '비공개로 전환할까요?'}
-            </Text>
-            <Text style={s.text}>
-              {confirmPublic
-                ? '닉네임과 저장된 우주선이 공개돼요.'
-                : '비공개하면 다른 우주선을 구경할 수 없어요!'}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                mockVisibility.set(Boolean(confirmPublic));
-                setConfirmPublic(null);
-              }}
-              style={s.primary}
-            >
-              <Text style={s.primaryText}>{confirmPublic ? '공개하기' : '비공개로 전환하기'}</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setConfirmPublic(null)}
-              style={s.cancel}
-            >
-              <Text style={s.text}>취소</Text>
-            </Pressable>
+            ))}
+            {cursor ? (
+              <Pressable accessibilityRole="button" disabled={task.busy} onPress={loadMore}>
+                <Text style={s.more}>더 보기</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
-      </Modal>
-    </SafeAreaView>
+
+        {session.ready && !member ? (
+          <Text style={s.notice}>로그인하면 우주선을 관리할 수 있습니다.</Text>
+        ) : null}
+        {task.error && !unblockUser ? <Text style={s.error}>{task.error}</Text> : null}
+      </ScrollView>
+
+      <PublicConfirmModal
+        visible={dialogVisible && confirmPublic}
+        error={visibilityRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeVisibility}
+        onConfirm={() => changeVisibility(true)}
+      />
+      <PrivateConfirmModal
+        visible={dialogVisible && confirmPrivate}
+        error={visibilityRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeVisibility}
+        onConfirm={() => changeVisibility(false)}
+      />
+      <SessionConfirmModal
+        visible={dialogVisible && !confirmPrivate && !!unblockUser}
+        title="차단을 해제할까요?"
+        notice="해제한 사용자는 다시 구경 목록에 나올 수 있어요."
+        noticeWeight="medium"
+        scrollable
+        confirmLabel="해제하기"
+        error={unblockRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closeUnblock}
+        onConfirm={unblock}
+      />
+    </ControlSettingsScreen>
+  );
+}
+
+// Figma 656:2901 'Star 5' 원본 경로 (8.66×10, #161616)
+// Figma 656:2929 '해제' 글자(DungGeunMo Regular 14)를 윤곽선으로 내보낸 SVG. 기본 #161616, 눌림 #424242.
+function UnblockLabel({ color }: { color: string }) {
+  return (
+    <Svg width={27} height={12} viewBox="0 0 27 12" fill="none">
+      <Path
+        d="M4.375 0V0.875H7V1.75H0V0.875H2.625V0H4.375ZM9.625 6.125V11.375H7.875V0H9.625V5.25H10.5V0H12.25V11.375H10.5V6.125H9.625ZM5.25 9.625V10.5H1.75V9.625H0.875V8.75H0V4.375H0.875V3.5H1.75V2.625H5.25V3.5H6.125V4.375H7V8.75H6.125V9.625H5.25ZM2.625 3.5V4.375H1.75V8.75H2.625V9.625H4.375V8.75H5.25V4.375H4.375V3.5H2.625ZM23.625 0V11.375H21.875V6.125H20.125V5.25H21.875V0H23.625ZM26.25 0V11.375H24.5V0H26.25ZM21 9.625V10.5H19.25V9.625H18.375V8.75H16.625V9.625H15.75V10.5H14V9.625H14.875V8.75H15.75V7.875H16.625V1.75H14V0.875H21V1.75H18.375V7.875H19.25V8.75H20.125V9.625H21Z"
+        fill={color}
+      />
+    </Svg>
+  );
+}
+
+function BlockedStar() {
+  return (
+    <Svg width={8.66026} height={10} viewBox="0 0 8.66026 10" fill="none">
+      <Path
+        d="M4.33013 0L5.28504 3.34604L8.66025 2.5L6.23996 5L8.66025 7.5L5.28504 6.65396L4.33013 10L3.37521 6.65396L0 7.5L2.4203 5L0 2.5L3.37521 3.34604L4.33013 0Z"
+        fill={figma.base}
+      />
+    </Svg>
   );
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
-  content: { padding: 18, gap: 8 },
-  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2 },
-  title: {
-    textAlign: 'center',
-    color: '#273a52',
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 14,
+  content: { paddingBottom: 40 },
+  blocked: { marginTop: 24, gap: 12 },
+  blockedTitle: {
+    paddingLeft: 8,
+    color: figma.base,
+    fontFamily: 'PretendardMedium',
+    fontSize: 16,
   },
-  row: {
-    minHeight: 48,
+  // 목록 상자: 위 12 · 아래 24 · 왼쪽 20 · 오른쪽 28
+  card: {
+    backgroundColor: figma.fale,
     borderWidth: 1,
-    borderColor: '#dce2e8',
+    borderColor: figma.lght,
     borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 12,
+    paddingBottom: 24,
+    paddingLeft: 20,
+    paddingRight: 28,
+  },
+  // 항목: 위아래 12 · 좌우 2, 아래 구분선 1 #000
+  item: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
   },
-  text: { color: '#273a52', fontSize: 12 },
-  caption: { color: '#7b8795', fontSize: 10, marginTop: 3 },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(27,39,56,0.47)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  dialog: { backgroundColor: '#fff', borderRadius: 8, padding: 17, gap: 12 },
-  dialogTitle: { color: '#273a52', fontSize: 16, fontWeight: '700' },
-  primary: {
-    minHeight: 42,
-    backgroundColor: '#273a52',
-    borderRadius: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  cancel: {
-    minHeight: 42,
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  who: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  star: { width: 10, height: 10, alignItems: 'center', justifyContent: 'center' },
+  nickname: { flexShrink: 1, color: figma.base, fontFamily: 'PretendardRegular', fontSize: 14 },
+  // Figma 656:2929 해제 버튼 칸 28×14
+  unblock: { width: 28, height: 14, justifyContent: 'center' },
+  empty: { paddingVertical: 12, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
+  more: { paddingTop: 12, color: figma.base, fontFamily: 'PretendardMedium', fontSize: 14 },
+  notice: { marginTop: 16, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
+  error: { marginTop: 16, color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 14 },
 });

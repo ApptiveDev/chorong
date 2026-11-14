@@ -1,19 +1,28 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { TopDownRoom } from '../../components/house/TopDownRoom';
-import { useIntegration, useTask } from '../hooks';
-import { mockVisibility } from '../mockVisibility';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  placement,
-  type HousingCard,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { TopDownRoom } from '../../components/house/TopDownRoom';
+import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { useIntegration, useTask } from '../hooks';
+import { housingVisibility, useHousingVisibility } from '../housingVisibility';
+import {
   type HousingDetail,
   type HousingVisit,
-  type Placement,
+  type InventoryItem,
   type ReportReason,
+  type ShopItem,
 } from '../models';
-import { integrationApi as api, useMockApi } from '../runtime';
+import { integrationApi as api } from '../runtime';
+import { BrowseView } from './BrowseView';
 import { UserScreen, UserStatus } from './Screen';
 
 const reportReasons: { value: ReportReason; label: string }[] = [
@@ -23,234 +32,157 @@ const reportReasons: { value: ReportReason; label: string }[] = [
   { value: 'OTHER', label: '기타' },
 ];
 
-function visiblePlacements(values: Record<string, unknown>[]): Placement[] {
-  return values.flatMap((value) => {
-    try {
-      return [placement(value)];
-    } catch {
-      return [];
-    }
-  });
-}
-
 export default function SocialScreen() {
   const session = useIntegration();
   const task = useTask();
   const router = useRouter();
-  const mockPublic = useSyncExternalStore(
-    mockVisibility.subscribe,
-    mockVisibility.get,
-    mockVisibility.get,
-  );
+  const { height: screenHeight } = useWindowDimensions();
+  // 내 우주선 헤더의 '구경하기'로 들어오면 view=browse. 내 우주선 미리보기를 건너뛰고 바로 구경한다.
+  const { view } = useLocalSearchParams<{ view?: string }>();
+  const fromBrowseTab = view === 'browse';
+  const sharedPublic = useHousingVisibility();
   const [own, setOwn] = useState<HousingDetail | null>(null);
-  const [cards, setCards] = useState<HousingCard[]>([]);
-  const [visit, setVisit] = useState<HousingVisit | null>(null);
-  const [index, setIndex] = useState(0);
-  const [sort, setSort] = useState<'recent' | 'popular'>('recent');
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [showOwn, setShowOwn] = useState(false);
-  const [dialog, setDialog] = useState<'public' | 'private' | 'menu' | 'report' | null>(null);
-  const [reason, setReason] = useState<ReportReason>('OTHER');
-  const [detail, setDetail] = useState('');
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [shopItems, setShopItems] = useState<ShopItem[]>([]);
+  const [showOwn, setShowOwn] = useState(true);
+  const [dialog, setDialog] = useState<'login' | 'public' | 'private' | null>(null);
   const [notice, setNotice] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const isPublic = useMockApi ? mockPublic : (own?.housing.isPublic ?? true);
+  const member = session.user?.status === 'ACTIVE';
+  const isPublic = sharedPublic ?? own?.housing.isPublic ?? true;
+  // 구경 목록·좋아요·신고·차단은 BrowseView(Figma D01_2)가 맡는다. 여기서는 내 우주선과 접근 제어만 다룬다.
+  const browsing = !showOwn && member && isPublic;
 
   const load = () =>
     void task.run(async () => {
-      const myRoom = await api.room.me();
+      const [myRoom, owned, shop] = await Promise.all([
+        api.room.me(),
+        api.room.inventory(),
+        api.room.shop(),
+      ]);
       setOwn(myRoom);
-      const page = await api.social.explore({ sort, size: 20 });
-      setCards(page.data.housings);
-      setCursor(page.meta.nextCursor);
-      setIndex(0);
-      setVisit(
-        page.data.housings.length ? await api.social.visit(page.data.housings[0].housingId) : null,
-      );
+      housingVisibility.set(myRoom.housing.isPublic);
+      setInventory(owned.items);
+      setShopItems(shop.items);
       setLoaded(true);
     });
+  useFocusEffect(
+    useCallback(() => {
+      if (session.ready && session.authenticated) load();
+    }, [session.ready, session.authenticated, session.user?.status]),
+  );
+  useFocusEffect(
+    useCallback(() => {
+      if (fromBrowseTab) setShowOwn(false);
+    }, [fromBrowseTab]),
+  );
   useEffect(() => {
-    if (session.ready && session.user?.status === 'ACTIVE') load();
-  }, [session.ready, session.user?.status, sort]);
-  useEffect(() => {
-    if (own && !isPublic && !showOwn) setDialog('public');
-  }, [own]);
-
-  const next = () => {
-    if (!cards.length) return;
-    void task.run(async () => {
-      let nextCards = cards;
-      if (index + 1 >= cards.length && cursor) {
-        const page = await api.social.explore({ sort, size: 20, cursor });
-        nextCards = [...cards, ...page.data.housings];
-        setCards(nextCards);
-        setCursor(page.meta.nextCursor);
-      }
-      const nextIndex = index + 1 < nextCards.length ? index + 1 : 0;
-      setVisit(await api.social.visit(nextCards[nextIndex].housingId));
-      setIndex(nextIndex);
-      setShowOwn(false);
-      setNotice('');
-    });
-  };
-  const like = () => {
-    if (!visit) return;
-    void task.run(async () => {
-      const state = visit.likedByMe
-        ? await api.social.unlike(visit.housing.housingId)
-        : await api.social.like(visit.housing.housingId);
-      setVisit({
-        ...visit,
-        likedByMe: state.likedByMe,
-        housing: { ...visit.housing, likeCount: state.likeCount },
-      });
-    });
-  };
-  const report = () => {
-    if (!visit) return;
-    void task.run(async () => {
-      await api.social.report(visit.housing.housingId, reason, detail.trim() || undefined);
-      setDialog(null);
-      setNotice('신고를 접수했습니다.');
-    });
+    if (!session.ready) return;
+    if (session.user?.status === 'GUEST') setDialog('login');
+    else setDialog((current) => (current === 'login' ? null : current));
+  }, [session.ready, session.user?.status]);
+  const browse = () => {
+    if (!member) {
+      setDialog('login');
+      return;
+    }
+    if (!isPublic) {
+      setDialog('public');
+      return;
+    }
+    setShowOwn(false);
+    setNotice('');
   };
   const changeVisibility = (value: boolean) => {
-    setDialog(null);
-    if (!useMockApi) return;
-    mockVisibility.set(value);
-    setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
-    setShowOwn(!value);
+    void task.run(async () => {
+      const housing = await housingVisibility.update(value);
+      setOwn(
+        (current) =>
+          current && {
+            ...current,
+            housing: { ...current.housing, name: housing.name, isPublic: housing.isPublic },
+          },
+      );
+      setDialog(null);
+      setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
+      setShowOwn(!value);
+    });
   };
+  const leave = () => (fromBrowseTab ? router.navigate('/') : router.back());
 
-  const name = showOwn ? own?.housing.name : visit?.housing.name;
-  const owner = showOwn
-    ? '내 우주선'
-    : visit
-      ? `${visit.ownerNickname} · ${visit.housing.name}`
-      : '';
-  const placements = showOwn
-    ? (own?.placements ?? [])
-    : visit
-      ? visiblePlacements(visit.placements)
-      : [];
-  const count = showOwn ? (own?.housing.likeCount ?? 0) : (visit?.housing.likeCount ?? 0);
+  if (browsing)
+    return (
+      <BrowseView
+        shopItems={shopItems}
+        onMyShip={() => (fromBrowseTab ? router.navigate('/') : setShowOwn(true))}
+      />
+    );
+
+  const count = own?.housing.likeCount ?? 0;
+  const sceneItems: RoomSceneItem[] = (own?.placements ?? [])
+    .filter((placement) => placement.area === 'INTERIOR')
+    .map((placement) => ({
+      key: placement.inventoryId,
+      name:
+        inventory.find((item) => item.inventoryId === placement.inventoryId)?.name ??
+        shopItems.find((item) => item.itemId === placement.itemId)?.name ??
+        '가구',
+      color: typeof placement.option.color === 'string' ? placement.option.color : undefined,
+      x: placement.transform.x,
+      y: placement.transform.y,
+      layer: placement.transform.layer,
+    }));
   return (
-    <UserScreen title="다른 우주선 구경" member>
-      <View style={s.header}>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={s.back}>
-          <Ionicons name="chevron-back" size={18} color="#273a52" />
-          <Text style={s.small}>나의 우주선</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setShowOwn((value) => !value)}
-          style={s.ownButton}
-        >
-          <Text style={s.small}>{showOwn ? '다른 우주선 보기' : '내 우주선 보기'}</Text>
-        </Pressable>
-      </View>
-      <View style={s.visibilityRow}>
-        <View style={s.visibilityText}>
-          <Text style={s.visibilityTitle}>내 우주선 {isPublic ? '공개 중' : '비공개'}</Text>
-          <Text style={s.caption}>
-            {isPublic
-              ? '다른 사용자가 내 우주선을 볼 수 있어요.'
-              : '비공개하면 다른 우주선을 구경할 수 없어요!'}
+    <UserScreen title="다른 우주선 구경" scroll={false} showTitle={false}>
+      <View style={s.socialPage}>
+        <View style={s.socialHeader}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="뒤로"
+            onPress={leave}
+            style={s.socialBack}
+          >
+            <Ionicons name="chevron-back" size={25} color="#282636" />
+          </Pressable>
+          <Text style={s.socialTitle} numberOfLines={1}>
+            내 우주선
           </Text>
+          <View style={s.socialMenu} />
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !useMockApi }}
-          disabled={!useMockApi}
-          onPress={() => setDialog(isPublic ? 'private' : 'public')}
-          style={s.visibilityButton}
-        >
-          <Text style={s.small}>{isPublic ? '비공개' : '공개'}</Text>
-        </Pressable>
-      </View>
-      {!useMockApi ? (
-        <Text style={s.caption}>공개 변경은 API-703 명세 확정 후 연결됩니다.</Text>
-      ) : null}
-      <View style={s.sortRow}>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setSort('recent')}
-          style={[s.sortButton, sort === 'recent' && s.sortActive]}
-        >
-          <Text style={[s.small, sort === 'recent' && s.sortActiveText]}>최신순</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setSort('popular')}
-          style={[s.sortButton, sort === 'popular' && s.sortActive]}
-        >
-          <Text style={[s.small, sort === 'popular' && s.sortActiveText]}>인기순</Text>
-        </Pressable>
-      </View>
-      <UserStatus task={task} />
-      {notice ? <Text style={s.notice}>{notice}</Text> : null}
-      {name && (isPublic || showOwn) ? (
-        <>
-          <View style={s.roomHeading}>
-            <Text style={s.roomTitle}>{owner}</Text>
-            {!showOwn ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="신고 메뉴"
-                onPress={() => setDialog('menu')}
-              >
-                <Ionicons name="ellipsis-horizontal" size={22} color="#273a52" />
+        <View style={s.socialMiddle}>
+          {loaded ? (
+            <>
+              <View style={[s.socialScene, screenHeight < 750 && s.socialSceneShort]}>
+                <RoomScene items={sceneItems} />
+              </View>
+              <View style={s.publicStatus}>
+                <Text style={s.socialMuted}>{isPublic ? '공개' : '비공개'}</Text>
+                <Text style={s.socialMuted}>♡ {count}</Text>
+              </View>
+              <View style={s.socialBottom}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: task.busy }}
+                  disabled={task.busy}
+                  onPress={browse}
+                  style={s.socialPrimary}
+                >
+                  <Text style={s.socialPrimaryText}>다른 우주선 구경하기</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+          <View style={s.socialStatus}>
+            <UserStatus task={task} />
+            {notice ? <Text style={s.notice}>{notice}</Text> : null}
+            {task.error && !loaded ? (
+              <Pressable accessibilityRole="button" onPress={load} style={s.outlineButton}>
+                <Text style={s.outlineText}>다시 불러오기</Text>
               </Pressable>
             ) : null}
           </View>
-          <View style={s.roomFrame}>
-            <TopDownRoom placements={placements} />
-          </View>
-          <View style={s.actions}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: showOwn || task.busy }}
-              disabled={showOwn || task.busy}
-              onPress={like}
-              style={s.outlineButton}
-            >
-              <Text style={s.outlineText}>
-                {visit?.likedByMe && !showOwn ? '♥' : '♡'} {count}
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={showOwn ? () => setShowOwn(false) : next}
-              style={s.primaryButton}
-            >
-              <Text style={s.primaryText}>{showOwn ? '다른 우주선 보기' : '다음 우주선'}</Text>
-            </Pressable>
-          </View>
-        </>
-      ) : loaded ? (
-        <>
-          <View style={s.emptyRoom}>
-            <Text style={s.caption}>
-              {!isPublic
-                ? '내 우주선을 공개하면 다른 우주선을 구경할 수 있어요.'
-                : '구경할 우주선이 없어요.'}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => (!isPublic ? setDialog('public') : router.replace('/'))}
-            style={s.primaryButton}
-          >
-            <Text style={s.primaryText}>
-              {!isPublic ? '공개하고 구경하기' : '내 우주선으로 돌아가기'}
-            </Text>
-          </Pressable>
-        </>
-      ) : task.error ? (
-        <Pressable accessibilityRole="button" onPress={load} style={s.outlineButton}>
-          <Text style={s.outlineText}>다시 불러오기</Text>
-        </Pressable>
-      ) : null}
+        </View>
+      </View>
 
       <Modal
         visible={dialog !== null}
@@ -260,7 +192,22 @@ export default function SocialScreen() {
       >
         <View style={s.overlay}>
           <View style={s.dialog}>
-            {dialog === 'public' ? (
+            {dialog === 'login' ? (
+              <>
+                <Text style={s.dialogTitle}>다른 우주선을 구경해요</Text>
+                <Text style={s.dialogText}>로그인하면 다른 탐험가의 우주선을 볼 수 있어요.</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setDialog(null);
+                    router.push({ pathname: '/more', params: { returnTo: '/social' } });
+                  }}
+                  style={s.primaryButton}
+                >
+                  <Text style={s.primaryText}>로그인·회원가입</Text>
+                </Pressable>
+              </>
+            ) : dialog === 'public' ? (
               <>
                 <Text style={s.dialogTitle}>공개하고 구경할까요?</Text>
                 <Text style={s.dialogText}>
@@ -288,72 +235,13 @@ export default function SocialScreen() {
                   <Text style={s.primaryText}>비공개로 전환하기</Text>
                 </Pressable>
               </>
-            ) : dialog === 'menu' ? (
-              <>
-                <Text style={s.dialogTitle}>우주선 메뉴</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setDialog('report')}
-                  style={s.outlineButton}
-                >
-                  <Text style={s.outlineText}>신고</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled
-                  accessibilityState={{ disabled: true }}
-                  style={[s.outlineButton, s.disabled]}
-                >
-                  <Text style={s.outlineText}>차단</Text>
-                </Pressable>
-                <Text style={s.caption}>
-                  방문 응답에 사용자 ID가 없어 차단은 연결 대기 중입니다.
-                </Text>
-              </>
-            ) : dialog === 'report' ? (
-              <>
-                <Text style={s.dialogTitle}>신고</Text>
-                <Text style={s.dialogText}>
-                  대상: {visit?.ownerNickname} · {visit?.housing.name}
-                </Text>
-                <View style={s.reasons}>
-                  {reportReasons.map((entry) => (
-                    <Pressable
-                      key={entry.value}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: reason === entry.value }}
-                      onPress={() => setReason(entry.value)}
-                      style={[s.reason, reason === entry.value && s.reasonSelected]}
-                    >
-                      <Text style={s.small}>{entry.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <TextInput
-                  accessibilityLabel="신고 내용"
-                  placeholder="신고 내용 (선택)"
-                  value={detail}
-                  onChangeText={setDetail}
-                  multiline
-                  style={s.input}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: task.busy }}
-                  disabled={task.busy}
-                  onPress={report}
-                  style={s.primaryButton}
-                >
-                  <Text style={s.primaryText}>신고 접수</Text>
-                </Pressable>
-              </>
             ) : null}
             <Pressable
               accessibilityRole="button"
               onPress={() => setDialog(null)}
               style={s.outlineButton}
             >
-              <Text style={s.outlineText}>취소</Text>
+              <Text style={s.outlineText}>{dialog === 'login' ? '나중에 하기' : '취소'}</Text>
             </Pressable>
           </View>
         </View>
@@ -416,7 +304,7 @@ export function VisitScreen() {
             </Pressable>
           </View>
           <View style={s.roomFrame}>
-            <TopDownRoom placements={visiblePlacements(visit.placements)} />
+            <TopDownRoom placements={visit.placements} />
           </View>
           <View style={s.actions}>
             <Pressable
@@ -491,6 +379,60 @@ export function VisitScreen() {
 }
 
 const s = StyleSheet.create({
+  socialPage: {
+    flex: 1,
+    minHeight: 0,
+    marginHorizontal: -18,
+    marginTop: -12,
+    backgroundColor: '#f8f6fc',
+  },
+  socialHeader: {
+    minHeight: 74,
+    paddingHorizontal: 21,
+    paddingTop: 22,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  socialBack: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  socialTitle: { flex: 1, color: '#282636', fontSize: 17, fontWeight: '600' },
+  socialMenu: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  socialMiddle: { flex: 1, minHeight: 0, position: 'relative' },
+  socialScene: { marginTop: 28, paddingHorizontal: 20 },
+  socialSceneShort: { width: 330, maxWidth: '100%', alignSelf: 'center' },
+  publicStatus: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 17 },
+  socialMuted: { color: '#a095ac', fontSize: 12, textAlign: 'center' },
+  socialBottom: {
+    position: 'absolute',
+    bottom: 24,
+    left: 24,
+    right: 24,
+    gap: 12,
+    alignItems: 'center',
+  },
+  likeButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e7dce9',
+    borderRadius: 14,
+  },
+  likedButton: { backgroundColor: '#f5e7f0' },
+  likeText: { color: '#ab8499', fontSize: 15 },
+  socialPrimary: {
+    minHeight: 52,
+    width: '100%',
+    borderRadius: 13,
+    backgroundColor: '#373044',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  socialPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  socialEmpty: { flex: 1, justifyContent: 'center', paddingHorizontal: 24, gap: 25 },
+  socialStatus: { position: 'absolute', left: 24, right: 24, top: 400 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   back: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   small: { color: '#273a52', fontSize: 12 },
@@ -536,9 +478,9 @@ const s = StyleSheet.create({
   actions: { flexDirection: 'row', gap: 7 },
   primaryButton: {
     flex: 1,
-    minHeight: 42,
-    backgroundColor: '#273a52',
-    borderRadius: 5,
+    minHeight: 52,
+    backgroundColor: '#373044',
+    borderRadius: 13,
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -546,15 +488,15 @@ const s = StyleSheet.create({
   primaryText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   outlineButton: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 52,
     borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 5,
+    borderColor: '#e7dce9',
+    borderRadius: 13,
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  outlineText: { color: '#273a52', fontSize: 12 },
+  outlineText: { color: '#655174', fontSize: 12 },
   emptyRoom: {
     minHeight: 250,
     backgroundColor: '#f2f4f7',
@@ -572,26 +514,35 @@ const s = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(27,39,56,0.47)',
+    backgroundColor: 'rgba(52,39,60,0.39)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 24,
   },
-  dialog: { backgroundColor: '#fff', borderRadius: 8, padding: 17, gap: 10 },
-  dialogTitle: { color: '#273a52', fontSize: 16, fontWeight: '700' },
-  dialogText: { color: '#536578', fontSize: 12, lineHeight: 18 },
+  dialog: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+    backgroundColor: '#fff',
+    borderRadius: 23,
+    padding: 24,
+    gap: 12,
+  },
+  dialogTitle: { color: '#282636', fontSize: 18, fontWeight: '700' },
+  dialogText: { color: '#817790', fontSize: 13, lineHeight: 20 },
   warning: { color: '#b84b4b', fontSize: 12, fontWeight: '700' },
   disabled: { opacity: 0.5 },
   reasons: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  reason: { borderWidth: 1, borderColor: '#dce2e8', borderRadius: 5, padding: 7 },
-  reasonSelected: { borderColor: '#273a52', backgroundColor: '#f2f4f7' },
+  reason: { borderWidth: 1, borderColor: '#e7dce9', borderRadius: 10, padding: 9 },
+  reasonSelected: { borderColor: '#827299', backgroundColor: '#f4f1f8' },
   input: {
     borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 5,
+    borderColor: '#e7dce9',
+    borderRadius: 12,
     minHeight: 58,
     padding: 9,
     fontSize: 12,
-    color: '#273a52',
+    color: '#282636',
     textAlignVertical: 'top',
   },
 });

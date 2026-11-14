@@ -9,16 +9,22 @@ export function UserScreen({
   children,
   member = false,
   scroll = true,
+  showTitle = true,
+  dark = false,
+  quiz = false,
 }: {
   title: string;
   children: ReactNode;
   member?: boolean;
   scroll?: boolean;
+  showTitle?: boolean;
+  dark?: boolean;
+  quiz?: boolean;
 }) {
   const session = useIntegration();
   const content = (
     <>
-      <Text style={styles.title}>{title}</Text>
+      {showTitle ? <Text style={styles.title}>{title}</Text> : null}
       {session.notice ? <Text style={styles.error}>{session.notice}</Text> : null}
       {!session.ready ? (
         <ActivityIndicator accessibilityLabel="계정 확인 중" />
@@ -34,7 +40,7 @@ export function UserScreen({
   );
   return (
     <SafeAreaView
-      style={screenStyles.safe}
+      style={[screenStyles.safe, quiz && screenStyles.quizSafe, dark && screenStyles.darkSafe]}
       edges={scroll ? ['top', 'right', 'left'] : ['top', 'right', 'bottom', 'left']}
     >
       {scroll ? (
@@ -42,20 +48,47 @@ export function UserScreen({
           {content}
         </ScrollView>
       ) : (
-        <View style={screenStyles.fixedPage}>{content}</View>
+        <View
+          style={[
+            screenStyles.fixedPage,
+            quiz && screenStyles.quizPage,
+            dark && screenStyles.darkPage,
+          ]}
+        >
+          {content}
+        </View>
       )}
     </SafeAreaView>
   );
 }
 const screenStyles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
+  quizSafe: { backgroundColor: '#e4e4e4' },
   fixedPage: { flex: 1, minHeight: 0, paddingHorizontal: 18, paddingTop: 12, gap: 8 },
+  quizPage: { backgroundColor: '#e4e4e4', paddingHorizontal: 0, paddingTop: 0, gap: 0 },
+  darkSafe: { backgroundColor: '#161616' },
+  darkPage: { paddingHorizontal: 0, paddingTop: 0, gap: 0, overflow: 'hidden' },
 });
-export function UserStatus({ task }: { task: ReturnType<typeof useTask> }) {
+// floatingBusy: 로딩 표시를 레이아웃 흐름 밖(절대 위치)에 띄워, 표시·해제 때 아래 화면이 밀리지 않게 한다.
+export function UserStatus({
+  task,
+  floatingBusy = false,
+}: {
+  task: ReturnType<typeof useTask>;
+  floatingBusy?: boolean;
+}) {
   const message = task.error?.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '');
   return (
     <>
-      {task.busy ? <ActivityIndicator accessibilityLabel="불러오는 중" /> : null}
+      {task.busy ? (
+        floatingBusy ? (
+          <View pointerEvents="none" style={statusStyles.floatingBusy}>
+            <ActivityIndicator accessibilityLabel="불러오는 중" />
+          </View>
+        ) : (
+          <ActivityIndicator accessibilityLabel="불러오는 중" />
+        )
+      ) : null}
       {message ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {message}
@@ -64,3 +97,14 @@ export function UserStatus({ task }: { task: ReturnType<typeof useTask> }) {
     </>
   );
 }
+
+const statusStyles = StyleSheet.create({
+  floatingBusy: {
+    position: 'absolute',
+    top: 4,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+});
