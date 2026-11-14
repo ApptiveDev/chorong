@@ -65,4 +65,6 @@ npx eas-cli@latest build -p ios --profile production
 npx eas-cli@latest submit -p ios --latest
 ```
 
+Google 로그인 클라이언트 ID 는 preview 프로필 `env` 의 `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` 로 넣는다. `app.config.ts` 가 iOS 클라이언트 ID 로 URL scheme 을 만든다. 백엔드는 `deploy-backend-dev.yml` 의 `GOOGLE_OAUTH_CLIENT_IDS` 로 Web, iOS, Android 클라이언트 ID 를 받는다. prod 클라이언트는 아직 발급하지 않았다. 값은 `bawi-cloud-core/notes/2026-11-14-gcp-terraform-chorong.md` 에 있다.
+
 첫 iOS 빌드에서 EAS 가 Apple Developer 로그인을 요구한다. 인증서와 프로비저닝 프로파일은 EAS 원격 저장소에 보관한다. 첫 Android 스토어 제출은 Play Console 에서 수동 업로드를 한 번 해야 한다.
