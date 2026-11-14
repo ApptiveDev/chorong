@@ -1,6 +1,7 @@
 // 타일 벗기기. SINGLE + config.presentation.type === 'TILE'.
 // Figma 타일 벗기기(740:1438)·정답(740:1452)을 따른다. 화면 틀은 PresentedChoiceQuiz 가 맡는다.
 // 사진이 다 뜬 뒤부터 tileReveal.ts 규칙대로 칸을 열고, 채점 결과가 나오면 남은 칸을 모두 연다.
+// 정답이면 해설 시트에 '타일 n개만 벗기고 맞췄어요.'를 덧붙인다(n: 보기를 고른 순간 열린 칸 수).
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -26,15 +27,32 @@ import {
 } from './tileReveal';
 import { presentationImageUrl } from './presentationImage';
 
+/** 정답 문구. 모든 칸이 열린 뒤 맞혔으면 개수 대신 모두라고 쓴다. */
+export function tileCorrectNote(revealedCount: number) {
+  return revealedCount >= TILE_COUNT
+    ? '타일을 모두 벗기고 맞췄어요.'
+    : `타일 ${revealedCount}개만 벗기고 맞췄어요.`;
+}
+
 export function TileRevealQuiz(props: PresentedChoiceProps) {
   const url = presentationImageUrl(props.quiz, 'TILE');
+  const [answeredCount, setAnsweredCount] = useState<number | null>(null);
   return (
     <PresentedChoiceQuiz
       {...props}
       topSpace={80}
       gap={20}
+      correctNote={answeredCount === null ? null : tileCorrectNote(answeredCount)}
       media={({ locked, graded }) =>
-        url ? <TileBoard url={url} scale={props.scale} paused={locked} revealAll={graded} /> : null
+        url ? (
+          <TileBoard
+            url={url}
+            scale={props.scale}
+            paused={locked}
+            revealAll={graded}
+            onAnswerCount={setAnsweredCount}
+          />
+        ) : null
       }
     />
   );
@@ -46,6 +64,7 @@ function TileBoard({
   scale,
   paused,
   revealAll,
+  onAnswerCount,
 }: {
   url: string;
   scale: number;
@@ -53,6 +72,8 @@ function TileBoard({
   paused: boolean;
   // 채점 결과가 나오면 남은 칸을 모두 연다.
   revealAll: boolean;
+  // 보기를 고른 순간 열려 있던 칸 수(페이드 중인 칸 포함).
+  onAnswerCount: (count: number) => void;
 }) {
   const opacities = useRef(Array.from({ length: TILE_COUNT }, () => new Animated.Value(1))).current;
   const revealed = useRef(new Set<number>());
@@ -105,6 +126,11 @@ function TileBoard({
     }, TILE_STEP_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [loaded, paused, revealAll]);
+
+  // 남은 칸을 모두 열기 전에(채점 중일 때) 센다.
+  useEffect(() => {
+    if (paused && !revealAll) onAnswerCount(revealed.current.size);
+  }, [paused]);
 
   useEffect(() => {
     if (revealAll) reveal(pickHiddenTiles(revealed.current, TILE_COUNT));

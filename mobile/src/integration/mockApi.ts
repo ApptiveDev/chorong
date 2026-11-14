@@ -338,8 +338,7 @@ const presentedMockAnswers = new Map([
     tileMockQuizId,
     {
       answer: 0,
-      explanation:
-        '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.\n가벼운 원자핵이 합쳐지며 빛을 내요.',
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
     },
   ],
   [
