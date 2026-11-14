@@ -549,11 +549,17 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         state.completed.has(content.contentId),
       );
       const lastContentId = completedContents.at(-1)?.contentId ?? null;
+      // API-402 레슨 상태와 같은 기준이다. 보상을 받은 뒤 목업 레슨에 콘텐츠가 늘어나면
+      // 남은 콘텐츠가 있으므로 IN_PROGRESS 로 이어 하게 한다.
+      const allCompleted = completedContents.length === selected.contents.length;
       return response({
         reviewRequired: false,
         review: null,
         progress: {
-          status: state.rewardedLessons.has(selected.lessonId) ? 'COMPLETED' : 'IN_PROGRESS',
+          status:
+            state.rewardedLessons.has(selected.lessonId) && allCompleted
+              ? 'COMPLETED'
+              : 'IN_PROGRESS',
           lastContentId,
           resumeContentId:
             selected.contents.find((content) => !state.completed.has(content.contentId))

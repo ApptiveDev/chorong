@@ -123,7 +123,12 @@ function Study() {
         throw new Error('완료 위치가 콘텐츠 목록에 없습니다.');
       setPosition(replay ? 0 : index);
       setResumePosition(replay ? 0 : index);
-      if (!replay && (params.resume === 'true' || data.progress.lastContentId !== null))
+      // 완료한 레슨은 완료 화면을 보여 주므로 이어 하기 모달을 겹쳐 띄우지 않는다.
+      if (
+        !replay &&
+        data.progress.status !== 'COMPLETED' &&
+        (params.resume === 'true' || data.progress.lastContentId !== null)
+      )
         setResumeOpen(true);
       setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
       return data;
