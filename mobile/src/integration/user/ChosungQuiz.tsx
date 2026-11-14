@@ -14,7 +14,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Svg, { Mask, Path } from 'react-native-svg';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import {
   CHOSUNG_SETTLE_MS,
@@ -23,6 +22,7 @@ import {
   compactChosung,
   isChosungInputFilled,
 } from './chosungInput';
+import { FEEDBACK_SHEET_COLORS, QuizFeedbackSheet } from './QuizFeedbackSheet';
 
 export function isChosungQuiz(quiz: Quiz | null | undefined): boolean {
   return quiz?.type === 'CHOSUNG' && typeof quiz.options?.hint === 'string';
@@ -30,17 +30,8 @@ export function isChosungQuiz(quiz: Quiz | null | undefined): boolean {
 
 type Phase = 'INPUT' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
 
-// Figma 739:892 의 정답색은 #3D8F11 로 공통 팔레트(QUIZ_FEEDBACK_COLORS.correct #67B13F)와 다르다.
-// 이 화면은 Figma 값을 쓴다. 오답색은 공통 팔레트와 같다.
-const color = {
-  base: '#161616',
-  tertiary: '#747474',
-  sheet: '#E4E4E4',
-  handle: '#AAAAAA',
-  fale: '#F1F1F1',
-  correct: '#3D8F11',
-  wrong: '#F92669',
-} as const;
+// 입력 밑줄·정답 글자도 해설 시트와 같은 Figma 색을 쓴다.
+const color = FEEDBACK_SHEET_COLORS;
 
 export function ChosungQuiz({
   quiz,
@@ -153,9 +144,6 @@ export function ChosungQuiz({
       ? result.correctAnswer.answer
       : null;
   const resultColor = result ? (result.isCorrect ? color.correct : color.wrong) : color.base;
-  const explanation = result?.explanation?.trim()
-    ? result.explanation.trim().split(/\s*\n\s*/)
-    : [];
 
   return (
     <View style={s.stage}>
@@ -219,88 +207,16 @@ export function ChosungQuiz({
         </View>
       </View>
       {result ? (
-        <Animated.View
-          accessibilityLiveRegion="polite"
-          style={[
-            s.sheet,
-            {
-              opacity: sheetProgress,
-              transform: [
-                {
-                  translateY: sheetProgress.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [SHEET_HEIGHT, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={s.handle} />
-          <View style={s.feedback}>
-            <View style={s.feedbackTitleRow}>
-              {result.isCorrect ? <CorrectStarIcon /> : <WrongCrossIcon />}
-              <Text style={[s.feedbackTitle, { color: resultColor }]}>
-                {result.isCorrect ? '정답' : '오답'}
-              </Text>
-            </View>
-            {explanation.length ? (
-              <View style={s.explanation}>
-                {explanation.map((line, index) => (
-                  <Text key={index} style={s.explanationText}>
-                    {line}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: phase !== 'GRADED' }}
-            disabled={phase !== 'GRADED'}
-            onPress={advance}
-            style={s.next}
-          >
-            <Text style={s.nextText}>다음</Text>
-          </Pressable>
-        </Animated.View>
+        <QuizFeedbackSheet
+          result={result}
+          progress={sheetProgress}
+          nextDisabled={phase !== 'GRADED'}
+          onNext={advance}
+        />
       ) : null}
     </View>
   );
 }
-
-// Figma Star 1(I739:883;737:860). 24 칸 안에 7.84% 여백을 두고 안쪽 선(마스크)으로 그린다.
-function CorrectStarIcon() {
-  const star =
-    'M9.18061 0.652964C9.50276 -0.217654 10.7342 -0.217655 11.0563 0.652963L13.2 6.44613C13.3013 6.71985 13.5171 6.93566 13.7908 7.03694L19.5839 9.18061C20.4546 9.50276 20.4546 10.7342 19.584 11.0563L13.7908 13.2C13.5171 13.3013 13.3013 13.5171 13.2 13.7908L11.0563 19.5839C10.7342 20.4546 9.50276 20.4546 9.18061 19.584L7.03694 13.7908C6.93566 13.5171 6.71985 13.3013 6.44613 13.2L0.652964 11.0563C-0.217654 10.7342 -0.217655 9.50276 0.652963 9.18061L6.44613 7.03694C6.71985 6.93566 6.93566 6.71985 7.03694 6.44613L9.18061 0.652964Z';
-  return (
-    <Svg width={24} height={24} viewBox="-1.8816 -1.8816 24 24" fill="none">
-      <Mask id="chosungStarStroke" fill="white">
-        <Path d={star} />
-      </Mask>
-      <Path d={star} stroke={color.correct} strokeWidth={3.2} mask="url(#chosungStarStroke)" />
-    </Svg>
-  );
-}
-
-// Figma Union(739:954). 12 칸에 -4.17% 여백(13×13)으로 그린다.
-function WrongCrossIcon() {
-  return (
-    <View style={s.crossBox}>
-      <Svg width={13} height={13} viewBox="0 0 13 13" fill="none" style={s.crossSvg}>
-        <Path
-          d="M11.6423 0.647217C11.8386 0.450928 12.1565 0.450928 12.3528 0.647217C12.5491 0.843507 12.5491 1.16143 12.3528 1.35772L7.21051 6.5L12.3528 11.6423C12.5491 11.8386 12.5491 12.1565 12.3528 12.3528C12.1565 12.5491 11.8386 12.5491 11.6423 12.3528L6.5 7.21051L1.35772 12.3528C1.16143 12.5491 0.843507 12.5491 0.647217 12.3528C0.450928 12.1565 0.450928 11.8386 0.647217 11.6423L5.78949 6.5L0.647217 1.35772C0.450928 1.16143 0.450928 0.843507 0.647217 0.647217C0.843507 0.450928 1.16143 0.450928 1.35772 0.647217L6.5 5.78949L11.6423 0.647217Z"
-          fill="black"
-          stroke={color.wrong}
-          strokeLinecap="round"
-        />
-      </Svg>
-    </View>
-  );
-}
-
-// Figma Frame 140(739:982): 높이 210, 안쪽 36·20, 위 모서리 12.
-const SHEET_HEIGHT = 210;
 
 const s = StyleSheet.create({
   stage: { flexGrow: 1, width: '100%' },
@@ -346,46 +262,4 @@ const s = StyleSheet.create({
     includeFontPadding: false,
   },
   error: { color: '#b56060', fontFamily: 'PretendardMedium', fontSize: 12, lineHeight: 18 },
-  sheet: {
-    marginTop: 'auto',
-    width: '100%',
-    minHeight: SHEET_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
-    paddingHorizontal: 36,
-    paddingVertical: 20,
-    backgroundColor: color.sheet,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: color.tertiary,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-  },
-  // Vector 95: 길이 72 + 둥근 끝 2씩, 굵기 4
-  handle: { width: 76, height: 4, borderRadius: 2, backgroundColor: color.handle },
-  feedback: { width: '100%', gap: 12 },
-  feedbackTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  feedbackTitle: { fontFamily: 'PretendardBold', fontSize: 16, lineHeight: 20 },
-  crossBox: { width: 12, height: 12 },
-  crossSvg: { position: 'absolute', left: -0.5, top: -0.5 },
-  explanation: { gap: 4 },
-  explanationText: {
-    color: color.base,
-    fontFamily: 'PretendardMedium',
-    fontSize: 16,
-    lineHeight: 20,
-  },
-  next: {
-    width: '100%',
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: color.fale,
-    backgroundColor: color.base,
-    boxShadow: '0px 0px 4px 0px #f1f1f1',
-  },
-  nextText: { color: color.fale, fontFamily: 'PretendardRegular', fontSize: 16 },
 });

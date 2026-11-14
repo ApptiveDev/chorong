@@ -31,6 +31,7 @@ import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
 import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
+import { prefetchLessonAudio } from './quizAudio';
 import { ConstellationComplete } from './ConstellationComplete';
 import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
 import { FirstStudyLoginModal } from './FirstStudyLoginModal';
@@ -135,6 +136,7 @@ function Study() {
     if (!start || loadedLessonId.current !== lessonId) return;
     let active = true;
     void prefetchLessonImages(start.contents, () => active);
+    void prefetchLessonAudio(start.contents, () => active);
     return () => {
       active = false;
     };
