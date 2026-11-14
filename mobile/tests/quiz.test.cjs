@@ -17,7 +17,8 @@ const {
   sliderValue,
   shuffled,
 } = require('../.expo/quiz-tests/lib/quiz-state.js');
-// 서버 7유형 fixture. 앱은 integration/contract 로 받아 화면 모델과 제출 본문으로 바꾼다.
+// 서버 7유형 fixture(SINGLE 은 표시 방식별로 여러 문항). 앱은 integration/contract 로 받아
+// 화면 모델과 제출 본문으로 바꾼다.
 const apiFixtures = require('../../backend/core/src/test/resources/quiz/quiz-items.json');
 // 개발용 와이어프레임(lib/quiz-state)이 다루는 이전 유형 fixture.
 const fixtures = require('./fixtures/legacy-quiz-items.json');
@@ -29,30 +30,64 @@ const {
 } = require('../.expo/quiz-tests/lib/mock-lesson-quizzes.js');
 const raw = (fixture) => ({ ...fixture, quizId: fixture.quizOrder, lessonId: 23 });
 
+// 조회 응답 모양. fixture 는 저장 모양이라 MULTI 정답이 answer 열에 있다. 서버 조회는 정답 순번을
+// config.answers 로 공개하므로(MultiPublicConfig) 백엔드 QuizApiTest 처럼 정렬해 넣는다.
 const apiQuiz = (fixture) => {
   const { answer, explanation, correctResponse, wrongResponse, caseId, ...quiz } = fixture;
-  return { ...quiz, quizId: 7000 + fixture.quizOrder, lessonId: 23 };
+  const config =
+    fixture.interactionType === 'MULTI'
+      ? { ...quiz.config, answers: [...answer.answers].sort((a, b) => a - b) }
+      : quiz.config;
+  return { ...quiz, config, quizId: 7000 + fixture.quizOrder, lessonId: 23 };
 };
+const byCase = (caseId) => apiFixtures.find((fixture) => fixture.caseId === caseId);
 // 화면 답안. 서버 fixture 의 correctResponse·wrongResponse 와 같은 제출 본문이 나와야 한다.
+// SINGLE 은 표시 방식과 관계없이 보기 순번을 내고, 문항마다 정답이 달라 fixture 순번을 쓴다.
 const appAnswers = {
-  OX: { type: 'OX', correct: { value: true }, wrong: { value: false } },
-  SINGLE: { type: 'MULTIPLE_CHOICE', correct: { index: 1 }, wrong: { index: 0 } },
-  BLANK: { type: 'FILL_BLANK', correct: { texts: ['더 싼 파랑으로'] }, wrong: { index: 0 } },
-  SLIDER: { type: 'SLIDER', correct: { position: 0.28 }, wrong: { position: 0.5 } },
-  MATCH: { type: 'ORDERING', correct: { order: [3, 2, 1, 0] } },
-  CHOSUNG: { type: 'CHOSUNG', correct: { texts: ['울트라마린'] }, wrong: { texts: [' 코발트 '] } },
+  OX: () => ({ type: 'OX', correct: { value: true }, wrong: { value: false } }),
+  SINGLE: (fixture) => ({
+    type: 'MULTIPLE_CHOICE',
+    correct: { index: fixture.correctResponse.answer },
+    wrong: { index: fixture.wrongResponse.answer },
+  }),
+  // MULTI 화면은 고른 보기 순번을 문자열로 내고, 계약이 정렬한 순번 배열로 바꾼다.
+  MULTI: () => ({
+    type: 'MULTIPLE_CHOICE',
+    correct: { texts: ['2', '1'] },
+    wrong: { texts: ['0'] },
+  }),
+  BLANK: () => ({
+    type: 'FILL_BLANK',
+    correct: { texts: ['더 싼 파랑으로'] },
+    wrong: { index: 0 },
+  }),
+  SLIDER: () => ({ type: 'SLIDER', correct: { position: 0.28 }, wrong: { position: 0.5 } }),
+  MATCH: () => ({ type: 'ORDERING', correct: { order: [3, 2, 1, 0] } }),
+  CHOSUNG: () => ({
+    type: 'CHOSUNG',
+    correct: { texts: ['울트라마린'] },
+    wrong: { texts: [' 코발트 '] },
+  }),
 };
 
 test('server fixture covers the seven interaction types in order', () => {
   assert.deepEqual(
-    apiFixtures.map((fixture) => fixture.interactionType),
+    [...new Set(apiFixtures.map((fixture) => fixture.interactionType))],
     ['OX', 'SINGLE', 'MULTI', 'BLANK', 'SLIDER', 'MATCH', 'CHOSUNG'],
   );
+  // SINGLE 표시 방식(SinglePresentationType)도 빠짐없이 들어 있다.
+  assert.deepEqual(
+    apiFixtures
+      .map((fixture) => fixture.config.presentation?.type)
+      .filter(Boolean)
+      .sort(),
+    ['AUDIO', 'INLINE_WORD', 'SHARPEN', 'TILE', 'ZOOM_OUT'],
+  );
 });
-for (const fixture of apiFixtures.filter((item) => item.interactionType !== 'MULTI')) {
+for (const fixture of apiFixtures) {
   test(`${fixture.caseId}: server fixture maps to the screen model and encodes the server answer body`, () => {
     const before = JSON.stringify(fixture);
-    const expected = appAnswers[fixture.interactionType];
+    const expected = appAnswers[fixture.interactionType](fixture);
     const quiz = contract.quiz(apiQuiz(fixture));
     assert.equal(quiz.quizId, 7000 + fixture.quizOrder);
     assert.equal(quiz.type, expected.type);
@@ -64,17 +99,34 @@ for (const fixture of apiFixtures.filter((item) => item.interactionType !== 'MUL
   });
 }
 test('server fixture config reaches the screen model without invented fields', () => {
+  // 유형별 기본 문항(caseId 가 유형 이름). SINGLE 표시 방식 문항은 아래에서 따로 본다.
   const byType = Object.fromEntries(
     apiFixtures
-      .filter((fixture) => fixture.interactionType !== 'MULTI')
+      .filter((fixture) => fixture.caseId === fixture.interactionType.toLowerCase())
       .map((fixture) => [fixture.interactionType, contract.quiz(apiQuiz(fixture))]),
   );
-  const config = (type) => apiFixtures.find((f) => f.interactionType === type).config;
+  const config = (type) => byCase(type.toLowerCase()).config;
   assert.deepEqual(byType.OX.options, {});
   assert.deepEqual(
     byType.SINGLE.options.choices.map((choice) => choice.label),
     config('SINGLE').options,
   );
+  assert.equal(byType.SINGLE.config.presentation, undefined);
+  assert.deepEqual(
+    byType.MULTI.options.choices.map((choice) => choice.label),
+    config('MULTI').options,
+  );
+  assert.deepEqual(byType.MULTI.options.answer, [...byCase('multi').answer.answers].sort());
+  // 표시 방식은 화면 모델에 그대로 남고, 보기는 일반 SINGLE 과 같이 바뀐다.
+  for (const fixture of apiFixtures.filter((item) => item.config.presentation)) {
+    const quiz = contract.quiz(apiQuiz(fixture));
+    assert.deepEqual(quiz.config.presentation, fixture.config.presentation, fixture.caseId);
+    assert.deepEqual(
+      quiz.options.choices.map((choice) => choice.label),
+      fixture.config.options,
+      fixture.caseId,
+    );
+  }
   assert.equal(
     byType.BLANK.question,
     `${config('BLANK').before} [[blank]] ${config('BLANK').after}`,
@@ -91,9 +143,13 @@ test('server fixture config reaches the screen model without invented fields', (
     config('MATCH').pairs,
   );
 });
-test('MULTI stays unsupported and answers of another type are rejected', () => {
-  const multi = apiFixtures.find((fixture) => fixture.interactionType === 'MULTI');
-  assert.throws(() => contract.quiz(apiQuiz(multi)), contract.UnsupportedQuizError);
+test('MULTI without public answers and answers of another type are rejected', () => {
+  // 조회 응답에 정답 순번(config.answers)이 없으면 바로 판정할 수 없어 명세 불일치로 막는다.
+  const { answers, ...storedConfig } = apiQuiz(byCase('multi')).config;
+  assert.throws(
+    () => contract.quiz({ ...apiQuiz(byCase('multi')), config: storedConfig }),
+    /명세 불일치/,
+  );
   const ox = contract.quiz(apiQuiz(apiFixtures[0]));
   assert.throws(() => contract.encodeAnswer(ox.quizId, { index: 0 }), /명세 불일치/);
   const slider = contract.quiz(apiQuiz(apiFixtures.find((f) => f.interactionType === 'SLIDER')));
