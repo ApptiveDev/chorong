@@ -214,8 +214,8 @@ export const courses: CourseDetail[] = [
         lessonId: 22,
         title: '비가 오는 날',
         order: 2,
-        status: 'LOCKED',
-        unlocksAt: '2026-11-03T00:00:00Z',
+        status: 'UNLOCKED',
+        unlocksAt: null,
         completedAt: null,
       },
       ...newTopics

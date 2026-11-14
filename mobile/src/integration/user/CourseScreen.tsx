@@ -18,7 +18,7 @@ import type { CourseDetail } from '../models';
 import { positiveId } from '../ui';
 import { UserStatus } from './Screen';
 import { artColor as color, SparkStar } from './constellationArt';
-import { constellationCompletedOn, formatDotDate, nextLessonOf } from './constellationRecord';
+import { constellationCompletedOn, nextLessonOf } from './constellationRecord';
 import { loadConstellationDates } from './constellationDates';
 
 type Lesson = CourseDetail['lessons'][number];
@@ -122,9 +122,6 @@ export default function CourseScreen() {
                       {lesson.title}
                     </Text>
                   </View>
-                  {locked && lesson.unlocksAt ? (
-                    <Text style={s.unlock}>{formatDotDate(lesson.unlocksAt).slice(6)} 열림</Text>
-                  ) : null}
                   <Text style={s.chevron}>›</Text>
                 </Pressable>
               );
@@ -200,7 +197,6 @@ const s = StyleSheet.create({
     fontSize: 16,
     includeFontPadding: false,
   },
-  unlock: { color: '#202335', fontFamily: 'PretendardRegular', fontSize: 12 },
   chevron: { color: '#202335', fontFamily: 'KkakdugiRegular', fontSize: 20 },
   empty: { color: '#d9d9d9', fontFamily: 'PretendardRegular', fontSize: 14 },
   retry: {

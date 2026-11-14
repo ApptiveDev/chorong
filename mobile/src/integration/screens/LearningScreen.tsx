@@ -114,10 +114,7 @@ function LearningFlow() {
           <Text style={styles.text}>{course.description}</Text>
           {course.lessons.map((l) => (
             <Card key={l.lessonId} title={l.title}>
-              <Text>
-                {l.status}
-                {l.unlocksAt ? ` · 해금 예정 ${l.unlocksAt}` : ''}
-              </Text>
+              <Text>{l.status}</Text>
               <Button
                 title="레슨 상세 조회"
                 disabled={task.busy}
