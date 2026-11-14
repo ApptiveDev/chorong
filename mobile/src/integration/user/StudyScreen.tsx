@@ -186,6 +186,22 @@ function Study() {
   const dialogue = current?.contentType === 'TEXT' ? toNarrationContent(current) : null;
   const visibleDialogueCount =
     dialogueReveal.contentId === current?.contentId ? dialogueReveal.count : 1;
+  // 이어지는 대화(TEXT) 콘텐츠는 한 대화로 이어 쌓는다. 앞 콘텐츠 대사는 모두 본 상태로 위에 남는다.
+  const dialogueRun = (() => {
+    if (!dialogue) return null;
+    let first = position;
+    while (first > 0 && contents[first - 1]?.contentType === 'TEXT') first -= 1;
+    let last = position;
+    while (contents[last + 1]?.contentType === 'TEXT') last += 1;
+    const run = contents.slice(first, last + 1).map((item) => toNarrationContent(item).messages);
+    const before = run.slice(0, position - first).reduce((sum, items) => sum + items.length, 0);
+    return {
+      key: contents[first].contentId,
+      messages: run.flat(),
+      visibleCount: before + visibleDialogueCount,
+      endCount: before + dialogue.messages.length,
+    };
+  })();
   const refreshAfterDone = async (completion?: LessonCompleteResponse | null) => {
     try {
       await api.learning.progress();
@@ -507,9 +523,10 @@ function Study() {
               </View>
             ) : current?.contentType === 'TEXT' ? (
               <NarrationDialogue
-                key={current.contentId}
-                messages={dialogue?.messages ?? []}
-                visibleCount={visibleDialogueCount}
+                key={dialogueRun?.key ?? current.contentId}
+                messages={dialogueRun?.messages ?? []}
+                visibleCount={dialogueRun?.visibleCount ?? 0}
+                endCount={dialogueRun?.endCount ?? 0}
                 source={dialogue?.source}
                 disabled={task.busy || lessonDone}
                 onAdvance={async () => {
@@ -538,10 +555,9 @@ function Study() {
                       : s.scrollContent
                   }
                 >
-                  {current.body ? (
-                    <Text style={current.contentType === 'QUIZ' ? s.quizBody : s.body}>
-                      {current.body}
-                    </Text>
+                  {/* 퀴즈는 문항(question)만 보여 준다. 콘텐츠 body 는 퀴즈 화면에 그리지 않는다. */}
+                  {current.body && current.contentType !== 'QUIZ' ? (
+                    <Text style={s.body}>{current.body}</Text>
                   ) : null}
                   {current.contentType === 'VIDEO' && current.mediaUrl ? (
                     <StudyAction
@@ -839,7 +855,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
   },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
-  quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
   completionFooter: {
     position: 'absolute',
