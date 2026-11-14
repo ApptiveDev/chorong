@@ -7,6 +7,7 @@ import {
   tileMockQuizId,
   sharpenMockQuizId,
   zoomOutMockQuizId,
+  inlineWordMockQuizId,
   courses,
   inventory,
   lessons,
@@ -353,6 +354,13 @@ const presentedMockAnswers = new Map([
     {
       answer: 0,
       explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
+    },
+  ],
+  [
+    inlineWordMockQuizId,
+    {
+      answer: 6,
+      explanation: '수소 원자핵이 합쳐지는 일, 핵융합이에요.\n이때 줄어든 질량이 빛과 열이 돼요.',
     },
   ],
 ]);

@@ -15,7 +15,7 @@ import {
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { FEEDBACK_SHEET_COLORS, QuizFeedbackSheet } from './QuizFeedbackSheet';
 import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
-import { choicesFor, correctChoiceIndex } from './SingleChoiceQuiz';
+import { choicesFor, correctChoiceIndex, type Choice } from './SingleChoiceQuiz';
 
 type Phase = 'UNANSWERED' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
 const color = FEEDBACK_SHEET_COLORS;
@@ -32,6 +32,16 @@ export type PresentedChoiceProps = {
 /** 미디어 칸이 받는 상태. locked: 보기를 고른 뒤(채점 중 포함), graded: 채점 결과가 나온 뒤. */
 export type PresentedMediaState = { locked: boolean; graded: boolean };
 
+/** 보기 칸이 받는 상태. correctIndex 는 오답일 때 서버가 알려 준 정답 순번이다. */
+export type PresentedChoicesState = {
+  choices: Choice[];
+  selected: number | null;
+  correctIndex: number | null;
+  result: AnswerResult | null;
+  locked: boolean;
+  choose: (index: number) => void;
+};
+
 export function PresentedChoiceQuiz({
   quiz,
   scale,
@@ -47,8 +57,12 @@ export function PresentedChoiceQuiz({
   // 미디어가 보기(320)보다 넓을 때 쓴다.
   centered = false,
   correctNote,
+  renderChoices,
 }: PresentedChoiceProps & {
-  media: (state: PresentedMediaState) => ReactNode;
+  // 질문과 보기 사이 칸. 없으면 비운다.
+  media?: (state: PresentedMediaState) => ReactNode;
+  // 보기 목록 대신 그릴 보기 칸(예: 문장 속 낱말). 채점·해설 시트는 그대로 쓴다.
+  renderChoices?: (state: PresentedChoicesState) => ReactNode;
   topSpace: number;
   gap: number;
   centered?: boolean;
@@ -147,39 +161,50 @@ export function PresentedChoiceQuiz({
           <Text lineBreakStrategyIOS="hangul-word" style={s.question}>
             {quiz.question.replace(/\s*\n\s*/g, ' ')}
           </Text>
-          {media({ locked: phase !== 'UNANSWERED', graded })}
-          <View style={[s.options, { width: 320 * scale }]}>
-            {choices.map((choice) => {
-              const correct =
-                !!result &&
-                (result.isCorrect ? selected === choice.index : correctIndex === choice.index);
-              const wrong = !!result && !result.isCorrect && selected === choice.index;
-              return (
-                <Pressable
-                  key={choice.index}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: selected === choice.index, disabled: locked }}
-                  disabled={locked}
-                  onPress={() => void choose(choice.index)}
-                  style={s.option}
-                >
-                  {(correct || wrong) && (
-                    <Animated.View
-                      pointerEvents="none"
-                      style={[
-                        s.optionTint,
-                        correct ? s.correctTint : s.wrongTint,
-                        { opacity: sheetProgress },
-                      ]}
-                    />
-                  )}
-                  <Text style={[s.optionText, correct && s.correctText, wrong && s.wrongText]}>
-                    {choice.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {media?.({ locked: phase !== 'UNANSWERED', graded })}
+          {renderChoices ? (
+            renderChoices({
+              choices,
+              selected,
+              correctIndex,
+              result,
+              locked,
+              choose: (index) => void choose(index),
+            })
+          ) : (
+            <View style={[s.options, { width: 320 * scale }]}>
+              {choices.map((choice) => {
+                const correct =
+                  !!result &&
+                  (result.isCorrect ? selected === choice.index : correctIndex === choice.index);
+                const wrong = !!result && !result.isCorrect && selected === choice.index;
+                return (
+                  <Pressable
+                    key={choice.index}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selected === choice.index, disabled: locked }}
+                    disabled={locked}
+                    onPress={() => void choose(choice.index)}
+                    style={s.option}
+                  >
+                    {(correct || wrong) && (
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          s.optionTint,
+                          correct ? s.correctTint : s.wrongTint,
+                          { opacity: sheetProgress },
+                        ]}
+                      />
+                    )}
+                    <Text style={[s.optionText, correct && s.correctText, wrong && s.wrongText]}>
+                      {choice.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           {error ? (
             <Text accessibilityRole="alert" style={s.error}>
               {error}

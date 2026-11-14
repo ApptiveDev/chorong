@@ -577,6 +577,37 @@ const zoomOutMockContent = {
     },
   },
 } as unknown as Content;
+// SINGLE 틀린 곳 고르기 목업. options 는 문장 속 낱말 순서다.
+export const inlineWordMockQuizId = 125;
+const inlineWordMockContent = {
+  contentId: 1208,
+  order: 8,
+  contentType: 'QUIZ',
+  body: null,
+  mediaUrl: null,
+  quiz: {
+    quizId: inlineWordMockQuizId,
+    interactionType: 'SINGLE',
+    question: '틀린 곳을 찾아 누르세요.',
+    instruction: '틀린 낱말을 누르세요.',
+    quizOrder: 5,
+    config: {
+      options: [
+        '태양',
+        '한가운데서',
+        '수소',
+        '원자핵',
+        '넷이',
+        '합쳐져',
+        '산소',
+        '헬륨',
+        '하나가',
+        '돼요',
+      ],
+      presentation: { type: 'INLINE_WORD' },
+    },
+  },
+} as unknown as Content;
 
 export const lessons: Lesson[] = [
   {
@@ -601,6 +632,7 @@ export const lessons: Lesson[] = [
       tileMockContent,
       sharpenMockContent,
       zoomOutMockContent,
+      inlineWordMockContent,
     ],
   },
   {
