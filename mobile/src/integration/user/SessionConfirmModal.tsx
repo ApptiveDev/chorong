@@ -56,7 +56,7 @@ export function SessionConfirmModal({
       accessibilityState={{ disabled: busy }}
       disabled={busy}
       onPress={onCancel}
-      style={[s.cancel, stacked && s.stackedButton]}
+      style={[s.cancel, stacked ? s.stackedButton : s.fill]}
     >
       <Text style={s.cancelText}>{cancelLabel}</Text>
     </Pressable>
@@ -67,7 +67,7 @@ export function SessionConfirmModal({
       accessibilityState={{ disabled: busy }}
       disabled={busy}
       onPress={onConfirm}
-      style={[s.confirm, stacked && s.stackedButton]}
+      style={[s.confirm, stacked ? s.stackedButton : s.fill]}
     >
       <Text style={s.confirmText}>{confirmLabel}</Text>
     </Pressable>
@@ -97,7 +97,7 @@ export function SessionConfirmModal({
             <Text
               style={[
                 s.copy,
-                centerNotice && s.centerCopy,
+                centerNotice ? s.centerCopy : s.fill,
                 noticeWeight === 'medium' && s.copyMedium,
               ]}
             >
@@ -187,7 +187,6 @@ const s = StyleSheet.create({
   },
   publicBullet: { width: 7, fontFamily: 'KkakdugiRegular', fontSize: 14, lineHeight: 20 },
   copy: {
-    flex: 1,
     color: '#161616',
     fontFamily: 'PretendardRegular',
     fontSize: 15,
@@ -200,10 +199,12 @@ const s = StyleSheet.create({
   error: { color: '#b42342', fontFamily: 'PretendardRegular', fontSize: 12 },
   actions: { flexDirection: 'row', gap: 12 },
   stackedActions: { flexDirection: 'column' },
-  stackedButton: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', alignSelf: 'stretch' },
-  centerCopy: { flexGrow: 0, flexShrink: 1, flexBasis: 'auto' },
+  // flex 는 가로로 나눌 때만 붙인다. flex 를 붙인 뒤 flexGrow·flexBasis 로 덮어쓰면
+  // 모바일(Yoga)에서는 flex 가 이겨 폭이 0 이 되고 글자가 세로로 쌓인다.
+  fill: { flex: 1 },
+  stackedButton: { alignSelf: 'stretch' },
+  centerCopy: { flexShrink: 1 },
   cancel: {
-    flex: 1,
     height: 48,
     borderWidth: 1,
     borderColor: '#161616',
@@ -214,7 +215,6 @@ const s = StyleSheet.create({
   },
   cancelText: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 16 },
   confirm: {
-    flex: 1,
     height: 48,
     borderWidth: 1,
     borderColor: '#161616',
