@@ -6,7 +6,6 @@ import {
   Image,
   type ImageSourcePropType,
   Linking,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +23,7 @@ import { replayCompletion } from '../completionResult';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
+import { SessionConfirmModal } from './SessionConfirmModal';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
@@ -623,66 +623,40 @@ function Study() {
           ) : null}
         </>
       ) : null}
-      <Modal
+      {/* Figma 알림창_선택지 2개_가로(656:4259) */}
+      <SessionConfirmModal
         visible={resumeOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setResumeOpen(false)}
-      >
-        <View style={s.modalOverlay}>
-          <View style={s.modalPanel}>
-            <Text style={s.modalTitle}>이어서 탐험할까요?</Text>
-            <Text style={s.modalCopy}>마지막으로 보던 부분부터 이어갈 수 있어요.</Text>
-            <View style={s.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={s.modalSecondary}
-                onPress={() => {
-                  setPosition(0);
-                  setResumeOpen(false);
-                }}
-              >
-                <Text style={s.modalSecondaryText}>처음부터</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={s.modalPrimary}
-                onPress={() => {
-                  setPosition(resumePosition);
-                  setResumeOpen(false);
-                }}
-              >
-                <Text style={s.modalPrimaryText}>이어서</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal
+        title="이어서 학습할까요?"
+        notice="마지막으로 본 부분부터 이어갈 수 있어요."
+        arrowBullet
+        cancelLabel="처음부터"
+        confirmLabel="이어서"
+        busy={false}
+        onCancel={() => {
+          setPosition(0);
+          setResumeOpen(false);
+        }}
+        onConfirm={() => {
+          setPosition(resumePosition);
+          setResumeOpen(false);
+        }}
+        onDismiss={() => setResumeOpen(false)}
+      />
+      {/* Figma 알림창_선택지 2개_세로(462:718) */}
+      <SessionConfirmModal
         visible={exitOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setExitOpen(false)}
-      >
-        <View style={s.modalOverlay}>
-          <View style={s.modalPanel}>
-            <Text style={s.modalTitle}>잠시 탐험을 멈출까요?</Text>
-            <Text style={s.modalCopy}>여기까지의 진행은 저장돼요. 다음에 이어서 볼 수 있어요.</Text>
-            <View style={s.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={s.modalSecondary}
-                onPress={() => setExitOpen(false)}
-              >
-                <Text style={s.modalSecondaryText}>계속 학습하기</Text>
-              </Pressable>
-              <Pressable accessibilityRole="button" style={s.modalPrimary} onPress={leaveStudy}>
-                <Text style={s.modalPrimaryText}>나가기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="학습을 잠시 멈출까요?"
+        notice="다음에 이 위치에서 이어서 할 수 있어요."
+        arrowBullet
+        centerNotice
+        stacked
+        confirmLabel="계속 학습"
+        cancelLabel="나가기"
+        busy={false}
+        onConfirm={() => setExitOpen(false)}
+        onCancel={leaveStudy}
+        onDismiss={() => setExitOpen(false)}
+      />
       {firstWelcomeStudy ? (
         <FirstStudyLoginModal
           visible={loginOpen}
@@ -909,40 +883,4 @@ const s = StyleSheet.create({
   secondary: { backgroundColor: '#f3f1f6' },
   secondaryText: { color: '#655b76' },
   disabled: { opacity: 0.45 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalPanel: {
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 23,
-    padding: 25,
-    gap: 12,
-  },
-  modalTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
-  modalCopy: { color: '#807188', fontSize: 13, lineHeight: 22 },
-  modalActions: { flexDirection: 'row', gap: 9, marginTop: 12 },
-  modalPrimary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#373044',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  modalSecondary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalSecondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
 });

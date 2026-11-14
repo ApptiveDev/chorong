@@ -18,9 +18,17 @@ type Props = {
   publicVisibility?: boolean;
   scrollable?: boolean;
   error?: string | null;
+  // Figma 알림창 '>' 글머리(깍두기체 14). 기본은 '›'.
+  arrowBullet?: boolean;
+  // 안내 문구를 가운데로 모은다(알림창_선택지 2개_세로 462:718).
+  centerNotice?: boolean;
+  // 버튼을 세로로 쌓는다. 위가 채운 버튼(onConfirm), 아래가 테두리 버튼(onCancel).
+  stacked?: boolean;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  // 뒤로 가기·바깥 닫기. 없으면 onCancel.
+  onDismiss?: () => void;
 };
 
 export function SessionConfirmModal({
@@ -33,20 +41,46 @@ export function SessionConfirmModal({
   publicVisibility = false,
   scrollable = false,
   error,
+  arrowBullet = false,
+  centerNotice = false,
+  stacked = false,
   busy,
   onCancel,
   onConfirm,
+  onDismiss,
 }: Props) {
   const { height } = useWindowDimensions();
+  const cancelButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onCancel}
+      style={[s.cancel, stacked && s.stackedButton]}
+    >
+      <Text style={s.cancelText}>{cancelLabel}</Text>
+    </Pressable>
+  );
+  const confirmButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onConfirm}
+      style={[s.confirm, stacked && s.stackedButton]}
+    >
+      <Text style={s.confirmText}>{confirmLabel}</Text>
+    </Pressable>
+  );
   const content = (
     <>
       <View style={[s.message, publicVisibility && s.publicMessage]}>
         <View style={[s.heading, publicVisibility && s.publicHeading]}>
           <Text style={s.title}>{title}</Text>
         </View>
-        <View style={[s.notice, publicVisibility && s.publicNotice]}>
-          <Text style={[s.bullet, publicVisibility && s.publicBullet]}>
-            {publicVisibility ? '>' : '›'}
+        <View style={[s.notice, (publicVisibility || centerNotice) && s.publicNotice]}>
+          <Text style={[s.bullet, (publicVisibility || arrowBullet) && s.publicBullet]}>
+            {publicVisibility || arrowBullet ? '>' : '›'}
           </Text>
           {publicVisibility ? (
             <View style={s.publicCopyGroup}>
@@ -60,7 +94,15 @@ export function SessionConfirmModal({
               ))}
             </View>
           ) : (
-            <Text style={[s.copy, noticeWeight === 'medium' && s.copyMedium]}>{notice}</Text>
+            <Text
+              style={[
+                s.copy,
+                centerNotice && s.centerCopy,
+                noticeWeight === 'medium' && s.copyMedium,
+              ]}
+            >
+              {notice}
+            </Text>
           )}
         </View>
         {error ? (
@@ -69,30 +111,20 @@ export function SessionConfirmModal({
           </Text>
         ) : null}
       </View>
-      <View style={s.actions}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={onCancel}
-          style={s.cancel}
-        >
-          <Text style={s.cancelText}>{cancelLabel}</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={onConfirm}
-          style={s.confirm}
-        >
-          <Text style={s.confirmText}>{confirmLabel}</Text>
-        </Pressable>
+      <View style={[s.actions, stacked && s.stackedActions]}>
+        {stacked ? null : cancelButton}
+        {confirmButton}
+        {stacked ? cancelButton : null}
       </View>
     </>
   );
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onDismiss ?? onCancel}
+    >
       <View style={s.overlay}>
         <View style={[s.modal, scrollable && { maxHeight: Math.max(0, height - 32) }]}>
           {scrollable ? (
@@ -167,6 +199,9 @@ const s = StyleSheet.create({
   publicCopy: { flex: 0, flexShrink: 1, lineHeight: 18 },
   error: { color: '#b42342', fontFamily: 'PretendardRegular', fontSize: 12 },
   actions: { flexDirection: 'row', gap: 12 },
+  stackedActions: { flexDirection: 'column' },
+  stackedButton: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', alignSelf: 'stretch' },
+  centerCopy: { flexGrow: 0, flexShrink: 1, flexBasis: 'auto' },
   cancel: {
     flex: 1,
     height: 48,
