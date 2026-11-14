@@ -11,7 +11,6 @@ import { SingleChoiceQuiz, hasSingleChoiceOptions } from './SingleChoiceQuiz';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
-import type { RegisterQuizFooter } from './quizFooter';
 
 // 학습(StudyScreen)과 복습(ReviewScreen)이 같은 퀴즈 화면을 쓰도록 문항 유형 판별·배치·컴포넌트 선택을 모은다.
 export type QuizStageKind = {
@@ -25,8 +24,6 @@ export type QuizStageKind = {
   // 목업 range 퀴즈는 HtmlLessonQuiz 가 그리지만 SLIDER 와 같은 SliderQuizView 를 쓰고
   // 손을 떼면 바로 제출한다(정답 확인 버튼 없음).
   mockRange: boolean;
-  // 정답 확인 버튼 없이 선택하면 바로 채점한다.
-  instant: boolean;
   // 채점 뒤 다음 이동을 문항 컴포넌트가 직접 처리한다(화면 전체 터치 영역을 깔지 않는다).
   selfAdvancing: boolean;
 };
@@ -40,18 +37,6 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
   const chosung = isChosungQuiz(quiz);
   const slider = isSliderQuiz(quiz);
   const mockRange = useMockApi && quiz?.options?.mockHtmlType === 'range';
-  const instant =
-    ox ||
-    chosung ||
-    slider ||
-    mockRange ||
-    fillBlank ||
-    matching ||
-    multiChoice ||
-    (quiz?.type === 'MULTIPLE_CHOICE' &&
-      (!useMockApi || quiz.options?.mockHtmlType === 'single')) ||
-    quiz?.options?.mockHtmlType === 'blank' ||
-    quiz?.options?.mockHtmlType === 'single';
   return {
     ox,
     fillBlank,
@@ -61,7 +46,6 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
     chosung,
     slider,
     mockRange,
-    instant,
     // CHOSUNG 은 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
     selfAdvancing: fillBlank || matching || singleChoice || multiChoice || chosung,
   };
@@ -91,7 +75,6 @@ export function QuizStageQuiz({
   submit,
   onGraded,
   onAdvance,
-  registerFooter,
 }: {
   quiz: Quiz;
   // 학습은 contentId, 복습은 reviewItemId
@@ -106,7 +89,6 @@ export function QuizStageQuiz({
   // justGraded: 방금 채점한 문항에서 바로 넘어가는지(학습 화면 advance 와 같은 뜻).
   // 이동하지 못하면 예외를 던진다. 문항 컴포넌트가 오류를 보여 주고 다시 누를 수 있게 한다.
   onAdvance: (justGraded: boolean) => Promise<void>;
-  registerFooter: RegisterQuizFooter;
 }) {
   const kind = quizStageKind(quiz);
   const lastResult = useRef<AnswerResult | null>(null);
@@ -191,7 +173,6 @@ export function QuizStageQuiz({
         disabled={disabled}
         submit={submit}
         onGraded={onGraded}
-        registerFooter={registerFooter}
       />
     );
   if (useMockApi && quiz.type !== 'OX')
@@ -209,7 +190,6 @@ export function QuizStageQuiz({
         // 와이어프레임은 대부분 자체 채점(quizApi.check)으로 끝나 서버 채점 결과가 없을 수 있다.
         onAnswered={() => onGraded(lastResult.current ?? undefined)}
         stage
-        registerFooter={registerFooter}
       />
     );
   return (
@@ -220,7 +200,6 @@ export function QuizStageQuiz({
       submit={submit}
       onGraded={onGraded}
       stage
-      registerFooter={registerFooter}
     />
   );
 }
