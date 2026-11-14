@@ -817,7 +817,8 @@ test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 �
     completedCourse.completion.rewards
       .filter((item) => item.type === 'WALLET')
       .map((item) => item.amount),
-    [5, 10],
+    // 서버처럼 레슨 별가루 1만 주고 별자리 완성 보너스 별가루는 없다.
+    [1],
   );
   assert.equal(
     completedCourse.completion.rewards.some((item) => item.type === 'CONSTELLATION'),
@@ -2200,13 +2201,13 @@ test('목업 다시 하기: 에너지 없이 마친 레슨은 에너지를 쓰�
     assert.equal(rewarded.completion.wallet.energy, 1);
     assert.equal(rewarded.lessonCompleted, true);
     assert.deepEqual(rewarded.completion.rewards, [
-      { type: 'WALLET', currency: 'STARDUST', amount: 5 },
+      { type: 'WALLET', currency: 'STARDUST', amount: 1 },
     ]);
     assert.equal(rewarded.completion.stardustSkipped, false);
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 1);
     assert.deepEqual(replayCompletion(rewarded.completion), {
       kind: 'replayRewarded',
-      stardust: 5,
+      stardust: 1,
     });
 
     // 같은 레슨을 또 다시 하면 에너지·별가루 모두 변하지 않는다.
@@ -2214,7 +2215,7 @@ test('목업 다시 하기: 에너지 없이 마친 레슨은 에너지를 쓰�
     assert.equal(plain.lessonCompleted, true);
     assert.equal(plain.completion, null);
     assert.equal(mockApi('API-904', {}).data.data.energy, 1);
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 1);
     assert.deepEqual(replayCompletion(plain.completion), { kind: 'replayPlain' });
   } finally {
     restoreMockSnapshot(original);
@@ -2258,15 +2259,15 @@ test('목업 복습 완료는 하루 3세션까지 보상하고 같은 키 재�
       mockApi('API-503', { body: { reviewItemIds: [1, 2, 3, 4, 5] }, key }).data.data;
     const stardust = mockApi('API-904', {}).data.data.stardust;
     const first = complete('review-test-1');
-    assert.deepEqual(reviewCompletion(first.rewards), { kind: 'reviewRewarded', stardust: 3 });
+    assert.deepEqual(reviewCompletion(first.rewards), { kind: 'reviewRewarded', stardust: 1 });
     assert.deepEqual(complete('review-test-1'), first);
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 3);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 1);
     complete('review-test-2');
     complete('review-test-3');
     const fourth = complete('review-test-4');
     assert.deepEqual(fourth.rewards, []);
     assert.deepEqual(reviewCompletion(fourth.rewards), { kind: 'reviewAlreadyRewarded' });
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 9);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 3);
   } finally {
     restoreMockSnapshot(original);
   }

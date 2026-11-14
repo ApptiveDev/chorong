@@ -153,6 +153,12 @@ const replayProgress = new Map<number, Set<number>>();
 // 에너지 없이 마쳐 레슨 별가루를 아직 받지 않은 레슨. 명세(API-404): 다시 하기는 이런 레슨일 때만
 // 에너지를 쓰고, 완료하면 그때 별가루를 준다. 목업 스냅샷에는 저장하지 않는다.
 const unpaidStardustLessons = new Set<number>();
+// 서버 보상 상수(LessonCompletionService·ReviewCompletionService·OnboardingService)와 같은 값.
+// 별자리 완성은 뱃지만 주고 별가루 보너스는 없다.
+const LESSON_STARDUST = 1;
+const REVIEW_STARDUST = 1;
+const ONBOARDING_STARDUST = 50;
+let onboardingRewarded = false;
 const replayEnergySpent = new Set<number>();
 // 명세(API-503): 복습 보상은 하루 3세션까지. 같은 Idempotency-Key 는 같은 응답을 돌려준다.
 const REVIEW_DAILY_REWARD_LIMIT = 3;
@@ -170,10 +176,7 @@ const completion = (courseId?: number, newBadge = false, stardustSkipped = false
   rewards: [
     ...(stardustSkipped
       ? []
-      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]),
-    ...(newBadge && !stardustSkipped
-      ? [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 }]
-      : []),
+      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: LESSON_STARDUST }]),
     ...(newBadge
       ? [
           {
@@ -549,11 +552,17 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           const paid = replayEnergySpent.has(selected.lessonId);
           if (paid) {
             unpaidStardustLessons.delete(selected.lessonId);
-            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + LESSON_STARDUST };
           }
           replayCompletion = {
             rewards: paid
-              ? [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]
+              ? [
+                  {
+                    type: 'WALLET' as const,
+                    currency: 'STARDUST' as const,
+                    amount: LESSON_STARDUST,
+                  },
+                ]
               : [],
             wallet: state.wallet,
             courseCompleted: courseDone(selected.courseId),
@@ -575,16 +584,13 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         state.rewardedLessons.add(selected.lessonId);
         noEnergyLessons.delete(selected.lessonId);
         if (!stardustSkipped)
-          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + LESSON_STARDUST };
         else unpaidStardustLessons.add(selected.lessonId);
         if (
           courseDone(selected.courseId) &&
           !state.completedConstellations.has(selected.courseId)
         ) {
           state.completedConstellations.set(selected.courseId, new Date().toISOString());
-          // 에너지 없이 마친 학습은 별자리 완성 보너스 별가루도 주지 않는다(stardustSkipped 화면과 맞춘다).
-          if (!stardustSkipped)
-            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 10 };
           newBadge = true;
         }
       }
@@ -714,10 +720,10 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       const paid = reviewRewardEligible();
       if (paid) {
         reviewRewards.paid += 1;
-        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 3 };
+        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + REVIEW_STARDUST };
       }
       const data = {
-        rewards: paid ? [{ type: 'WALLET', currency: 'STARDUST', amount: 3 }] : [],
+        rewards: paid ? [{ type: 'WALLET', currency: 'STARDUST', amount: REVIEW_STARDUST }] : [],
         wallet: state.wallet,
       };
       if (key) reviewResponses.set(key, data);
@@ -725,8 +731,21 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     }
     case 'API-601':
       return response({ lesson: lessons[0] });
-    case 'API-602':
-      return response({ rewards: [], wallet: state.wallet, onboardingCompleted: true });
+    case 'API-602': {
+      // 서버처럼 건너뛰지 않고 마친 첫 완료에만 별가루를 준다.
+      const paid = input.skipped !== true && !onboardingRewarded;
+      if (paid) {
+        onboardingRewarded = true;
+        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + ONBOARDING_STARDUST };
+      }
+      return response({
+        rewards: paid
+          ? [{ type: 'WALLET', currency: 'STARDUST', amount: ONBOARDING_STARDUST }]
+          : [],
+        wallet: state.wallet,
+        onboardingCompleted: true,
+      });
+    }
     case 'API-701':
       return response({
         ...room,
