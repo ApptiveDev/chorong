@@ -17,6 +17,7 @@ import { useIntegration, useTask } from '../hooks';
 import type { CourseDetail } from '../models';
 import { positiveId } from '../ui';
 import { UserStatus } from './Screen';
+import { SessionConfirmModal } from './SessionConfirmModal';
 import { artColor as color, SparkStar } from './constellationArt';
 import { constellationCompletedOn, nextLessonOf } from './constellationRecord';
 import { loadConstellationDates } from './constellationDates';
@@ -67,12 +68,20 @@ export default function CourseScreen() {
     if (router.canGoBack()) router.back();
     else router.replace('/quiz');
   };
+  // 완료한 레슨은 확인 모달을 거쳐 기존 다시 학습하기(replay)로 들어간다. 진행 중 레슨의 이어서 모달은 학습 화면이 띄운다.
+  const [replayTarget, setReplayTarget] = useState<Lesson | null>(null);
+  const startReplay = () => {
+    if (!replayTarget) return;
+    const lesson = replayTarget;
+    setReplayTarget(null);
+    router.push({
+      pathname: '/learn/study/[lessonId]',
+      params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
+    });
+  };
   const openLesson = (lesson: Lesson) =>
     lesson.status === 'COMPLETED'
-      ? router.push({
-          pathname: '/learn/study/[lessonId]',
-          params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
-        })
+      ? setReplayTarget(lesson)
       : router.push({
           pathname: '/learn/lesson/[lessonId]',
           params: { lessonId: String(lesson.lessonId), status: lesson.status },
@@ -135,6 +144,18 @@ export default function CourseScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      {/* Figma 알림창_선택지 2개_가로(656:4299) */}
+      <SessionConfirmModal
+        visible={!!replayTarget}
+        title="다시 학습할까요?"
+        notice="완료한 내용을 한 번 더 볼 수 있어요."
+        arrowBullet
+        cancelLabel="취소"
+        confirmLabel="다시 학습하기"
+        busy={false}
+        onCancel={() => setReplayTarget(null)}
+        onConfirm={startReplay}
+      />
     </SafeAreaView>
   );
 }
