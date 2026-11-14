@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Modal,
@@ -23,7 +23,6 @@ import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
 import { UserScreen, UserStatus } from './Screen';
-import type { RegisterQuizFooter } from './quizFooter';
 import { CompletionResult } from './CompletionResult';
 
 export function ReviewScreen() {
@@ -42,14 +41,6 @@ export function ReviewScreen() {
     [position, setPosition] = useState(0);
   const [sessionKey, setSessionKey] = useState('');
   const [exitOpen, setExitOpen] = useState(false);
-  const [quizFooter, setQuizFooter] = useState<{
-    quizId: number;
-    enabled: boolean;
-    onPress: () => void;
-  } | null>(null);
-  const registerQuizFooter = useCallback<RegisterQuizFooter>((quizId, enabled, onPress) => {
-    setQuizFooter({ quizId, enabled, onPress });
-  }, []);
   const loadedFor = useRef<string | null>(null);
   const quizTapLocked = useRef(false);
   const load = () =>
@@ -92,7 +83,6 @@ export function ReviewScreen() {
   // 학습 화면과 같은 퀴즈 화면(QuizStage)을 쓴다. 문항이 보이는 동안은 모든 유형이 퀴즈 배경·머리말을 쓴다.
   const quizStage = !notice && !!current;
   const quizKind = current ? quizStageKind(current.quiz) : null;
-  const instantQuiz = !!quizKind?.instant;
   // 다음 문항 또는 복습 완료(API-503). 이동했으면 true.
   const goNext = async () => {
     if (quizTapLocked.current || task.busy) return false;
@@ -188,50 +178,13 @@ export function ReviewScreen() {
                 quiz={current.quiz}
                 itemKey={current.reviewItemId}
                 scale={quizScale}
-                lessonId={current.quiz.lessonId ?? 0}
                 disabled={done.includes(current.reviewItemId)}
                 submit={(answer) => api.review.answer(current.reviewItemId, answer)}
                 onGraded={onGraded(current.reviewItemId)}
                 onAdvance={advanceFromQuiz}
-                registerFooter={registerQuizFooter}
               />
             </ScrollView>
           </AnimatedReveal>
-        </View>
-      ) : null}
-      {current && !notice && !instantQuiz && !done.includes(current.reviewItemId) ? (
-        <View style={[reviewStyles.footer, reviewStyles.quizFooter]}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={
-              task.busy ||
-              (!done.includes(current.reviewItemId) &&
-                (quizFooter?.quizId !== current.quiz.quizId || !quizFooter?.enabled))
-            }
-            style={[
-              reviewStyles.primary,
-              (task.busy ||
-                (!done.includes(current.reviewItemId) &&
-                  (quizFooter?.quizId !== current.quiz.quizId || !quizFooter?.enabled))) &&
-                reviewStyles.disabled,
-            ]}
-            onPress={
-              done.includes(current.reviewItemId)
-                ? () =>
-                    position === items.length - 1 ? void complete() : setPosition(position + 1)
-                : () => quizFooter?.onPress()
-            }
-          >
-            <Text style={reviewStyles.primaryText}>
-              {!done.includes(current.reviewItemId)
-                ? '정답 확인'
-                : position === items.length - 1
-                  ? '복습 완료'
-                  : '다음'}
-            </Text>
-          </Pressable>
-          {/* 학습 화면 footer 의 '이전' 칸(28)과 같은 높이를 둔다. */}
-          <View style={reviewStyles.previousSlot} />
         </View>
       ) : null}
       {current && !notice && !quizKind?.selfAdvancing && done.includes(current.reviewItemId) ? (
@@ -303,19 +256,6 @@ const reviewStyles = StyleSheet.create({
   quizCaption: { color: '#747474', textAlign: 'right', fontFamily: 'PretendardRegular' },
   advanceOverlay: { ...StyleSheet.absoluteFill, zIndex: 5 },
   stage: { flex: 1, minHeight: 0 },
-  footer: { paddingBottom: 16 },
-  // StudyScreen footer·quizFooter·previousSlot 과 같은 값
-  quizFooter: { gap: 8, paddingHorizontal: 36, backgroundColor: 'transparent' },
-  previousSlot: { minHeight: 28 },
-  primary: {
-    minHeight: 52,
-    borderRadius: 13,
-    backgroundColor: '#373044',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  disabled: { opacity: 0.4 },
   modalOverlay: {
     flex: 1,
     backgroundColor: '#34273c63',

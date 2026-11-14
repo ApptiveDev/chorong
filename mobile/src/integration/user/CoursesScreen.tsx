@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Course, CourseDetail } from '../models';
-import { UserScreen, UserStatus } from './Screen';
+import { UserScreen } from './Screen';
 import { LearningHome } from './LearningHome';
+import { useLessonStart } from './lessonStart';
 import {
   completedConstellations,
   constellationImage,
@@ -17,7 +17,7 @@ import {
 import { ConstellationRecordView } from './ConstellationRecordView';
 import { loadConstellationDates } from './constellationDates';
 
-type Section = 'home' | 'map' | 'list';
+type Section = 'home' | 'map';
 type MapTab = 'map' | 'record';
 type NextLesson = CourseDetail['lessons'][number] | null;
 type Wallet = Awaited<ReturnType<typeof api.benefits.wallet>>;
@@ -44,8 +44,9 @@ function Courses() {
   const [joinPromptOpen, setJoinPromptOpen] = useState(false);
   const [joinSocialNotice, setJoinSocialNotice] = useState(false);
   const [currentCourseId, setCurrentCourseId] = useState<number | null>(null);
-  const [category, setCategory] = useState<string | null>(null);
   const [nextLesson, setNextLesson] = useState<NextLesson>(null);
+  // 모든 별자리의 레슨을 마쳤는지(API-401). 다음 학습 카드 문구에만 쓴다.
+  const [allDone, setAllDone] = useState(false);
   // 현재 코스의 레슨 목록(API-402). 별자리 기록의 별 하나 = 레슨 하나.
   const [courseLessons, setCourseLessons] = useState<CourseDetail['lessons']>([]);
   // 에너지·별가루(API-904). 조회 실패면 칩에 '—'를 보여 준다.
@@ -63,10 +64,20 @@ function Courses() {
       setConstellations(constellationResult?.constellations ?? null);
       setRecordDates(records);
       setWallet(walletResult);
+      // progress.current 는 마지막으로 시작한 레슨의 코스라 별자리를 다 마친 뒤에도 그 코스를 가리킨다.
+      // 그 코스가 끝났으면 다음 순서의 미완료 별자리로 넘어간다.
+      const unfinished = (course: Course) => course.completedLessons < course.totalLessons;
+      const currentIndex = result.courses.findIndex(
+        (course) => course.courseId === progress?.current?.courseId,
+      );
+      const current = currentIndex >= 0 ? result.courses[currentIndex] : undefined;
       const candidate =
-        result.courses.find((course) => course.courseId === progress?.current?.courseId) ??
-        result.courses.find((course) => course.completedLessons < course.totalLessons) ??
+        (current && unfinished(current) ? current : undefined) ??
+        result.courses.slice(currentIndex + 1).find(unfinished) ??
+        result.courses.find(unfinished) ??
+        current ??
         result.courses[0];
+      setAllDone(result.courses.length > 0 && !result.courses.some(unfinished));
       setCurrentCourseId(candidate?.courseId ?? null);
       if (candidate) {
         try {
@@ -102,20 +113,19 @@ function Courses() {
     }
     router.setParams({ view: '' });
   }, [view, auth.user?.status, router]);
-  const categories = [...new Set(courses.map((course) => course.category))];
-  const listed = category ? courses.filter((course) => course.category === category) : courses;
   const currentCourse = courses.find((course) => course.courseId === currentCourseId);
-  const openCourse = (courseId: number) => router.push(`/learn/course/${courseId}`);
+  // 이미 읽은 완성일(API-905)을 함께 넘겨 상세 화면이 보상 내역을 다시 읽기 전에도 바로 보여 준다.
+  const openCourse = (courseId: number) =>
+    router.push({
+      pathname: '/learn/course/[courseId]',
+      params: {
+        courseId: String(courseId),
+        ...(recordDates[courseId] ? { completedOn: recordDates[courseId] } : {}),
+      },
+    });
+  const lessonStart = useLessonStart();
   const openLesson = () => {
-    if (nextLesson)
-      router.push({
-        pathname: '/learn/study/[lessonId]',
-        params: {
-          lessonId: String(nextLesson.lessonId),
-          title: nextLesson.title,
-          resume: nextLesson.status === 'IN_PROGRESS' ? 'true' : 'false',
-        },
-      });
+    if (nextLesson) void lessonStart.start(nextLesson);
   };
   const currentConstellation = currentCourse
     ? constellations?.find((item) => item.courseId === currentCourse.courseId)
@@ -217,97 +227,34 @@ function Courses() {
           }
           wallet={wallet}
           nextTitle={
-            nextLesson?.title ?? (courses.length ? '학습할 레슨을 선택하세요' : '별자리가 없습니다')
+            nextLesson?.title ??
+            (!courses.length
+              ? '별자리가 없습니다'
+              : allDone
+                ? '모든 레슨을 마쳤어요'
+                : '다음 레슨이 아직 열리지 않았어요')
           }
-          nextDisabled={!courses.length}
+          nextDisabled={!nextLesson}
           onOpenRecord={() => {
             setMapTab('record');
             setSection('map');
           }}
-          onNext={nextLesson ? openLesson : () => setSection('list')}
+          onNext={openLesson}
           onReview={() => router.push('/review-start')}
           onRetry={() => void load()}
         />
+        {lessonStart.modal}
         {joinModal}
       </>
     );
+  // 학습 탭은 로그인한 사용자만 들어온다. 세션이 풀린 순간에만 보이는 안내다.
   return (
-    <UserScreen
-      title={
-        section === 'home' ? '학습 홈' : section === 'map' ? '전체 별자리 지도' : '별자리 목록'
-      }
-      showTitle={section === 'list'}
-    >
-      {!auth.authenticated ? (
-        <View style={s.panel}>
-          <Text style={s.heading}>학습을 시작하세요</Text>
-          <Text style={s.muted}>로그인하면 별자리와 레슨을 볼 수 있습니다.</Text>
-          <Action title="로그인" onPress={() => router.push('/account')} />
-        </View>
-      ) : (
-        <>
-          <UserStatus task={task} />
-          {section === 'list' ? (
-            <Pressable
-              accessibilityRole="button"
-              style={s.back}
-              onPress={() => setSection(section === 'list' ? 'map' : 'home')}
-            >
-              <Ionicons name="chevron-back" size={18} color={navy} />
-              <Text style={s.muted}>뒤로</Text>
-            </Pressable>
-          ) : null}
-          {section === 'list' ? (
-            <>
-              <View style={s.filters}>
-                {[null, ...categories].map((value) => (
-                  <Pressable
-                    key={value ?? 'all'}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: category === value }}
-                    style={[s.filter, category === value && s.selected]}
-                    onPress={() => setCategory(value)}
-                  >
-                    <Text style={[s.filterText, category === value && s.selectedText]}>
-                      {value ?? '전체'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              {listed.map((course, index) => (
-                <Pressable
-                  key={course.courseId}
-                  accessibilityRole="button"
-                  onPress={() => openCourse(course.courseId)}
-                  style={s.course}
-                >
-                  <View style={s.icon}>
-                    <Ionicons
-                      name={course.completedLessons ? 'star' : 'star-outline'}
-                      size={19}
-                      color={navy}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.muted}>
-                      별자리 {index + 1} · {course.category}
-                    </Text>
-                    <Text style={s.heading}>{course.constellation?.name ?? course.title}</Text>
-                    <Text style={s.muted}>
-                      {course.title} · {course.completedLessons}/{course.totalLessons} 레슨 완료
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color="#7b8795" />
-                </Pressable>
-              ))}
-              {!task.busy && !task.error && !listed.length ? (
-                <Text style={s.muted}>표시할 별자리가 없습니다.</Text>
-              ) : null}
-            </>
-          ) : null}
-          {task.error ? <Outline title="다시 불러오기" onPress={() => void load()} /> : null}
-        </>
-      )}
+    <UserScreen title="학습 홈" showTitle={false}>
+      <View style={s.panel}>
+        <Text style={s.heading}>학습을 시작하세요</Text>
+        <Text style={s.muted}>로그인하면 별자리와 레슨을 볼 수 있습니다.</Text>
+        <Action title="로그인" onPress={() => router.push('/account')} />
+      </View>
       {joinModal}
     </UserScreen>
   );
@@ -334,13 +281,6 @@ function Action({
     </Pressable>
   );
 }
-function Outline({ title, onPress }: { title: string; onPress: () => void }) {
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={s.outline}>
-      <Text style={s.outlineText}>{title}</Text>
-    </Pressable>
-  );
-}
 
 const s = StyleSheet.create({
   heading: { color: navy, fontSize: 15, fontWeight: '700' },
@@ -355,44 +295,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
   },
   primaryText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  outline: {
-    borderRadius: 13,
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    backgroundColor: '#f3f1f6',
-  },
-  outlineText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
-  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 3 },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  filter: {
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 4,
-  },
-  selected: { backgroundColor: navy, borderColor: navy },
-  filterText: { color: navy, fontSize: 11 },
-  selectedText: { color: '#fff' },
-  course: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: '#dce2e8',
-    borderRadius: 4,
-    padding: 13,
-  },
-  icon: {
-    width: 35,
-    height: 35,
-    borderRadius: 18,
-    backgroundColor: '#eef1f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   joinOverlay: {
     flex: 1,
     backgroundColor: '#34273c63',

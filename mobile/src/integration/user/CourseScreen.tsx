@@ -17,39 +17,46 @@ import { useIntegration, useTask } from '../hooks';
 import type { CourseDetail } from '../models';
 import { positiveId } from '../ui';
 import { UserStatus } from './Screen';
+import { SessionConfirmModal } from './SessionConfirmModal';
+import { useLessonStart } from './lessonStart';
 import { artColor as color, SparkStar } from './constellationArt';
-import { constellationCompletedOn, formatDotDate, nextLessonOf } from './constellationRecord';
+import { constellationCompletedOn, nextLessonOf } from './constellationRecord';
 import { loadConstellationDates } from './constellationDates';
 
 type Lesson = CourseDetail['lessons'][number];
 
 // Figma L03_1 별자리 상세 / 완료한 별 목록(342:577).
 // 별자리(코스)의 레슨을 순서대로 보여 주고, 누르면 기존 학습 진입을 그대로 쓴다.
-// 완료한 레슨은 다시 하기(replay), 그 밖은 레슨 화면(/learn/lesson)으로 간다.
+// 완료한 레슨은 확인 모달 뒤 다시 하기(replay), 열린 레슨은 바로 학습 화면으로 간다.
 export default function CourseScreen() {
-  const { courseId } = useLocalSearchParams<{ courseId: string }>(),
+  const { courseId, completedOn: passedCompletedOn } = useLocalSearchParams<{
+      courseId: string;
+      completedOn?: string;
+    }>(),
     router = useRouter(),
     session = useIntegration(),
     task = useTask();
   const { width } = useWindowDimensions();
   const [course, setCourse] = useState<CourseDetail | null>(null);
-  // 별자리 완성일. 레슨 completedAt 이 없으면 보상 내역(API-905)의 별자리 뱃지 지급일을 쓴다.
-  const [completedOn, setCompletedOn] = useState<string | null>(null);
+  // 별자리 완성일. 레슨 completedAt → 별자리 기록에서 넘긴 값 → 보상 내역(API-905) 뱃지 지급일 순으로 쓴다.
+  // 별자리 기록에서 들어오면 넘긴 값을 첫 화면부터 보여 준다.
+  const [completedOn, setCompletedOn] = useState<string | null>(passedCompletedOn || null);
   const load = () =>
     task.run(async () => {
       const data = await api.learning.course(positiveId(String(courseId)));
-      setCourse(data);
-      const fromLessons = constellationCompletedOn(data.lessons);
       const complete =
         data.lessons.length > 0 && data.lessons.every((lesson) => lesson.status === 'COMPLETED');
-      setCompletedOn(
-        fromLessons ??
-          (complete
-            ? ((await loadConstellationDates().catch((): Record<number, string> => ({})))[
-                data.courseId
-              ] ?? null)
-            : null),
-      );
+      // 완성일을 다 구한 뒤 코스와 함께 반영한다. 코스를 먼저 그리면 완성일만 한 박자 늦게 나타난다.
+      const date = !complete
+        ? null
+        : (constellationCompletedOn(data.lessons) ??
+          (passedCompletedOn ||
+            ((await loadConstellationDates().catch((): Record<number, string> => ({})))[
+              data.courseId
+            ] ??
+              null)));
+      setCourse(data);
+      setCompletedOn(date);
       return data;
     });
   // 다시 학습하고 돌아오면 진행 상태를 새로 읽는다.
@@ -62,16 +69,23 @@ export default function CourseScreen() {
     if (router.canGoBack()) router.back();
     else router.replace('/quiz');
   };
-  const openLesson = (lesson: Lesson) =>
-    lesson.status === 'COMPLETED'
-      ? router.push({
-          pathname: '/learn/study/[lessonId]',
-          params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
-        })
-      : router.push({
-          pathname: '/learn/lesson/[lessonId]',
-          params: { lessonId: String(lesson.lessonId), status: lesson.status },
-        });
+  // 완료한 레슨은 확인 모달을 거쳐 기존 다시 학습하기(replay)로 들어간다. 진행 중 레슨의 이어서 모달은 학습 화면이 띄운다.
+  const [replayTarget, setReplayTarget] = useState<Lesson | null>(null);
+  const startReplay = () => {
+    if (!replayTarget) return;
+    const lesson = replayTarget;
+    setReplayTarget(null);
+    router.push({
+      pathname: '/learn/study/[lessonId]',
+      params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
+    });
+  };
+  // 잠긴 레슨은 누를 수 없다. 열린 레슨은 레슨 소개 화면 없이 바로 학습을 시작한다(홈 '다음 학습'과 같은 진입).
+  const lessonStart = useLessonStart();
+  const openLesson = (lesson: Lesson) => {
+    if (lesson.status === 'COMPLETED') setReplayTarget(lesson);
+    else if (lesson.status !== 'LOCKED') void lessonStart.start(lesson);
+  };
   const next = course ? nextLessonOf(course.lessons) : null;
   const rowWidth = Math.min(332, width - 70);
   return (
@@ -108,6 +122,8 @@ export default function CourseScreen() {
                   key={lesson.lessonId}
                   accessibilityRole="button"
                   accessibilityLabel={`${lesson.title} ${status}`}
+                  accessibilityState={{ disabled: locked }}
+                  disabled={locked}
                   onPress={() => openLesson(lesson)}
                   style={[s.row, locked && s.rowLocked]}
                 >
@@ -117,9 +133,6 @@ export default function CourseScreen() {
                       {lesson.title}
                     </Text>
                   </View>
-                  {locked && lesson.unlocksAt ? (
-                    <Text style={s.unlock}>{formatDotDate(lesson.unlocksAt).slice(6)} 열림</Text>
-                  ) : null}
                   <Text style={s.chevron}>›</Text>
                 </Pressable>
               );
@@ -133,6 +146,19 @@ export default function CourseScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      {lessonStart.modal}
+      {/* Figma 알림창_선택지 2개_가로(656:4299) */}
+      <SessionConfirmModal
+        visible={!!replayTarget}
+        title="다시 학습할까요?"
+        notice="완료한 내용을 한 번 더 볼 수 있어요."
+        arrowBullet
+        cancelLabel="취소"
+        confirmLabel="다시 학습하기"
+        busy={false}
+        onCancel={() => setReplayTarget(null)}
+        onConfirm={startReplay}
+      />
     </SafeAreaView>
   );
 }
@@ -195,7 +221,6 @@ const s = StyleSheet.create({
     fontSize: 16,
     includeFontPadding: false,
   },
-  unlock: { color: '#202335', fontFamily: 'PretendardRegular', fontSize: 12 },
   chevron: { color: '#202335', fontFamily: 'KkakdugiRegular', fontSize: 20 },
   empty: { color: '#d9d9d9', fontFamily: 'PretendardRegular', fontSize: 14 },
   retry: {

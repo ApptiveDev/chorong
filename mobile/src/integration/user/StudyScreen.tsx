@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +6,6 @@ import {
   Image,
   type ImageSourcePropType,
   Linking,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +23,7 @@ import { replayCompletion } from '../completionResult';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
+import { SessionConfirmModal } from './SessionConfirmModal';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
@@ -31,10 +31,10 @@ import { NarrationDialogue } from './NarrationDialogue';
 import { toNarrationContent } from './narrationContent';
 import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
+import { prefetchLessonAudio } from './quizAudio';
 import { ConstellationComplete } from './ConstellationComplete';
 import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
 import { FirstStudyLoginModal } from './FirstStudyLoginModal';
-import type { RegisterQuizFooter } from './quizFooter';
 import {
   CompletionResult,
   CompletionStar,
@@ -75,18 +75,10 @@ function Study() {
   const [loginOpen, setLoginOpen] = useState(false);
   // 레슨 시작 전 에너지. 완료 응답의 지갑 에너지와 비교해 실제로 쓴 만큼만 표시한다.
   const [energyBefore, setEnergyBefore] = useState<number | null>(null);
-  const [quizFooter, setQuizFooter] = useState<{
-    quizId: number;
-    enabled: boolean;
-    onPress: () => void;
-  } | null>(null);
   const quizTapLocked = useRef(false);
   const conceptTapLocked = useRef(false);
   const conceptUnlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadedLessonId = useRef<number | null>(null);
-  const registerQuizFooter = useCallback<RegisterQuizFooter>((quizId, enabled, onPress) => {
-    setQuizFooter({ quizId, enabled, onPress });
-  }, []);
   const [constellationName, setConstellationName] = useState('별자리');
   const [constellationDate, setConstellationDate] = useState<string | null>(null);
   // 별자리 완성 화면의 별 그림. API-906 의 별자리 ID·별 수·그림 주소.
@@ -131,7 +123,12 @@ function Study() {
         throw new Error('완료 위치가 콘텐츠 목록에 없습니다.');
       setPosition(replay ? 0 : index);
       setResumePosition(replay ? 0 : index);
-      if (!replay && (params.resume === 'true' || data.progress.lastContentId !== null))
+      // 완료한 레슨은 완료 화면을 보여 주므로 이어 하기 모달을 겹쳐 띄우지 않는다.
+      if (
+        !replay &&
+        data.progress.status !== 'COMPLETED' &&
+        (params.resume === 'true' || data.progress.lastContentId !== null)
+      )
         setResumeOpen(true);
       setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
       return data;
@@ -144,6 +141,7 @@ function Study() {
     if (!start || loadedLessonId.current !== lessonId) return;
     let active = true;
     void prefetchLessonImages(start.contents, () => active);
+    void prefetchLessonAudio(start.contents, () => active);
     return () => {
       active = false;
     };
@@ -178,7 +176,6 @@ function Study() {
   const designedStage = quizStage || narrationStage || conceptStage;
   // 문항 유형 판별은 복습 화면과 같은 QuizStage 기준을 쓴다.
   const quizKind = quizStage ? quizStageKind(current.quiz) : null;
-  const instantQuiz = !!quizKind?.instant;
   const quizScale = Math.min(windowWidth / 402, windowHeight / 874, 1);
   const progressLabel = current?.quiz?.options?.mockHtmlType
     ? String(current.quiz.options.label ?? params.title ?? '학습')
@@ -196,6 +193,22 @@ function Study() {
   const dialogue = current?.contentType === 'TEXT' ? toNarrationContent(current) : null;
   const visibleDialogueCount =
     dialogueReveal.contentId === current?.contentId ? dialogueReveal.count : 1;
+  // 이어지는 대화(TEXT) 콘텐츠는 한 대화로 이어 쌓는다. 앞 콘텐츠 대사는 모두 본 상태로 위에 남는다.
+  const dialogueRun = (() => {
+    if (!dialogue) return null;
+    let first = position;
+    while (first > 0 && contents[first - 1]?.contentType === 'TEXT') first -= 1;
+    let last = position;
+    while (contents[last + 1]?.contentType === 'TEXT') last += 1;
+    const run = contents.slice(first, last + 1).map((item) => toNarrationContent(item).messages);
+    const before = run.slice(0, position - first).reduce((sum, items) => sum + items.length, 0);
+    return {
+      key: contents[first].contentId,
+      messages: run.flat(),
+      visibleCount: before + visibleDialogueCount,
+      endCount: before + dialogue.messages.length,
+    };
+  })();
   const refreshAfterDone = async (completion?: LessonCompleteResponse | null) => {
     try {
       await api.learning.progress();
@@ -396,17 +409,6 @@ function Study() {
         // 콘텐츠 완료 보고 중 스피너가 흐름에 끼어 화면 전체가 내려갔다 올라오지 않게 띄워서 표시한다.
         <UserStatus task={task} floatingBusy />
       )}
-      {replay && !lessonDone ? (
-        <Text
-          style={[
-            s.hint,
-            designedStage && s.quizReplayHint,
-            quizStage && !instantQuiz && s.quizReplayHintWithFooter,
-          ]}
-        >
-          다시 학습 중입니다. 보상은 변경되지 않습니다.
-        </Text>
-      ) : null}
       {start?.reviewRequired ? (
         <>
           <Text style={styles.text}>복습을 마친 뒤 이 레슨을 다시 시작하세요.</Text>
@@ -480,7 +482,8 @@ function Study() {
                 <View style={[s.resultSubtitleUnderline, { top: completionTop(458) }]}>
                   <Text style={s.resultSubtitle}>{params.title ?? '학습'}</Text>
                 </View>
-                {stardustReward > 0 ? (
+                {/* 에너지 없음 화면(L06_3)에는 별가루 줄이 없다. */}
+                {stardustReward > 0 && !stardustSkipped ? (
                   <View style={[s.rewardRow, { top: completionTop(520) }]}>
                     <Image
                       source={completionDustSource}
@@ -527,9 +530,10 @@ function Study() {
               </View>
             ) : current?.contentType === 'TEXT' ? (
               <NarrationDialogue
-                key={current.contentId}
-                messages={dialogue?.messages ?? []}
-                visibleCount={visibleDialogueCount}
+                key={dialogueRun?.key ?? current.contentId}
+                messages={dialogueRun?.messages ?? []}
+                visibleCount={dialogueRun?.visibleCount ?? 0}
+                endCount={dialogueRun?.endCount ?? 0}
                 source={dialogue?.source}
                 disabled={task.busy || lessonDone}
                 onAdvance={async () => {
@@ -558,10 +562,9 @@ function Study() {
                       : s.scrollContent
                   }
                 >
-                  {current.body ? (
-                    <Text style={current.contentType === 'QUIZ' ? s.quizBody : s.body}>
-                      {current.body}
-                    </Text>
+                  {/* 퀴즈는 문항(question)만 보여 준다. 콘텐츠 body 는 퀴즈 화면에 그리지 않는다. */}
+                  {current.body && current.contentType !== 'QUIZ' ? (
+                    <Text style={s.body}>{current.body}</Text>
                   ) : null}
                   {current.contentType === 'VIDEO' && current.mediaUrl ? (
                     <StudyAction
@@ -574,14 +577,12 @@ function Study() {
                       quiz={current.quiz}
                       itemKey={current.contentId}
                       scale={quizScale}
-                      lessonId={lessonId}
                       disabled={answered.has(current.contentId)}
                       submit={(answer) => api.learning.answer(current.quiz!.quizId, answer, replay)}
                       onGraded={() =>
                         setAnswered((previous) => new Set(previous).add(current.contentId))
                       }
                       onAdvance={(justGraded) => advance(justGraded)}
-                      registerFooter={registerQuizFooter}
                     />
                   ) : null}
                   {current.contentType === 'QUIZ' && !current.quiz ? (
@@ -595,76 +596,37 @@ function Study() {
               </View>
             )}
           </View>
-          {!showConstellation &&
-          !narrationStage &&
-          !conceptStage &&
-          !(quizStage && (instantQuiz || answered.has(current.contentId))) ? (
+          {!showConstellation && !narrationStage && !conceptStage && !quizStage ? (
+            // 퀴즈는 문항 컴포넌트가 선택·입력 즉시 채점하고 여백 터치로 넘어가므로 하단 버튼을 두지 않는다.
             <View
               style={[
                 s.footer,
-                quizStage && s.quizFooter,
                 completionView && s.completionFooter,
                 completionView && { bottom: Math.max(12, 89 * completionScale - insets.bottom) },
               ]}
             >
-              <>
-                <StudyAction
-                  completion={completionView}
-                  label={
-                    !lessonDone &&
-                    current?.contentType === 'QUIZ' &&
-                    !answered.has(current.contentId)
-                      ? '정답 확인'
-                      : lessonDone
-                        ? '완료'
-                        : replay && last
-                          ? '레슨 목록'
-                          : last
-                            ? '레슨 완료'
-                            : '다음'
-                  }
-                  secondary={current?.contentType === 'TEXT' && !lessonDone}
-                  disabled={
-                    !current ||
-                    task.busy ||
-                    (current.contentType === 'QUIZ' &&
-                      !answered.has(current.contentId) &&
-                      (quizFooter?.quizId !== current.quiz?.quizId || !quizFooter?.enabled))
-                  }
-                  onPress={
-                    !lessonDone &&
-                    current?.contentType === 'QUIZ' &&
-                    !answered.has(current.contentId)
-                      ? () => quizFooter?.onPress()
-                      : lessonDone
-                        ? () =>
-                            replay
+              <StudyAction
+                completion={completionView}
+                label={
+                  lessonDone ? '완료' : replay && last ? '레슨 목록' : last ? '레슨 완료' : '다음'
+                }
+                secondary={current?.contentType === 'TEXT' && !lessonDone}
+                disabled={!current || task.busy}
+                onPress={
+                  lessonDone
+                    ? () =>
+                        replay
+                          ? leaveStudy()
+                          : firstWelcomeStudy
+                            ? setLoginOpen(true)
+                            : params.fromWelcome === 'true'
                               ? leaveStudy()
-                              : firstWelcomeStudy
-                                ? setLoginOpen(true)
-                                : params.fromWelcome === 'true'
-                                  ? leaveStudy()
-                                  : constellationCompleted
-                                    ? setShowConstellation(true)
-                                    : leaveStudy()
-                        : () => void advance()
-                  }
-                />
-                {!completionView ? (
-                  <View style={s.previousSlot}>
-                    {!lessonDone && position > 0 ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        disabled={task.busy}
-                        onPress={() => setPosition(position - 1)}
-                        style={s.previous}
-                      >
-                        <Text style={s.previousText}>이전</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-              </>
+                              : constellationCompleted
+                                ? setShowConstellation(true)
+                                : leaveStudy()
+                    : () => void advance()
+                }
+              />
             </View>
           ) : null}
           {quizStage && !quizKind?.selfAdvancing && answered.has(current.contentId) ? (
@@ -684,66 +646,40 @@ function Study() {
           ) : null}
         </>
       ) : null}
-      <Modal
+      {/* Figma 알림창_선택지 2개_가로(656:4259) */}
+      <SessionConfirmModal
         visible={resumeOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setResumeOpen(false)}
-      >
-        <View style={s.modalOverlay}>
-          <View style={s.modalPanel}>
-            <Text style={s.modalTitle}>이어서 탐험할까요?</Text>
-            <Text style={s.modalCopy}>마지막으로 보던 부분부터 이어갈 수 있어요.</Text>
-            <View style={s.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={s.modalSecondary}
-                onPress={() => {
-                  setPosition(0);
-                  setResumeOpen(false);
-                }}
-              >
-                <Text style={s.modalSecondaryText}>처음부터</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={s.modalPrimary}
-                onPress={() => {
-                  setPosition(resumePosition);
-                  setResumeOpen(false);
-                }}
-              >
-                <Text style={s.modalPrimaryText}>이어서</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal
+        title="이어서 학습할까요?"
+        notice="마지막으로 본 부분부터 이어갈 수 있어요."
+        arrowBullet
+        cancelLabel="처음부터"
+        confirmLabel="이어서"
+        busy={false}
+        onCancel={() => {
+          setPosition(0);
+          setResumeOpen(false);
+        }}
+        onConfirm={() => {
+          setPosition(resumePosition);
+          setResumeOpen(false);
+        }}
+        onDismiss={() => setResumeOpen(false)}
+      />
+      {/* Figma 알림창_선택지 2개_세로(462:718) */}
+      <SessionConfirmModal
         visible={exitOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setExitOpen(false)}
-      >
-        <View style={s.modalOverlay}>
-          <View style={s.modalPanel}>
-            <Text style={s.modalTitle}>잠시 탐험을 멈출까요?</Text>
-            <Text style={s.modalCopy}>여기까지의 진행은 저장돼요. 다음에 이어서 볼 수 있어요.</Text>
-            <View style={s.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={s.modalSecondary}
-                onPress={() => setExitOpen(false)}
-              >
-                <Text style={s.modalSecondaryText}>계속 학습하기</Text>
-              </Pressable>
-              <Pressable accessibilityRole="button" style={s.modalPrimary} onPress={leaveStudy}>
-                <Text style={s.modalPrimaryText}>나가기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="학습을 잠시 멈출까요?"
+        notice="다음에 이 위치에서 이어서 할 수 있어요."
+        arrowBullet
+        centerNotice
+        stacked
+        confirmLabel="계속 학습"
+        cancelLabel="나가기"
+        busy={false}
+        onConfirm={() => setExitOpen(false)}
+        onCancel={leaveStudy}
+        onDismiss={() => setExitOpen(false)}
+      />
       {firstWelcomeStudy ? (
         <FirstStudyLoginModal
           visible={loginOpen}
@@ -812,7 +748,6 @@ const s = StyleSheet.create({
   quizSegmentFill: { width: '100%' },
   quizProgress: { color: '#747474', textAlign: 'right', fontFamily: 'PretendardRegular' },
   quizAdvanceOverlay: { ...StyleSheet.absoluteFill, zIndex: 5 },
-  quizFooter: { paddingHorizontal: 36, backgroundColor: 'transparent' },
   back: { alignItems: 'center', justifyContent: 'center', width: 38, height: 38 },
   quizBack: { width: 26, height: 22 },
   progress: { color: '#888591', fontSize: 12 },
@@ -926,7 +861,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
   },
   body: { color: '#282636', fontSize: 17, lineHeight: 32 },
-  quizBody: { color: '#888591', fontSize: 13, lineHeight: 20, textAlign: 'center' },
   footer: { gap: 8, paddingBottom: 16, backgroundColor: '#fff' },
   completionFooter: {
     position: 'absolute',
@@ -938,9 +872,6 @@ const s = StyleSheet.create({
     gap: 0,
     backgroundColor: 'transparent',
   },
-  previousSlot: { minHeight: 28, justifyContent: 'center' },
-  previous: { alignSelf: 'center', minHeight: 28, paddingHorizontal: 12, justifyContent: 'center' },
-  previousText: { color: '#8e8498', fontSize: 12 },
   hint: { color: '#7b8795', fontSize: 12, lineHeight: 18 },
   quizReplayHint: {
     position: 'absolute',
@@ -949,7 +880,6 @@ const s = StyleSheet.create({
     right: 30,
     textAlign: 'center',
   },
-  quizReplayHintWithFooter: { bottom: 110 },
   action: {
     width: '100%',
     minHeight: 52,
@@ -975,40 +905,4 @@ const s = StyleSheet.create({
   secondary: { backgroundColor: '#f3f1f6' },
   secondaryText: { color: '#655b76' },
   disabled: { opacity: 0.45 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalPanel: {
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#fff',
-    borderRadius: 23,
-    padding: 25,
-    gap: 12,
-  },
-  modalTitle: { color: '#282636', fontSize: 20, fontWeight: '700' },
-  modalCopy: { color: '#807188', fontSize: 13, lineHeight: 22 },
-  modalActions: { flexDirection: 'row', gap: 9, marginTop: 12 },
-  modalPrimary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#373044',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  modalSecondary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalSecondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600' },
 });
