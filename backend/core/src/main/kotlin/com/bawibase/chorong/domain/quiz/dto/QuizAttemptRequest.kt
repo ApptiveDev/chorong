@@ -1,14 +1,11 @@
 package com.bawibase.chorong.domain.quiz.dto
 
-import com.bawibase.chorong.domain.quiz.model.DragDropUserResponse
-import com.bawibase.chorong.domain.quiz.model.FillBlankUserResponse
-import com.bawibase.chorong.domain.quiz.model.FlipCardUserResponse
-import com.bawibase.chorong.domain.quiz.model.MatchingUserResponse
-import com.bawibase.chorong.domain.quiz.model.MultipleChoiceUserResponse
+import com.bawibase.chorong.domain.quiz.model.ChosungUserResponse
+import com.bawibase.chorong.domain.quiz.model.IndexUserResponse
+import com.bawibase.chorong.domain.quiz.model.MatchUserResponse
+import com.bawibase.chorong.domain.quiz.model.MultiUserResponse
+import com.bawibase.chorong.domain.quiz.model.OxUserResponse
 import com.bawibase.chorong.domain.quiz.model.SliderUserResponse
-import com.bawibase.chorong.domain.quiz.model.SortUserResponse
-import com.bawibase.chorong.domain.quiz.model.SwipeUserResponse
-import com.bawibase.chorong.domain.quiz.model.TapUserResponse
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import io.swagger.v3.oas.annotations.media.Schema
@@ -21,15 +18,12 @@ data class QuizAttemptRequest(
         description = "quizId로 조회한 DB 문제 유형에 맞는 답안. 숫자·문자열을 자동 변환하지 않으며 null·추가 필드는 거절한다.",
         implementation = Any::class,
         oneOf = [
-            FillBlankUserResponse::class,
+            OxUserResponse::class,
+            IndexUserResponse::class,
+            MultiUserResponse::class,
             SliderUserResponse::class,
-            SwipeUserResponse::class,
-            TapUserResponse::class,
-            MultipleChoiceUserResponse::class,
-            DragDropUserResponse::class,
-            SortUserResponse::class,
-            MatchingUserResponse::class,
-            FlipCardUserResponse::class,
+            MatchUserResponse::class,
+            ChosungUserResponse::class,
         ],
     )
     val response: JsonNode,

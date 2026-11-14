@@ -43,13 +43,15 @@ class ReviewCompletionService(
         reviewItemIds: List<Long>,
         key: String,
     ): IdempotentResponse<ReviewCompleteResponse> =
-        idempotency.execute(
-            userId,
-            "API-503",
-            key,
-            mapOf("reviewItemIds" to reviewItemIds),
-            ReviewCompleteResponse::class.java,
-        ) { IdempotentResponse(200, completeOnce(userId, reviewItemIds)) }
+        idempotency
+            .execute(
+                userId,
+                "API-503",
+                key,
+                mapOf("reviewItemIds" to reviewItemIds),
+                ReviewCompleteResponse::class.java,
+            ) { IdempotentResponse(200, completeOnce(userId, reviewItemIds)) }
+            .let { result -> result.copy(body = result.body.copy(rewards = result.body.rewards.filterNot { it.currency == "STAR" })) }
 
     private fun completeOnce(
         userId: Long,
@@ -113,16 +115,16 @@ class ReviewCompletionService(
             val inserted =
                 jdbc.update(
                     """INSERT INTO reward_ledger(user_id,source_type,source_id,source_key,reward_type,currency,amount)
-                   VALUES (?, 'REVIEW', ?, ?, 'WALLET', 'STAR', ?)
+                   VALUES (?, 'REVIEW', ?, ?, 'WALLET', 'STARDUST', ?)
                    ON CONFLICT (user_id,source_key) DO NOTHING""",
                     userId,
                     session.sessionId,
-                    "REVIEW:${session.sessionId}:WALLET:STAR",
-                    REVIEW_STAR_REWARD,
+                    "REVIEW:${session.sessionId}:WALLET:STARDUST",
+                    REVIEW_STARDUST_REWARD,
                 )
             if (inserted == 1) {
-                wallets.credit(userId, WalletCurrency.STAR, REVIEW_STAR_REWARD)
-                rewards += LearningReward("WALLET", "STAR", REVIEW_STAR_REWARD)
+                wallets.credit(userId, WalletCurrency.STARDUST, REVIEW_STARDUST_REWARD)
+                rewards += LearningReward("WALLET", "STARDUST", REVIEW_STARDUST_REWARD)
             }
         }
         jdbc.update(
@@ -134,10 +136,10 @@ class ReviewCompletionService(
         studyStreak.recordCompletedStudy(userId)
         if (rewards.isNotEmpty()) {
             log.info(
-                "learning.review.reward_granted userId={} reviewSessionId={} currency=STAR amount={}",
+                "learning.review.reward_granted userId={} reviewSessionId={} currency=STARDUST amount={}",
                 userId,
                 session.sessionId,
-                REVIEW_STAR_REWARD,
+                REVIEW_STARDUST_REWARD,
             )
         }
         return response(rewards, userId)
@@ -148,7 +150,7 @@ class ReviewCompletionService(
         userId: Long,
     ): ReviewCompleteResponse {
         val wallet = wallets.ensureWallet(userId)
-        return ReviewCompleteResponse(rewards, WalletBalancesResponse(wallet.star, wallet.stardust))
+        return ReviewCompleteResponse(rewards, wallets.balances(wallet))
     }
 
     private fun validateIds(
@@ -174,6 +176,6 @@ class ReviewCompletionService(
     companion object {
         private const val SESSION_SIZE = 5
         private const val DAILY_REWARD_LIMIT = 3
-        private const val REVIEW_STAR_REWARD = 1L
+        private const val REVIEW_STARDUST_REWARD = 1L
     }
 }

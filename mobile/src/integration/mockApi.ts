@@ -944,5 +944,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
               ),
             ),
       });
+    case 'API-908':
+      return response({ artworks: [] }, true);
   }
 };

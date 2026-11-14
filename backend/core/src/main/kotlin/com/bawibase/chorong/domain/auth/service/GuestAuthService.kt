@@ -14,6 +14,7 @@ import com.bawibase.chorong.domain.auth.repository.GuestDeviceRepository
 import com.bawibase.chorong.domain.housing.repository.HousingProfileRepository
 import com.bawibase.chorong.domain.housing.service.HousingCatalogService
 import com.bawibase.chorong.domain.housing.service.HousingService
+import com.bawibase.chorong.domain.housing.service.StarterFurnitureService
 import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
@@ -35,6 +36,7 @@ class GuestAuthService(
     private val profiles: HousingProfileRepository,
     private val catalog: HousingCatalogService,
     private val housing: HousingService,
+    private val starterFurniture: StarterFurnitureService,
     private val wallets: UserWalletService,
     private val tokens: TokenService,
 ) {
@@ -60,6 +62,7 @@ class GuestAuthService(
             }
         val user = users.findByIdForUpdate(auth.userId) ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
         if (!user.status.available) throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
+        starterFurniture.grant(auth.userId)
         val authId = checkNotNull(auth.id)
         val device = devices.findById(authId).orElse(null)
         if (device == null) devices.save(GuestDeviceEntity(authId, platform)) else device.platform = platform

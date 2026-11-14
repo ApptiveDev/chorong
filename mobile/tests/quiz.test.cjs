@@ -17,7 +17,11 @@ const {
   sliderValue,
   shuffled,
 } = require('../.expo/quiz-tests/lib/quiz-state.js');
-const fixtures = require('../../backend/core/src/test/resources/quiz/quiz-items.json');
+// 서버 7유형 fixture. 앱은 integration/contract 로 받아 화면 모델과 제출 본문으로 바꾼다.
+const apiFixtures = require('../../backend/core/src/test/resources/quiz/quiz-items.json');
+// 개발용 와이어프레임(lib/quiz-state)이 다루는 이전 유형 fixture.
+const fixtures = require('./fixtures/legacy-quiz-items.json');
+const contract = require('../.expo/quiz-tests/integration/contract.js');
 const {
   mockLessonQuizzes,
   mockQuizForLesson,
@@ -25,7 +29,79 @@ const {
 } = require('../.expo/quiz-tests/lib/mock-lesson-quizzes.js');
 const raw = (fixture) => ({ ...fixture, quizId: fixture.quizOrder, lessonId: 23 });
 
-for (const fixture of fixtures.filter((item) => item.interactionType !== 'SWIPE')) {
+const apiQuiz = (fixture) => {
+  const { answer, explanation, correctResponse, wrongResponse, caseId, ...quiz } = fixture;
+  return { ...quiz, quizId: 7000 + fixture.quizOrder, lessonId: 23 };
+};
+// 화면 답안. 서버 fixture 의 correctResponse·wrongResponse 와 같은 제출 본문이 나와야 한다.
+const appAnswers = {
+  OX: { type: 'OX', correct: { value: true }, wrong: { value: false } },
+  SINGLE: { type: 'MULTIPLE_CHOICE', correct: { index: 1 }, wrong: { index: 0 } },
+  BLANK: { type: 'FILL_BLANK', correct: { texts: ['더 싼 파랑으로'] }, wrong: { index: 0 } },
+  SLIDER: { type: 'SLIDER', correct: { position: 0.28 }, wrong: { position: 0.5 } },
+  MATCH: { type: 'ORDERING', correct: { order: [3, 2, 1, 0] } },
+  CHOSUNG: { type: 'CHOSUNG', correct: { texts: ['울트라마린'] }, wrong: { texts: [' 코발트 '] } },
+};
+
+test('server fixture covers the seven interaction types in order', () => {
+  assert.deepEqual(
+    apiFixtures.map((fixture) => fixture.interactionType),
+    ['OX', 'SINGLE', 'MULTI', 'BLANK', 'SLIDER', 'MATCH', 'CHOSUNG'],
+  );
+});
+for (const fixture of apiFixtures.filter((item) => item.interactionType !== 'MULTI')) {
+  test(`${fixture.caseId}: server fixture maps to the screen model and encodes the server answer body`, () => {
+    const before = JSON.stringify(fixture);
+    const expected = appAnswers[fixture.interactionType];
+    const quiz = contract.quiz(apiQuiz(fixture));
+    assert.equal(quiz.quizId, 7000 + fixture.quizOrder);
+    assert.equal(quiz.type, expected.type);
+    assert.ok(!JSON.stringify(quiz).includes(fixture.explanation));
+    assert.deepEqual(contract.encodeAnswer(quiz.quizId, expected.correct), fixture.correctResponse);
+    if (expected.wrong)
+      assert.deepEqual(contract.encodeAnswer(quiz.quizId, expected.wrong), fixture.wrongResponse);
+    assert.equal(JSON.stringify(fixture), before);
+  });
+}
+test('server fixture config reaches the screen model without invented fields', () => {
+  const byType = Object.fromEntries(
+    apiFixtures
+      .filter((fixture) => fixture.interactionType !== 'MULTI')
+      .map((fixture) => [fixture.interactionType, contract.quiz(apiQuiz(fixture))]),
+  );
+  const config = (type) => apiFixtures.find((f) => f.interactionType === type).config;
+  assert.deepEqual(byType.OX.options, {});
+  assert.deepEqual(
+    byType.SINGLE.options.choices.map((choice) => choice.label),
+    config('SINGLE').options,
+  );
+  assert.equal(
+    byType.BLANK.question,
+    `${config('BLANK').before} [[blank]] ${config('BLANK').after}`,
+  );
+  assert.deepEqual(
+    byType.BLANK.options.choices.map((choice) => choice.label),
+    config('BLANK').options,
+  );
+  assert.deepEqual(byType.SLIDER.options, config('SLIDER'));
+  assert.deepEqual(byType.CHOSUNG.options, { hint: config('CHOSUNG').hint });
+  const { left, right, answer } = byType.MATCH.options;
+  assert.deepEqual(
+    left.map((item, index) => [item, right[answer[index]]]),
+    config('MATCH').pairs,
+  );
+});
+test('MULTI stays unsupported and answers of another type are rejected', () => {
+  const multi = apiFixtures.find((fixture) => fixture.interactionType === 'MULTI');
+  assert.throws(() => contract.quiz(apiQuiz(multi)), contract.UnsupportedQuizError);
+  const ox = contract.quiz(apiQuiz(apiFixtures[0]));
+  assert.throws(() => contract.encodeAnswer(ox.quizId, { index: 0 }), /명세 불일치/);
+  const slider = contract.quiz(apiQuiz(apiFixtures.find((f) => f.interactionType === 'SLIDER')));
+  for (const position of [-0.1, 1.1, Number.NaN])
+    assert.throws(() => contract.encodeAnswer(slider.quizId, { position }), /명세 불일치/);
+});
+
+for (const fixture of fixtures) {
   test(`${fixture.caseId}: API fixture renders with an isolated response and accepts a complete submission`, () => {
     const before = JSON.stringify(fixture);
     const quiz = prepareQuiz(raw(fixture));

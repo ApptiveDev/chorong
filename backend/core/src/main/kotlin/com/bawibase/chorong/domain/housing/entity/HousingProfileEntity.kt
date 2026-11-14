@@ -17,7 +17,7 @@ class HousingProfileEntity(
     @Column(name = "active_room_id")
     var activeRoomId: Long? = null,
     @Column(name = "is_public", nullable = false)
-    var isPublic: Boolean = false,
+    var isPublic: Boolean = true,
     @Column(nullable = false, length = 20)
     var name: String = "나의 우주",
 ) {

@@ -23,6 +23,8 @@ class HousingOwnedItemEntity(
     var itemType: HousingItemType,
     @Column(name = "item_id", nullable = false)
     var itemId: Long,
+    @Column(name = "acquired_via", nullable = false, length = 20)
+    var acquiredVia: String = "PURCHASE",
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -2,8 +2,8 @@ package com.bawibase.chorong.domain.learning
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
-import com.bawibase.chorong.domain.quiz.dto.QuizPublicResponse
 import com.bawibase.chorong.domain.quiz.service.QuizService
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -17,6 +17,7 @@ class LearningService(
     private val jdbc: JdbcTemplate,
     private val quizService: QuizService,
     private val clock: Clock,
+    private val mapper: ObjectMapper,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -24,21 +25,25 @@ class LearningService(
     fun listCourses(
         userId: Long,
         category: String?,
+        topic: String? = null,
     ): List<CourseSummary> {
         requireId(userId)
         return jdbc.query(
-            """SELECT c.course_id, c.title, c.category, COUNT(DISTINCT l.lesson_id)::int AS total,
+            """SELECT c.course_id, c.title, c.category, c.topic, COUNT(DISTINCT l.lesson_id)::int AS total,
                       COUNT(DISTINCT lp.lesson_id) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed
                FROM course c
                LEFT JOIN lesson l ON l.course_id = c.course_id
                LEFT JOIN lesson_progress lp ON lp.lesson_id = l.lesson_id AND lp.user_id = ?
-               WHERE NOT c.is_onboarding AND (CAST(? AS VARCHAR) IS NULL OR c.category = ?)
+               WHERE NOT c.is_onboarding
+                 AND (CAST(? AS VARCHAR) IS NULL OR c.category = ?)
+                 AND (CAST(? AS VARCHAR) IS NULL OR c.topic = ?)
                GROUP BY c.course_id ORDER BY c.course_order, c.course_id""",
             { rs, _ ->
                 CourseSummary(
                     rs.getLong("course_id"),
                     rs.getString("title"),
                     rs.getString("category"),
+                    rs.getString("topic"),
                     rs.getInt("total"),
                     rs.getInt("completed"),
                 )
@@ -46,6 +51,8 @@ class LearningService(
             userId,
             category,
             category,
+            topic,
+            topic,
         )
     }
 
@@ -60,7 +67,7 @@ class LearningService(
         val course =
             jdbc
                 .query(
-                    """SELECT c.course_id, c.title, c.category, c.description, COUNT(l.lesson_id)::int AS total,
+                    """SELECT c.course_id, c.title, c.category, c.topic, c.description, COUNT(l.lesson_id)::int AS total,
                           COUNT(lp.lesson_id) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed
                    FROM course c
                    LEFT JOIN lesson l ON l.course_id = c.course_id
@@ -72,6 +79,7 @@ class LearningService(
                             rs.getLong("course_id"),
                             rs.getString("title"),
                             rs.getString("category"),
+                            rs.getString("topic"),
                             rs.getInt("total"),
                             rs.getInt("completed"),
                             null,
@@ -144,28 +152,70 @@ class LearningService(
                             rs.getString("title"),
                             rs.getString("description"),
                             emptyList(),
+                            emptyList(),
                         )
                     },
                     lessonId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
         val contents =
             jdbc.query(
-                """SELECT content_id, content_order, content_type, body, media_url, quiz_id
+                """SELECT content_id, content_order, content_type, body, media_url, quiz_id, segment_id, dialogue, source
                    FROM lesson_content WHERE lesson_id = ? ORDER BY content_order, content_id""",
                 { rs, _ ->
                     val quizId = rs.getLong("quiz_id").let { if (rs.wasNull()) null else it }
                     LearningContent(
                         rs.getLong("content_id"),
                         rs.getInt("content_order"),
+                        rs.getString("segment_id") ?: "legacy-$lessonId",
                         rs.getString("content_type"),
                         rs.getString("body"),
                         rs.getString("media_url"),
-                        quizId?.let { QuizPublicResponse.from(quizService.get(it)) },
+                        quizId?.let { quizService.get(it) },
+                        mapper.readTree(rs.getString("dialogue")).map { line ->
+                            require(line.isObject && line["speaker"]?.isTextual == true && line["text"]?.isTextual == true) {
+                                "Invalid dialogue for content ${rs.getLong("content_id")}"
+                            }
+                            DialogueLine(line["speaker"].textValue(), line["text"].textValue())
+                        },
+                        rs.getString("source"),
                     )
                 },
                 lessonId,
             )
-        return lesson.copy(contents = contents)
+        val contentBySegment = contents.groupBy { it.segmentId }
+        val segments =
+            jdbc
+                .query(
+                    """SELECT segment_id, title, segment_order FROM lesson_segment
+               WHERE lesson_id = ? ORDER BY segment_order, segment_id""",
+                    { rs, _ ->
+                        val segmentId = rs.getString("segment_id")
+                        LessonSegment(
+                            segmentId,
+                            rs.getString("title"),
+                            rs.getInt("segment_order"),
+                            contentBySegment[segmentId].orEmpty().map { it.contentId },
+                        )
+                    },
+                    lessonId,
+                ).filter { it.contentIds.isNotEmpty() }
+                .toMutableList()
+        val legacyId = "legacy-$lessonId"
+        if (legacyId in contentBySegment && segments.none { it.segmentId == legacyId }) {
+            segments +=
+                LessonSegment(
+                    legacyId,
+                    lesson.title,
+                    (
+                        segments.maxOfOrNull {
+                            it.order
+                        } ?: 0
+                    ) + 1,
+                    contentBySegment.getValue(legacyId).map { it.contentId },
+                )
+        }
+        check(segments.flatMap { it.contentIds }.toSet() == contents.map { it.contentId }.toSet())
+        return lesson.copy(segments = segments, contents = contents)
     }
 
     private fun unlockNextLesson(

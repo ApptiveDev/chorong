@@ -39,7 +39,7 @@ class LessonReplayService(
             now,
         )
         jdbc.update(
-            "UPDATE lesson_replay_progress SET started_at=?, last_content_id=NULL, completed_at=NULL WHERE user_id=? AND lesson_id=? AND completed_at IS NOT NULL",
+            "UPDATE lesson_replay_progress SET started_at=?, last_content_id=NULL, completed_at=NULL, energy_spent=FALSE WHERE user_id=? AND lesson_id=? AND completed_at IS NOT NULL",
             now,
             userId,
             lessonId,

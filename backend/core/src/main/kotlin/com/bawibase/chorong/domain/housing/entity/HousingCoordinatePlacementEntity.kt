@@ -31,6 +31,8 @@ class HousingCoordinatePlacementEntity(
     var y: Double,
     @Column(nullable = false)
     var rotation: Int = 0,
+    @Column(name = "flipped_x", nullable = false)
+    var flippedX: Boolean = false,
     @Column(nullable = false)
     var layer: Int = 0,
 ) {

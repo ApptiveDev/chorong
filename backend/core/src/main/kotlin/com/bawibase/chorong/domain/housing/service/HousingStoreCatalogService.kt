@@ -88,10 +88,10 @@ class HousingStoreCatalogService(
         jdbc.query(
             """SELECT i.item_id, i.name, i.item_type, i.unlocked, i.unlock_hint,
                       o.option_id, o.option_json::text AS option_json, o.currency, o.price, o.preview_asset,
-                      EXISTS (SELECT 1 FROM housing_store_owned_option own
-                              WHERE own.user_id=? AND own.option_id=o.option_id) AS owned
+                      (SELECT COUNT(*) FROM housing_store_owned_option own
+                              WHERE own.user_id=? AND own.option_id=o.option_id) AS owned_count
                FROM housing_store_item i
-               JOIN housing_store_option o ON o.item_id=i.item_id AND o.is_active
+               JOIN housing_store_option o ON o.item_id=i.item_id AND o.is_active AND o.currency='STARDUST'
                WHERE i.is_active
                  AND (?::varchar IS NULL OR i.item_type=?)
                  AND (?::bigint IS NULL OR i.item_id=?)
@@ -108,7 +108,7 @@ class HousingStoreCatalogService(
                     currency = rs.getString("currency"),
                     price = rs.getLong("price"),
                     previewAsset = rs.getString("preview_asset"),
-                    owned = rs.getBoolean("owned"),
+                    ownedCount = rs.getLong("owned_count"),
                 )
             },
             userId,
@@ -130,7 +130,7 @@ class HousingStoreCatalogService(
                         currency = row.currency,
                         price = row.price,
                         previewAsset = row.previewAsset,
-                        owned = row.owned,
+                        ownedCount = row.ownedCount,
                     )
                 }
             val cheapest = options.minWith(compareBy<HousingStoreOptionResponse> { it.price }.thenBy { it.optionId })
@@ -157,7 +157,7 @@ class HousingStoreCatalogService(
         val currency: String,
         val price: Long,
         val previewAsset: String,
-        val owned: Boolean,
+        val ownedCount: Long,
     )
 
     private companion object {

@@ -1,15 +1,17 @@
 openapi: 3.1.0
 info:
   title: 초롱 서비스 API
-  version: 0.2.0
+  version: 0.3.1
   description: |
-    초롱 서비스 명세서 L3의 API 명세를 OpenAPI로 옮긴 문서입니다.
-    - `operationId`는 L3 명세서의 API 번호(API-101 …)와 같습니다.
+    10/30 개발 명세서 L2와 레슨 와이어프레임을 반영한 다음 버전의 API 계약입니다.
+    기존 L3의 세부 규칙은 L2·와이어프레임과 충돌하지 않는 범위에서 유지합니다.
+    - `operationId`는 기존 API 번호(API-101 …)를 유지합니다.
     - 인증: `Authorization: Bearer <accessToken>`. 게스트도 같은 헤더를 씁니다.
       보안 요구사항 `guest`는 게스트 이상, `member`는 회원(role=MEMBER)만 허용(게스트는 ERR-41).
     - 시간은 ISO 8601 UTC. 목록은 `cursor`/`size` 커서 페이지네이션(`meta.nextCursor`).
     - 상태를 바꾸는 POST 일부는 `Idempotency-Key` 헤더를 받으며 24시간 내 같은 키는 같은 응답을 돌려줍니다.
     - 에러 응답 본문은 `{ "error": { "code": "...", "message": "..." } }` 이고, 코드 목록은 L3의 ERR 표를 따릅니다.
+    - 신규 사용자는 무료 가구 3개를 받습니다. 동일 옵션의 아이템을 여러 개 보유할 수 있습니다.
 servers:
   - url: https://api-chorong.bawibase.com/api/v1
     description: production
@@ -22,7 +24,7 @@ tags:
   - name: users
     description: F-02 회원 정보 (API-2xx)
   - name: push
-    description: F-03 알림 (API-3xx)
+    description: F-03 알림 (API-3xx). 2일 이상 연속 학습 후 전날 학습하지 않은 사용자에게 10:00·18:00 KST에 발송합니다.
   - name: learning
     description: F-04 퀴즈와 학습 (API-4xx)
   - name: review
@@ -49,6 +51,7 @@ paths:
       description: |
         F-01-01, F-02-05, F-07-01. 같은 `deviceUuid`가 이미 있으면 기존 게스트 계정을 돌려주고,
         없으면 users · user_auth · auth_guest · 하우징 · 아바타 · 지갑을 함께 생성합니다.
+        신규 사용자에게 기본 가구 3개를 인벤토리로 지급합니다.
       security: []
       requestBody:
         required: true
@@ -445,10 +448,14 @@ paths:
     get:
       tags: [learning]
       operationId: API-401
-      summary: 코스 목록 (분야별)
-      description: F-04-02. ONBOARDING 코스는 제외.
+      summary: 코스 목록 (분야·주제별)
+      description: F-04-02. ONBOARDING 코스는 제외합니다.
       parameters:
         - name: category
+          in: query
+          required: false
+          schema: { type: string }
+        - name: topic
           in: query
           required: false
           schema: { type: string }
@@ -493,7 +500,7 @@ paths:
       tags: [learning]
       operationId: API-403
       summary: 레슨 상세 (컨텐츠 목록)
-      description: F-04-01. 퀴즈 컨텐츠는 정답·해설을 제외합니다.
+      description: F-04-01. 대화·그림·영상·퀴즈를 순서대로 돌려줍니다. 퀴즈 정답·해설은 제외합니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
       responses:
@@ -516,7 +523,11 @@ paths:
         F-04-04, F-04-07, F-04-10, F-05-05.
         1) 해금 검사(미해금 ERR-20, `unlocksAt` 포함) → 2) 복습 세트가 만들어지면 `reviewRequired=true`로
         먼저 돌려주고 레슨 진입은 복습 완료 후 → 3) UNLOCKED이면 IN_PROGRESS로.
-        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 보상 없음).
+        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 이미 받은 보상은 다시 주지 않음).
+        에너지: 레슨을 시작할 때 에너지 1개를 씁니다. 같은 레슨을 이어서 시작하면 다시 쓰지 않습니다.
+        에너지가 0이어도 학습은 진행하지만 완료 시 별가루를 주지 않습니다.
+        다시 하기는 별가루를 아직 받지 않은 레슨일 때만 에너지를 쓰고, 완료하면 그때 별가루를 줍니다.
+        온보딩 레슨은 에너지를 쓰지 않습니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -581,8 +592,10 @@ paths:
       operationId: API-406
       summary: 퀴즈 답안 제출·채점
       description: |
-        F-04-06, F-05-02, F-06-03, F-03-04. 채점 후 정답·해설을 돌려주고 답안을 기록합니다.
+        F-04-06, F-05-02, F-06-03, F-03-04. 채점 후 정답·해설·화면 피드백을 돌려주고 답안을 기록합니다.
         레슨 학습(`replay=false`)이면 복습 풀(WRONG/CORRECT)을 갱신하고, 학습일·연속일을 갱신합니다.
+        `QuizAnswer` 형식은 퀴즈의 `interactionType`과 일치해야 합니다.
+        해설이 없는 문항은 레슨 도입 질문이며 복습 풀과 레슨 결과의 정답 수에 넣지 않습니다.
       parameters:
         - name: quizId
           in: path
@@ -616,7 +629,9 @@ paths:
       summary: 레슨 완료 (보상 지급)
       description: |
         F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03. 최초 완료 1회만 보상.
+        레슨 별가루는 시작할 때 에너지를 쓴 경우에만 줍니다. 별 뱃지·그림·코스 보상은 에너지와 무관합니다.
         코스의 모든 레슨이 완료되면 코스 보상과 별자리 뱃지도 함께 지급.
+        와이어프레임의 결과 화면에 필요한 정답 수·문항 수와 획득한 별 뱃지를 함께 돌려줍니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -840,7 +855,7 @@ paths:
       tags: [housing]
       operationId: API-703
       summary: 하우징 이름 · 공개 여부 변경
-      description: F-07-07, F-09-02. `isPublic`은 회원만(게스트 ERR-41).
+      description: F-07-07, F-09-02. 기본 공개 상태는 true입니다. `isPublic` 변경은 회원만(게스트 ERR-41).
       requestBody:
         required: true
         content:
@@ -867,8 +882,9 @@ paths:
       operationId: API-702
       summary: 배치 전체 저장 (꾸미기 모드 '저장하기')
       description: |
-        F-07-04, F-07-05, F-14-04. 배치 전체를 교체합니다(최대 200개, 빈 배열 = 모두 제거).
-        미보유 inventoryId ERR-30, 영역 불일치 ERR-31.
+        F-07-04, F-07-05, F-14-04. 배치 전체를 교체합니다(최대 200개, 빈 배열 = 모두 회수).
+        보유한 개별 inventoryId 하나당 배치 하나만 허용합니다. 대칭 반전은 허용하고 회전은 허용하지 않습니다.
+        미보유·중복 배치 inventoryId는 ERR-30, 영역 불일치는 ERR-31.
       requestBody:
         required: true
         content:
@@ -1220,8 +1236,9 @@ paths:
       operationId: API-903
       summary: 구매 (여러 옵션 일괄, 전부 성공 또는 전부 실패)
       description: |
-        F-10-04, F-15-04. 상점 모드의 '모두 구매 후 저장(미보유 아이템만)'이 호출합니다.
-        항목별 검증 순서: 해금(ERR-50) → 옵션 유효·판매 중(ERR-52) → 동일 옵션 미보유(ERR-53) → 통화별 합계 잔액(ERR-51).
+        F-10-04, F-15-04. 미리 배치한 아이템을 일괄 구매할 수 있습니다.
+        같은 색상·모양 옵션의 아이템도 여러 개 구매할 수 있습니다.
+        항목별 검증 순서: 해금(ERR-50) → 옵션 유효·판매 중(ERR-52) → 별가루 합계 잔액(ERR-51).
         하나라도 실패하면 전체 거부하고 `error.items[]`에 항목별 사유를 돌려줍니다.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1239,10 +1256,11 @@ paths:
                   maxItems: 50
                   items:
                     type: object
-                    required: [itemId, optionId]
+                    required: [itemId, optionId, quantity]
                     properties:
                       itemId: { type: integer }
                       optionId: { type: integer, format: int64 }
+                      quantity: { type: integer, minimum: 1, maximum: 50 }
       responses:
         '200':
           description: 구매 결과
@@ -1273,18 +1291,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PurchaseErrorResponse' }
-        '409':
-          description: ERR-53 ALREADY_OWNED
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PurchaseErrorResponse' }
-
   /users/me/wallet:
     get:
       tags: [shop]
       operationId: API-904
       summary: 재화 잔액
-      description: F-12-02.
+      description: F-12-02. 별가루와 에너지.
       responses:
         '200':
           description: 잔액
@@ -1346,7 +1358,7 @@ paths:
       tags: [shop]
       operationId: API-907
       summary: 인벤토리 조회
-      description: F-14-01.
+      description: F-14-01. 같은 아이템·옵션을 묶어 보유·배치·배치 가능 수와 개별 보유 ID를 돌려줍니다.
       parameters:
         - name: itemType
           in: query
@@ -1365,6 +1377,31 @@ paths:
                       items:
                         type: array
                         items: { $ref: '#/components/schemas/InventoryItem' }
+
+  /users/me/artworks:
+    get:
+      tags: [shop]
+      operationId: API-908
+      summary: 학습으로 획득한 그림과 완료일 조회
+      description: L2 학습 보상. 그림은 완료한 레슨별로 한 번 기록합니다.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 그림 기록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      artworks:
+                        type: array
+                        items: { $ref: '#/components/schemas/LearningArtwork' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
 
 components:
   securitySchemes:
@@ -1497,7 +1534,6 @@ components:
                 - ITEM_LOCKED
                 - INSUFFICIENT_BALANCE
                 - OPTION_INVALID
-                - ALREADY_OWNED
             message: { type: string }
             fields:
               type: array
@@ -1557,8 +1593,8 @@ components:
       enum: [TEXT, IMAGE, VIDEO, QUIZ]
     QuizType:
       type: string
-      description: ENUM-05
-      enum: [MULTIPLE_CHOICE, FILL_BLANK, OX, ORDERING]
+      description: 학습 콘텐츠 시뮬레이터의 퀴즈 유형. O/X, 하나 고르기, 여러 개 고르기, 빈칸, 슬라이더, 짝 맞추기, 초성.
+      enum: [OX, SINGLE, MULTI, BLANK, SLIDER, MATCH, CHOSUNG]
     LessonStatus:
       type: string
       description: ENUM-06. LOCKED는 진행 행이 없는 레슨(응답 전용)
@@ -1581,12 +1617,12 @@ components:
       enum: [INAPPROPRIATE_NAME, ABUSE, SPAM, OTHER]
     CurrencyType:
       type: string
-      description: ENUM-11
-      enum: [STAR, STARDUST]
+      description: 구매·보상 재화
+      enum: [STARDUST]
     RewardType:
       type: string
       description: ENUM-12
-      enum: [WALLET, UNLOCK, INVENTORY, CONSTELLATION]
+      enum: [WALLET, UNLOCK, INVENTORY, CONSTELLATION, ARTWORK]
     AcquiredVia:
       type: string
       description: ENUM-13
@@ -1627,8 +1663,16 @@ components:
     Wallet:
       type: object
       properties:
-        star: { type: integer, format: int64 }
         stardust: { type: integer, format: int64 }
+        energy:
+          type: integer
+          minimum: 0
+          maximum: 5
+          description: 남은 에너지. 매일 00시(KST)에 5개로 채워지며 남은 개수는 이월하지 않습니다. 신규 사용자는 5개로 시작합니다.
+        energyResetsAt:
+          type: string
+          format: date-time
+          description: 다음 충전 시각(다음 00시 KST).
     Me:
       type: object
       properties:
@@ -1664,6 +1708,7 @@ components:
         courseId: { type: integer, format: int64 }
         title: { type: string }
         category: { type: string }
+        topic: { type: string }
         totalLessons: { type: integer }
         completedLessons: { type: integer }
         constellation:
@@ -1699,36 +1744,146 @@ components:
               items: { $ref: '#/components/schemas/LessonSummary' }
     QuizPublic:
       type: object
-      description: 정답·해설을 제외한 퀴즈
+      description: 해설을 제외한 퀴즈. config는 interactionType에 대응합니다. 정답은 MULTI의 정답 순번과 MATCH의 짝만 공개합니다.
+      required: [quizId, interactionType, question, config, quizOrder]
       properties:
         quizId: { type: integer, format: int64 }
-        type: { $ref: '#/components/schemas/QuizType' }
+        lessonId: { type: integer, format: int64 }
+        interactionType: { $ref: '#/components/schemas/QuizType' }
         question: { type: string }
+        instruction: { type: string }
+        config: { $ref: '#/components/schemas/QuizConfig' }
+        difficulty: { type: string, maxLength: 30 }
+        quizOrder: { type: integer, minimum: 1 }
+    QuizConfig:
+      oneOf:
+        - $ref: '#/components/schemas/OxConfig'
+        - $ref: '#/components/schemas/SingleConfig'
+        - $ref: '#/components/schemas/MultiConfig'
+        - $ref: '#/components/schemas/BlankConfig'
+        - $ref: '#/components/schemas/SliderConfig'
+        - $ref: '#/components/schemas/MatchConfig'
+        - $ref: '#/components/schemas/ChosungConfig'
+    OxConfig:
+      type: object
+      description: OX. 문장은 question에 있고 추가 구성은 없습니다.
+      additionalProperties: false
+    SingleConfig:
+      type: object
+      required: [options]
+      properties:
         options:
-          type: object
-          nullable: true
-          description: MULTIPLE_CHOICE `{choices:[...]}`, ORDERING `{items:[...]}`
-          additionalProperties: true
-        hint:
-          type: string
-          nullable: true
+          type: array
+          description: 보기 문구. 답안은 0부터 시작하는 순번입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    MultiConfig:
+      type: object
+      required: [options, answers]
+      properties:
+        options:
+          type: array
+          description: 보기 문구. 답안은 0부터 시작하는 순번 목록입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+        answers:
+          type: array
+          description: |
+            정답 보기 순번 목록(오름차순). 앱은 보기를 고를 때마다 바로 판정합니다.
+            오답을 고른 순간 그때까지 고른 순번 전체를, 정답을 모두 고른 순간 정답 순번 전체를 한 번 제출합니다.
+          minItems: 1
+          uniqueItems: true
+          items: { type: integer, minimum: 0 }
+      additionalProperties: false
+    BlankConfig:
+      type: object
+      required: [before, after, options]
+      properties:
+        before: { type: string, minLength: 1, description: 빈칸 앞 문장 }
+        after: { type: string, minLength: 1, description: 빈칸 뒤 문장 }
+        options:
+          type: array
+          description: 빈칸에 넣을 낱말. 답안은 0부터 시작하는 순번입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+      additionalProperties: false
+    SliderConfig:
+      type: object
+      required: [ticks]
+      properties:
+        ticks:
+          type: array
+          description: 트랙 왼쪽부터 같은 간격으로 놓는 눈금 문구. 답안은 트랙 위치 0~1입니다.
+          minItems: 2
+          items: { type: string, minLength: 1 }
+        hint: { type: string, minLength: 1, description: 안내 문구. 생략 시 앱 기본 문구 }
+      additionalProperties: false
+    MatchConfig:
+      type: object
+      required: [pairs]
+      properties:
+        pairs:
+          type: array
+          description: |
+            [왼쪽, 오른쪽] 짝 목록이며 정답입니다. 앱은 오른쪽 열을 섞어 보여 주고 한 쌍씩 바로 판정합니다.
+            모든 짝을 맞추면 맞춘 짝 전체를 제출합니다.
+          minItems: 2
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string, minLength: 1 }
+      additionalProperties: false
+    ChosungConfig:
+      type: object
+      required: [hint]
+      properties:
+        hint: { type: string, minLength: 1, description: '초성 힌트. 예: ㅇㅌㄹㅁㄹ' }
+      additionalProperties: false
     Content:
       type: object
+      required: [contentId, order, contentType, segmentId]
       properties:
         contentId: { type: integer, format: int64 }
         order: { type: integer }
+        segmentId: { type: string }
         contentType: { $ref: '#/components/schemas/ContentType' }
         body:
           type: string
           nullable: true
         mediaUrl:
           type: string
-          format: uri
+          format: uri-reference
           nullable: true
+        dialogue:
+          type: array
+          description: TEXT 콘텐츠의 화자별 대사. 배열 순서대로 표시하며 탭할 때 다음 대사를 드러냅니다.
+          items: { $ref: '#/components/schemas/DialogueLine' }
+        source:
+          type: string
+          description: 화면에 표시할 학습 자료 출처. 출처가 없으면 생략합니다.
         quiz:
           allOf:
             - $ref: '#/components/schemas/QuizPublic'
           nullable: true
+    DialogueLine:
+      type: object
+      required: [speaker, text]
+      properties:
+        speaker: { type: string }
+        text: { type: string }
+    LessonSegment:
+      type: object
+      required: [segmentId, title, order, contentIds]
+      properties:
+        segmentId: { type: string }
+        title: { type: string }
+        order: { type: integer, minimum: 1 }
+        contentIds:
+          type: array
+          minItems: 1
+          items: { type: integer, format: int64 }
     LessonDetail:
       type: object
       properties:
@@ -1736,6 +1891,10 @@ components:
         courseId: { type: integer, format: int64 }
         title: { type: string }
         description: { type: string }
+        segments:
+          type: array
+          description: 레슨 상단 구간 표시와 구간별 현재 단계 계산에 사용합니다.
+          items: { $ref: '#/components/schemas/LessonSegment' }
         contents:
           type: array
           items: { $ref: '#/components/schemas/Content' }
@@ -1763,40 +1922,89 @@ components:
         contents:
           type: array
           items: { $ref: '#/components/schemas/Content' }
+        segments:
+          type: array
+          items: { $ref: '#/components/schemas/LessonSegment' }
     QuizAnswer:
-      type: object
       description: |
-        퀴즈 유형별 형식(ENUM-05):
-        MULTIPLE_CHOICE `{index}` · FILL_BLANK `{texts:[...]}` · OX `{value}` · ORDERING `{order:[...]}`
-      additionalProperties: true
+        interactionType별 답안. 정답 표시(correctAnswer)도 같은 모양입니다.
+        - OX: `{ "answer": true }`
+        - SINGLE·BLANK: `{ "answer": 1 }` (보기 순번, 0부터)
+        - MULTI: `{ "answers": [1, 2] }` (순서 무관)
+        - SLIDER: `{ "answer": 0.28 }` (트랙 위치 0~1)
+        - MATCH: `{ "pairs": [["왼쪽", "오른쪽"], ...] }` (짝 전체, 순서 무관)
+        - CHOSUNG: `{ "answer": "울트라마린" }` (공백을 빼고 비교)
       oneOf:
         - type: object
-          required: [index]
+          description: OX
+          required: [answer]
           properties:
-            index: { type: integer }
+            answer: { type: boolean }
+          additionalProperties: false
         - type: object
-          required: [texts]
+          description: SINGLE·BLANK
+          required: [answer]
           properties:
-            texts:
+            answer: { type: integer, minimum: 0 }
+          additionalProperties: false
+        - type: object
+          description: MULTI
+          required: [answers]
+          properties:
+            answers:
               type: array
-              items: { type: string }
+              minItems: 1
+              uniqueItems: true
+              items: { type: integer, minimum: 0 }
+          additionalProperties: false
         - type: object
-          required: [value]
+          description: SLIDER
+          required: [answer]
           properties:
-            value: { type: boolean }
+            answer: { type: number, minimum: 0, maximum: 1 }
+          additionalProperties: false
         - type: object
-          required: [order]
+          description: MATCH
+          required: [pairs]
           properties:
-            order:
+            pairs:
               type: array
-              items: { type: integer }
+              items:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items: { type: string }
+          additionalProperties: false
+        - type: object
+          description: CHOSUNG
+          required: [answer]
+          properties:
+            answer: { type: string, minLength: 1 }
+          additionalProperties: false
     AnswerResult:
       type: object
+      required: [isCorrect, completed]
       properties:
         attemptId: { type: integer, format: int64 }
         isCorrect: { type: boolean }
-        correctAnswer: { $ref: '#/components/schemas/QuizAnswer' }
-        explanation: { type: string }
+        completed:
+          type: boolean
+          description: 유효한 제출이면 true.
+        correctAnswer:
+          allOf:
+            - $ref: '#/components/schemas/QuizAnswer'
+          description: 완료된 문항에서 정답 표시용으로 반환합니다.
+        explanation:
+          type: string
+          description: 해설. 해설이 없는 문항(레슨 도입 질문)은 생략합니다. 앱은 결과 시트 없이 다음 화면으로 넘어갑니다.
+        closeness:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: SLIDER만. 정답 위치에 얼마나 가까운지. 화면 문구 예시 "정답에 78% 근접했어요".
+        source:
+          type: string
+          description: 해설의 출처. 없으면 생략합니다.
         streakDays: { type: integer }
     Reward:
       type: object
@@ -1823,6 +2031,10 @@ components:
               type: integer
               format: int64
               nullable: true
+        artwork:
+          allOf:
+            - $ref: '#/components/schemas/LearningArtwork'
+          description: 그림 보상일 때 반환합니다.
     RewardResponse:
       type: object
       properties:
@@ -1836,6 +2048,16 @@ components:
         - type: object
           properties:
             courseCompleted: { type: boolean }
+            quizSummary:
+              type: object
+              required: [correctCount, totalCount]
+              properties:
+                correctCount: { type: integer, minimum: 0 }
+                totalCount: { type: integer, minimum: 0 }
+              description: 레슨 결과 화면의 정답 수와 채점 대상 문항 수. 해설이 없는 문항은 세지 않습니다.
+            stardustSkipped:
+              type: boolean
+              description: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
     RewardRecord:
       allOf:
         - $ref: '#/components/schemas/Reward'
@@ -1849,6 +2071,14 @@ components:
                 courseTitle: { type: string }
                 lessonTitle: { type: string }
             grantedAt: { type: string, format: date-time }
+    LearningArtwork:
+      type: object
+      required: [artworkId, lessonId, imageUrl, completedAt]
+      properties:
+        artworkId: { type: integer, format: int64 }
+        lessonId: { type: integer, format: int64 }
+        imageUrl: { type: string, format: uri }
+        completedAt: { type: string, format: date-time }
 
     # ---- 복습
     ReviewItem:
@@ -1878,11 +2108,7 @@ components:
       properties:
         x: { type: number, minimum: 0, maximum: 1 }
         y: { type: number, minimum: 0, maximum: 1 }
-        rotation:
-          type: integer
-          minimum: 0
-          maximum: 270
-          default: 0
+        flippedX: { type: boolean, default: false }
         layer:
           type: integer
           minimum: 0
@@ -1912,6 +2138,7 @@ components:
               description: Omitted when the item has no option.
     Avatar:
       type: object
+      description: 고양이 아바타는 가구 아이템으로 보유·배치하며 상태와 위치는 이 객체로 표시합니다.
       properties:
         x: { type: number }
         y: { type: number }
@@ -1995,7 +2222,7 @@ components:
         currency: { $ref: '#/components/schemas/CurrencyType' }
         price: { type: integer, format: int64 }
         previewAsset: { type: string }
-        owned: { type: boolean }
+        ownedCount: { type: integer, minimum: 0 }
     ShopItem:
       type: object
       properties:
@@ -2017,16 +2244,29 @@ components:
           items: { $ref: '#/components/schemas/ShopOption' }
     InventoryItem:
       type: object
+      description: 동일 아이템·색상·모양 옵션의 보유분을 묶은 항목.
       properties:
-        inventoryId: { type: string }
         itemId: { type: integer }
         optionId: { type: integer, format: int64 }
         itemType: { $ref: '#/components/schemas/ItemType' }
         name: { type: string }
         option: { $ref: '#/components/schemas/ItemOption' }
-        acquiredVia: { $ref: '#/components/schemas/AcquiredVia' }
-        acquiredAt: { type: string, format: date-time }
-        placed: { type: boolean }
+        ownedCount: { type: integer, minimum: 0 }
+        placedCount: { type: integer, minimum: 0 }
+        availableCount:
+          type: integer
+          minimum: 0
+          description: ownedCount - placedCount
+        copies:
+          type: array
+          items:
+            type: object
+            required: [inventoryId, acquiredVia, acquiredAt, placed]
+            properties:
+              inventoryId: { type: string }
+              acquiredVia: { $ref: '#/components/schemas/AcquiredVia' }
+              acquiredAt: { type: string, format: date-time }
+              placed: { type: boolean }
     Constellation:
       type: object
       properties:
@@ -2040,3 +2280,5 @@ components:
           type: string
           format: uri
           nullable: true
+
+

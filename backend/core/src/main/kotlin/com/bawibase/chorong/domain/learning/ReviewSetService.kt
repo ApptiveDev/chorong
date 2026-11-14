@@ -92,7 +92,7 @@ class ReviewSetService(
                     "SELECT review_item_id, quiz_id FROM review_session_item WHERE review_session_id=? ORDER BY item_order",
                     { rs, _ -> ItemRow(rs.getLong("review_item_id"), rs.getLong("quiz_id")) },
                     sessionId,
-                ).map { ReviewItemResponse(it.reviewItemId, QuizPublicResponse.from(quizzes.get(it.quizId))) }
+                ).map { ReviewItemResponse(it.reviewItemId, quizzes.get(it.quizId)) }
         return ReviewSetResponse(items, rewardEligible = rewardEligible(userId, today))
     }
 
