@@ -27,6 +27,7 @@ import type {
   AnswerResult,
 } from '../models';
 import { integrationApi as api, useMockApi } from '../runtime';
+import { isConstellationReward } from '../contract';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
@@ -135,9 +136,7 @@ function Study() {
       setResumePosition(replay ? 0 : index);
       if (!replay && (params.resume === 'true' || data.progress.lastContentId !== null))
         setResumeOpen(true);
-      setCompleted(
-        replay ? new Set() : new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)),
-      );
+      setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
       return data;
     });
     return () => {
@@ -231,13 +230,13 @@ function Study() {
           constellations.constellations.find((item) => item.courseId === lesson.courseId)?.name ??
             '별자리',
         );
-        if (completion?.rewards.some((item) => item.type === 'CONSTELLATION')) {
+        if (completion?.rewards.some(isConstellationReward)) {
           let cursor: string | null = null;
           do {
             const page = await api.benefits.rewards({ size: 100, ...(cursor ? { cursor } : {}) });
             const record = page.data.rewards.find(
               (item) =>
-                item.type === 'CONSTELLATION' && Number(item.source.courseId) === lesson.courseId,
+                isConstellationReward(item) && Number(item.source.courseId) === lesson.courseId,
             );
             if (record) {
               const date = new Date(new Date(record.grantedAt).getTime() + 9 * 60 * 60 * 1000);
@@ -261,7 +260,7 @@ function Study() {
     task.run(async () => {
       const result = await api.learning.completeContent(content.contentId);
       setCompleted((previous) => new Set(previous).add(content.contentId));
-      if (result.lessonCompleted) {
+      if (result.lessonCompleted && !replay) {
         setLessonDone(true);
         setReward(result.completion ?? null);
         await refreshAfterDone(result.completion);
@@ -287,13 +286,13 @@ function Study() {
       setDialogueReveal({ contentId: current.contentId, count: visibleDialogueCount + 1 });
       return;
     }
-    if (!replay && !completed.has(current.contentId)) {
+    if (!completed.has(current.contentId)) {
       const result = await completeContent(current);
       if (!result) {
         if (justGraded) throw new Error('다음 콘텐츠로 이동하지 못했습니다.');
         return;
       }
-      if (result.lessonCompleted) return;
+      if (result.lessonCompleted && !replay) return;
     }
     if (position < contents.length - 1) setPosition(position + 1);
     else if (replay) leaveStudy();
@@ -306,10 +305,7 @@ function Study() {
   const advanceConcept = () => {
     if (conceptTapLocked.current || task.busy) return;
     conceptTapLocked.current = true;
-    void (async () => {
-      if (replay && last) leaveStudy();
-      else await advance();
-    })().finally(() => {
+    void advance().finally(() => {
       conceptUnlockTimer.current = setTimeout(() => {
         conceptTapLocked.current = false;
       }, 400);
@@ -319,7 +315,7 @@ function Study() {
     reward?.rewards.find((item) => item.type === 'WALLET' && item.currency === 'STARDUST')
       ?.amount ?? 0;
   const constellationCompleted =
-    reward?.courseCompleted && reward.rewards.some((item) => item.type === 'CONSTELLATION');
+    reward?.courseCompleted && reward.rewards.some(isConstellationReward);
   const constellationBonus = constellationCompleted
     ? (reward?.rewards.filter((item) => item.type === 'WALLET' && item.currency === 'STARDUST')[1]
         ?.amount ?? 0)
@@ -538,10 +534,6 @@ function Study() {
                 source={dialogue?.source}
                 disabled={task.busy || lessonDone}
                 onAdvance={async () => {
-                  if (replay && last && visibleDialogueCount >= (dialogue?.messages.length ?? 0)) {
-                    leaveStudy();
-                    return;
-                  }
                   await advance();
                 }}
               />
@@ -606,10 +598,6 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
                           return advance(true);
                         }}
                       />
@@ -625,10 +613,6 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
                           return advance(true);
                         }}
                       />
@@ -648,10 +632,6 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
                           return advance();
                         }}
                       />
@@ -668,10 +648,6 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
                           return advance(true);
                         }}
                       />
@@ -688,10 +664,6 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
                           return advance(true);
                         }}
                       />
@@ -708,10 +680,6 @@ function Study() {
                           setAnswered((previous) => new Set(previous).add(current.contentId))
                         }
                         onAdvance={() => {
-                          if (replay && last) {
-                            leaveStudy();
-                            return;
-                          }
                           return advance(true);
                         }}
                       />
@@ -838,9 +806,7 @@ function Study() {
                                   : constellationCompleted
                                     ? setShowConstellation(true)
                                     : leaveStudy()
-                          : replay && last
-                            ? leaveStudy
-                            : () => void advance()
+                          : () => void advance()
                     }
                   />
                   {!completionView ? (

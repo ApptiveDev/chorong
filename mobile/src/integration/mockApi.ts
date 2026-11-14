@@ -118,6 +118,7 @@ export function restoreMockSnapshot(value: unknown): boolean {
   state.studyAnswers = new Map(saved.studyAnswers);
   state.reviewedToday = new Map(saved.reviewedToday);
   state.activeReview = new Map();
+  replayProgress.clear();
   state.blockedUsers = saved.blockedUsers;
   room.housing = { ...room.housing, name: saved.housingName, isPublic: saved.isPublic };
   mockVisibility.set(saved.isPublic);
@@ -146,6 +147,7 @@ const courseDone = (courseId: number) =>
 // 에너지 0 으로 시작한 레슨. 명세(API-404): 완료해도 레슨 별가루를 주지 않는다(stardustSkipped).
 // 별 뱃지·코스 보상은 에너지와 무관하다. 목업 스냅샷에는 저장하지 않는다.
 const noEnergyLessons = new Set<number>();
+const replayProgress = new Map<number, Set<number>>();
 const completion = (courseId?: number, newBadge = false, stardustSkipped = false) => ({
   rewards: [
     ...(stardustSkipped
@@ -397,12 +399,13 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         courses: empty
           ? []
           : courses
-              .filter(
-                (item) =>
-                  !options.query ||
-                  !('category' in options.query) ||
-                  item.category === options.query.category,
-              )
+              .filter((item) => {
+                const query = options.query as { category?: string; topic?: string } | undefined;
+                return (
+                  (!query?.category || item.category === query.category) &&
+                  (!query?.topic || item.topic === query.topic)
+                );
+              })
               .map(({ lessons, description, ...summary }) => ({
                 ...summary,
                 completedLessons:
@@ -435,6 +438,28 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response(lesson(id(options, 'lessonId')) ?? lessons[0]);
     case 'API-404': {
       const selected = lesson(id(options, 'lessonId')) ?? lessons[0];
+      if (input.replay === true) {
+        let completed = replayProgress.get(selected.lessonId);
+        if (!completed || completed.size === selected.contents.length) {
+          completed = new Set();
+          replayProgress.set(selected.lessonId, completed);
+        }
+        return response({
+          reviewRequired: false,
+          review: null,
+          progress: {
+            status: 'COMPLETED',
+            lastContentId:
+              selected.contents.filter((content) => completed.has(content.contentId)).at(-1)
+                ?.contentId ?? null,
+            resumeContentId:
+              selected.contents.find((content) => !completed.has(content.contentId))?.contentId ??
+              null,
+          },
+          contents: empty ? [] : selected.contents,
+        });
+      }
+      replayProgress.delete(selected.lessonId);
       // 명세(API-404): 레슨을 시작할 때 에너지 1개를 쓴다. 이어서 시작하거나
       // 이미 별가루를 받은 레슨을 다시 하면 쓰지 않는다. 에너지가 0이면 줄이지 않는다.
       const energy = state.wallet.energy ?? 0;
@@ -465,10 +490,24 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     }
     case 'API-405': {
       const contentId = id(options, 'contentId');
-      state.completed.add(contentId);
       const selected = lessons.find((item) =>
         item.contents.some((content) => content.contentId === contentId),
       );
+      const replayed = selected && replayProgress.get(selected.lessonId);
+      if (replayed && selected) {
+        const next = selected.contents.find((content) => !replayed.has(content.contentId));
+        if (!replayed.has(contentId) && next?.contentId !== contentId)
+          throw new Error('MOCK_VALIDATION_FAILED: 콘텐츠 순서를 확인하세요.');
+        replayed.add(contentId);
+        const resumeContentId =
+          selected.contents.find((content) => !replayed.has(content.contentId))?.contentId ?? null;
+        return response({
+          progress: { status: 'COMPLETED', lastContentId: contentId, resumeContentId },
+          lessonCompleted: resumeContentId === null,
+          completion: null,
+        });
+      }
+      state.completed.add(contentId);
       const done =
         !!selected && selected.contents.every((content) => state.completed.has(content.contentId));
       let newBadge = false;

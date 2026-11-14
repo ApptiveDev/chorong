@@ -982,7 +982,7 @@ test('v2 inventory copies and shop counts keep existing room model', () => {
   );
 });
 
-test('v2 lesson keeps unsupported quiz content in place without grading data', () => {
+test('v2 MULTI keeps content order and connects existing learning and review data', () => {
   const quizContent = (contentId, order, quiz) => ({
     contentId,
     order,
@@ -1002,7 +1002,7 @@ test('v2 lesson keeps unsupported quiz content in place without grading data', (
       quizContent(82, 2, {
         quizId: 802,
         interactionType: 'MULTI',
-        config: { options: ['a', 'b'] },
+        config: { options: ['a', 'b'], answers: [0] },
       }),
       quizContent(83, 3, { quizId: 803, interactionType: 'SLIDER', config: { ticks: ['0', '1'] } }),
       quizContent(84, 4, { quizId: 804, interactionType: 'CHOSUNG', config: { hint: 'ㅇㅌ' } }),
@@ -1028,28 +1028,32 @@ test('v2 lesson keeps unsupported quiz content in place without grading data', (
     );
     assert.deepEqual(
       parsed.contents.map((c) => c.quiz?.quizId ?? null),
-      [801, null, 803, 804, 805],
+      [801, 802, 803, 804, 805],
     );
     assert.deepEqual(
       parsed.contents.map((c) => c.unsupportedQuiz ?? null),
-      [null, { quizId: 802, interactionType: 'MULTI' }, null, null, null],
+      [null, null, null, null, null],
     );
+    assert.deepEqual(parsed.contents[1].quiz.options, {
+      choices: [
+        { index: 0, label: 'a' },
+        { index: 1, label: 'b' },
+      ],
+      answer: [0],
+      mockHtmlType: 'multi',
+    });
   }
-  // 미지원 유형은 답안을 만들어 보내지 않는다.
-  assert.throws(() => contract.encodeAnswer(802, { texts: ['0'] }), /명세 불일치/);
+  assert.deepEqual(contract.encodeAnswer(802, { texts: ['0'] }), { answers: [0] });
   assert.throws(() => contract.encodeAnswer(802, { position: 0.5 }), /명세 불일치/);
-  // 온보딩은 quiz=null 콘텐츠를 답한 것으로 보고 보상을 받을 수 있어 그대로 실패시킨다.
+  // 온보딩의 기존 QuizCard는 MULTI를 표현하지 못하므로 기존 차단을 유지한다.
   assert.throws(() => contract.onboarding({ lesson: raw }), /interactionType=MULTI/);
-  // 복습 완료는 5문항 전부가 필요해 그대로 실패시킨다.
-  assert.throws(
-    () =>
-      contract.reviewSet({
-        reviewItems: [{ reviewItemId: 1, quiz: raw.contents[1].quiz }],
-        message: null,
-        rewardEligible: true,
-      }),
-    /interactionType=MULTI/,
-  );
+  const review = contract.reviewSet({
+    reviewItems: [{ reviewItemId: 1, quiz: raw.contents[1].quiz }],
+    message: null,
+    rewardEligible: true,
+  });
+  assert.equal(review.reviewItems[0].quiz.options.mockHtmlType, 'multi');
+  assert.deepEqual(contract.encodeReviewAnswer(1, { texts: ['0'] }), { answers: [0] });
 });
 
 test('v2 placement without item option keeps the placement and invents no option id', () => {
@@ -1127,6 +1131,9 @@ test('CHOSUNG quiz maps hint, sends the typed string and uses only server gradin
   });
   assert.deepEqual(parsed, {
     quizId: 960,
+    interactionType: 'CHOSUNG',
+    quizOrder: 1,
+    config: { hint: 'ㅇㅌㄹㅁㄹ' },
     question: '이 색의 이름은?',
     hint: null,
     type: 'CHOSUNG',
@@ -1253,6 +1260,9 @@ test('SLIDER config maps string ticks and optional hint; answer is a 0~1 positio
   });
   assert.deepEqual(parsed, {
     quizId: 970,
+    interactionType: 'SLIDER',
+    quizOrder: 1,
+    config: { ticks: ['0', '반나절', '하루'], hint: '놓으면 제출돼요' },
     question: '얼마나 걸릴까요?',
     hint: null,
     type: 'SLIDER',
@@ -1552,6 +1562,437 @@ test('목업 레슨 시작은 처음 시작할 때만 에너지를 쓰고, 에�
       false,
     );
     assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
+  } finally {
+    restoreMockSnapshot(original);
+  }
+});
+
+const v032Quiz = (quizId, interactionType, config) => ({
+  quizId,
+  lessonId: 3200,
+  interactionType,
+  question: '질문',
+  instruction: '안내',
+  difficulty: '기초',
+  quizOrder: 1,
+  config,
+});
+const v032Lesson = (quizzes) => ({
+  lessonId: 3200,
+  courseId: 32,
+  title: '계약 검증',
+  description: '설명',
+  contents: quizzes.map((quiz, index) => ({
+    contentId: 32000 + index,
+    order: index + 1,
+    segmentId: 'first',
+    contentType: 'QUIZ',
+    quiz,
+  })),
+});
+
+test('0.3.2 MULTI learning and review send selected indexes, including wrong answers', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32001, 'MULTI', { options: ['첫째', '둘째', '셋째'], answers: [0, 1] });
+  const sent = [];
+  c.http.defaults.adapter = async (config) => {
+    if (config.method === 'get')
+      return respond(config, {
+        data: config.url.includes('/reviews/')
+          ? { reviewItems: [{ reviewItemId: 32901, quiz }], message: null, rewardEligible: true }
+          : v032Lesson([quiz]),
+      });
+    sent.push({ url: config.url, body: JSON.parse(config.data) });
+    return respond(config, {
+      data: { isCorrect: false, completed: true, correctAnswer: { answers: [0, 1] } },
+    });
+  };
+  const lesson = await api.learning.lesson(3200);
+  assert.equal(lesson.contents[0].quiz.options.mockHtmlType, 'multi');
+  assert.deepEqual(lesson.contents[0].quiz.options.answer, [0, 1]);
+  const selected = { texts: ['2', '0'] };
+  const result = await api.learning.answer(32001, selected);
+  assert.equal(result.isCorrect, false);
+  assert.equal(result.completed, true);
+  assert.equal(result.explanation, undefined);
+  assert.deepEqual(selected, { texts: ['2', '0'] });
+  await api.review.next();
+  await api.review.answer(32901, { texts: ['1'] });
+  assert.deepEqual(sent, [
+    { url: '/quizzes/32001/answer', body: { answer: { answers: [0, 2] }, replay: false } },
+    { url: '/reviews/32901/answer', body: { answer: { answers: [1] } } },
+  ]);
+  for (const texts of [[], ['0', '0'], ['-1'], ['3'], ['0.5'], ['NaN'], [''], [' 1'], [0]])
+    assert.throws(() => api.learning.answer(32001, { texts }), /명세 불일치/);
+  assert.equal(sent.length, 2);
+});
+
+test('0.3.2 MULTI rejects missing, duplicate and out-of-range public answers', () => {
+  const invalid = [undefined, [], [0, 0], [-1], [2], [0.5], ['0']];
+  for (const answers of invalid) {
+    const quiz = v032Quiz(32002, 'MULTI', { options: ['가', '나'], answers });
+    for (const parse of [
+      () => contract.lesson(v032Lesson([quiz])),
+      () =>
+        contract.reviewSet({
+          reviewItems: [{ reviewItemId: 32902, quiz }],
+          message: null,
+          rewardEligible: true,
+        }),
+      () => contract.onboarding({ lesson: v032Lesson([quiz]) }),
+    ])
+      assert.throws(parse, /config.answers/);
+  }
+  assert.throws(
+    () => contract.quiz(v032Quiz(32002, 'MULTI', { options: ['가'], answers: [0] })),
+    /config.answers/,
+  );
+});
+
+test('0.3.2 MATCH learning and review encode the actual right-column selection', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32003, 'MATCH', {
+    pairs: [
+      ['왼1', '오른1'],
+      ['왼2', '오른2'],
+      ['왼3', '오른3'],
+    ],
+  });
+  const sent = [];
+  c.http.defaults.adapter = async (config) => {
+    if (config.method === 'get')
+      return respond(config, {
+        data: config.url.includes('/reviews/')
+          ? { reviewItems: [{ reviewItemId: 32903, quiz }], message: null, rewardEligible: true }
+          : v032Lesson([quiz]),
+      });
+    sent.push({ url: config.url, body: JSON.parse(config.data) });
+    return respond(config, { data: { isCorrect: false, completed: true } });
+  };
+  const lesson = await api.learning.lesson(3200);
+  assert.deepEqual(lesson.contents[0].quiz.options.right, ['오른3', '오른2', '오른1']);
+  const order = [0, 2, 1];
+  await api.learning.answer(32003, { order }, true);
+  await api.review.next();
+  await api.review.answer(32903, { order: [2, 1, 0] });
+  assert.deepEqual(order, [0, 2, 1]);
+  assert.deepEqual(sent, [
+    {
+      url: '/quizzes/32003/answer',
+      body: {
+        answer: {
+          pairs: [
+            ['왼1', '오른3'],
+            ['왼2', '오른1'],
+            ['왼3', '오른2'],
+          ],
+        },
+        replay: true,
+      },
+    },
+    { url: '/reviews/32903/answer', body: { answer: { pairs: quiz.config.pairs } } },
+  ]);
+  for (const order of [[], [0, 1], [0, 0, 1], [-1, 1, 2], [0, 1, 3], [0, 1, 1.5]])
+    assert.throws(() => api.review.answer(32903, { order }), /명세 불일치/);
+  assert.equal(sent.length, 2);
+});
+
+test('0.3.2 topic filters work together and old course responses remain valid', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const mock = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  const api = createIntegrationApi(mock);
+  await api.account.guest('ANDROID');
+  const all = (await api.learning.courses()).courses;
+  assert.equal(all.length, 4);
+  assert.ok(all.every((item) => typeof item.topic === 'string'));
+  const first = all[0];
+  assert.deepEqual((await api.learning.courses(undefined, first.topic)).courses, [first]);
+  assert.deepEqual((await api.learning.courses(first.category, first.topic)).courses, [first]);
+  assert.deepEqual((await api.learning.courses('없는 분야', first.topic)).courses, []);
+  assert.equal((await api.learning.course(first.courseId)).topic, first.topic);
+  const { c, api: real } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const { topic, ...legacy } = first;
+  c.http.defaults.adapter = async (config) => {
+    assert.deepEqual(config.params, { category: first.category, topic });
+    return respond(config, { data: { courses: [legacy] } });
+  };
+  const response = await real.learning.courses(first.category, topic);
+  assert.equal(response.courses[0].topic, undefined);
+});
+
+test('0.3.2 segments and all SINGLE presentation metadata survive without changing UI choices', () => {
+  const presentations = [
+    { type: 'AUDIO', mediaUrl: 'https://test.invalid/audio.mp3' },
+    {
+      type: 'TILE',
+      mediaUrl: 'https://test.invalid/image.png',
+      stages: [1, 4],
+      rows: 2,
+      columns: 2,
+    },
+    { type: 'ZOOM_OUT', mediaUrl: 'https://test.invalid/image.png', stages: [4, 2, 1] },
+    { type: 'SHARPEN', mediaUrl: 'https://test.invalid/image.png', stages: [8, 2, 0] },
+    { type: 'INLINE_WORD' },
+  ];
+  const quizzes = presentations.map((presentation, index) =>
+    v032Quiz(32010 + index, 'SINGLE', { options: ['가', '나'], presentation }),
+  );
+  const raw = v032Lesson(quizzes);
+  raw.segments = [
+    {
+      segmentId: 'first',
+      title: '첫 구간',
+      order: 1,
+      contentIds: raw.contents.map((item) => item.contentId),
+    },
+  ];
+  const before = JSON.parse(JSON.stringify(raw));
+  const parsed = [
+    contract.lesson(raw),
+    contract.lessonStart({
+      reviewRequired: false,
+      review: null,
+      progress: { status: 'IN_PROGRESS', lastContentId: null, resumeContentId: 32000 },
+      contents: raw.contents,
+      segments: raw.segments,
+    }),
+    contract.onboarding({ lesson: raw }).lesson,
+  ];
+  for (const lesson of parsed) {
+    assert.deepEqual(lesson.segments, raw.segments);
+    lesson.contents.forEach((item, index) => {
+      assert.equal(item.segmentId, 'first');
+      for (const key of [
+        'interactionType',
+        'instruction',
+        'difficulty',
+        'quizOrder',
+        'lessonId',
+        'config',
+      ])
+        assert.deepEqual(item.quiz[key], quizzes[index][key]);
+      assert.deepEqual(item.quiz.options.choices, [
+        { index: 0, label: '가' },
+        { index: 1, label: '나' },
+      ]);
+    });
+  }
+  assert.deepEqual(raw, before);
+  assert.equal(contract.lesson(v032Lesson([])).segments, undefined);
+  assert.throws(
+    () => contract.lesson({ ...raw, segments: [{ ...raw.segments[0], contentIds: ['32000'] }] }),
+    /contentIds/,
+  );
+  assert.throws(
+    () =>
+      contract.quiz(
+        v032Quiz(32015, 'SINGLE', {
+          options: ['가', '나'],
+          presentation: { type: 'TILE', stages: ['4'] },
+        }),
+      ),
+    /stages/,
+  );
+});
+
+test('0.3.2 optional grading fields stay optional and legacy mock answers remain unchanged', () => {
+  const graded = contract.answerResult({
+    isCorrect: false,
+    completed: true,
+    closeness: 0,
+    source: '출처',
+  });
+  assert.deepEqual(graded.correctAnswer, {});
+  assert.equal(graded.explanation, undefined);
+  assert.equal(graded.closeness, 0);
+  assert.equal(graded.source, '출처');
+  for (const [key, value] of [
+    ['completed', 'true'],
+    ['explanation', 1],
+    ['closeness', '0'],
+    ['source', 1],
+  ])
+    assert.throws(() => contract.answerResult({ isCorrect: true, [key]: value }), /명세 불일치/);
+  contract.quiz(v032Quiz(32016, 'MULTI', { options: ['가', '나'], answers: [0] }));
+  const legacy = {
+    quizId: 32016,
+    type: 'MULTIPLE_CHOICE',
+    question: '목업',
+    hint: null,
+    options: { choices: [{ index: 0, label: '가' }], mockHtmlType: 'multi', answer: [0] },
+  };
+  assert.deepEqual(contract.quiz(legacy), legacy);
+  assert.deepEqual(contract.encodeAnswer(32016, { texts: ['0'] }), { texts: ['0'] });
+});
+
+test('0.3.2 flippedX survives housing, visit and save conversion for both boolean values', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const placements = [true, false].map((flippedX, index) => ({
+    placementId: index + 1,
+    inventoryId: `copy-${index}`,
+    itemId: index + 1,
+    area: 'INTERIOR',
+    transform: { x: 0.2, y: 0.3, flippedX, layer: index },
+  }));
+  const housing = { housingId: 1, name: '우주선', isPublic: true, likeCount: 0 };
+  c.http.defaults.adapter = async (config) => {
+    if (config.method === 'put') {
+      const body = JSON.parse(config.data);
+      assert.deepEqual(
+        body.placements,
+        placements.map(({ inventoryId, area, transform }) => ({ inventoryId, area, transform })),
+      );
+      return respond(config, { data: { placements } });
+    }
+    return respond(config, {
+      data: {
+        housing,
+        placements,
+        avatar: { x: 0, y: 0, state: 'IDLE', placementId: null },
+        ownerNickname: '방문',
+        likedByMe: false,
+      },
+    });
+  };
+  const own = await api.room.me();
+  const visit = await api.social.visit(1);
+  const saved = await api.room.save(own.placements);
+  for (const response of [own, visit, saved])
+    assert.deepEqual(
+      response.placements.map((item) => item.transform.flippedX),
+      [true, false],
+    );
+  assert.throws(
+    () =>
+      contract.savedPlacements({
+        placements: [
+          { ...placements[0], transform: { ...placements[0].transform, flippedX: 'true' } },
+        ],
+      }),
+    /flippedX/,
+  );
+});
+
+test('0.3.2 optionless inventory copies do not invent an option ID', () => {
+  const grouped = {
+    itemId: 1,
+    itemType: 'FURNITURE',
+    name: '고양이',
+    ownedCount: 1,
+    placedCount: 0,
+    availableCount: 1,
+    copies: [
+      {
+        inventoryId: 'starter-cat',
+        acquiredVia: 'STARTER',
+        acquiredAt: '2026-11-12T00:00:00Z',
+        placed: false,
+      },
+    ],
+  };
+  const [item] = contract.inventory({ items: [grouped] }).items;
+  assert.equal(item.inventoryId, 'starter-cat');
+  assert.equal(item.optionId, undefined);
+  assert.deepEqual(item.option, {});
+  assert.equal(item.acquiredVia, 'STARTER');
+});
+
+test('0.3.2 star badges never count as constellation completion or completion dates', () => {
+  const reward = { type: 'CONSTELLATION', source: { courseId: 1, lessonId: 11 } };
+  assert.equal(contract.isConstellationReward({ ...reward, badge: { badgeType: 'STAR' } }), false);
+  assert.equal(
+    contract.isConstellationReward({ ...reward, badge: { badgeType: 'CONSTELLATION' } }),
+    true,
+  );
+  assert.equal(contract.isConstellationReward(reward), false);
+  assert.equal(
+    contract.isConstellationReward({ type: 'CONSTELLATION', source: { courseId: 1 } }),
+    true,
+  );
+  assert.equal(
+    contract.isConstellationReward({ type: 'CONSTELLATION', badge: { type: 'CONSTELLATION' } }),
+    true,
+  );
+  assert.equal(contract.isConstellationReward({ type: 'WALLET' }), false);
+});
+
+test('0.3.2 replay completes content through API-405 and preserves optional completion data', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
+  const quiz = v032Quiz(32020, 'SINGLE', { options: ['가', '나'] });
+  const contents = v032Lesson([quiz]).contents;
+  const sent = [];
+  const completion = {
+    rewards: [{ type: 'WALLET', currency: 'STARDUST', amount: 1 }],
+    wallet: { stardust: 21, energy: 4 },
+    courseCompleted: false,
+    quizSummary: { correctCount: 1, totalCount: 1 },
+    stardustSkipped: false,
+  };
+  c.http.defaults.adapter = async (config) => {
+    sent.push({
+      url: config.url,
+      body: config.data === undefined ? undefined : JSON.parse(config.data),
+    });
+    if (config.url.endsWith('/start'))
+      return respond(config, {
+        data: {
+          reviewRequired: false,
+          review: null,
+          progress: { status: 'COMPLETED', lastContentId: null, resumeContentId: 32000 },
+          contents,
+        },
+      });
+    if (config.url.includes('/quizzes/'))
+      return respond(config, { data: { isCorrect: true, completed: true } });
+    return respond(config, {
+      data: {
+        progress: { status: 'COMPLETED', lastContentId: 32000, resumeContentId: null },
+        lessonCompleted: true,
+        completion,
+      },
+    });
+  };
+  await api.learning.start(3200, true);
+  await api.learning.answer(32020, { index: 0 }, true);
+  const result = await api.learning.completeContent(32000);
+  assert.deepEqual(result.completion, completion);
+  assert.deepEqual(sent, [
+    { url: '/lessons/3200/start', body: { replay: true } },
+    { url: '/quizzes/32020/answer', body: { answer: { answer: 0 }, replay: true } },
+    { url: '/contents/32000/complete', body: undefined },
+  ]);
+});
+
+test('mock replay completion keeps saved progress, rewards and wallet unchanged', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const before = JSON.parse(JSON.stringify(mockSnapshot()));
+    const start = () =>
+      mockApi('API-404', { path: { lessonId: 11 }, body: { replay: true } }).data.data;
+    const { contents } = start();
+    assert.equal(start().progress.lastContentId, null);
+    const complete = (contentId) => mockApi('API-405', { path: { contentId } }).data.data;
+    assert.throws(() => complete(contents[1].contentId), /콘텐츠 순서/);
+    complete(contents[0].contentId);
+    assert.equal(start().progress.lastContentId, contents[0].contentId);
+    let result;
+    for (const content of contents.slice(1)) result = complete(content.contentId);
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion, null);
+    assert.equal(complete(contents.at(-1).contentId).lessonCompleted, true);
+    assert.deepEqual(mockSnapshot(), before);
+    assert.equal(start().progress.lastContentId, null);
   } finally {
     restoreMockSnapshot(original);
   }

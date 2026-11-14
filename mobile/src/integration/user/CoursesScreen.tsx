@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { integrationApi as api } from '../runtime';
+import { isConstellationReward } from '../contract';
 import { useIntegration, useTask } from '../hooks';
 import type { Course, CourseDetail } from '../models';
 import { UserScreen, UserStatus } from './Screen';
@@ -28,7 +29,7 @@ async function loadConstellationDates() {
     const page = await api.benefits.rewards({ size: 100, ...(cursor ? { cursor } : {}) });
     for (const item of page.data.rewards) {
       const courseId = Number(item.source.courseId);
-      if (item.type === 'CONSTELLATION' && courseId && !dates[courseId])
+      if (isConstellationReward(item) && courseId && !dates[courseId])
         dates[courseId] = completionDate(item.grantedAt);
     }
     cursor = page.meta.nextCursor;

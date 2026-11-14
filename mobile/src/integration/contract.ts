@@ -20,7 +20,11 @@ const choices = (values: unknown): { index: number; label: string }[] => {
 };
 
 export const quiz = (value: unknown, path = '$'): m.Quiz => {
-  if (!objectValue(value) || !('interactionType' in value)) return m.quiz(value, path);
+  if (!objectValue(value) || !('interactionType' in value)) {
+    const legacy = m.quiz(value, path);
+    quizContract.delete(legacy.quizId);
+    return legacy;
+  }
   const { quizId, interactionType, question, config } = value;
   num(quizId, `${path}.quizId`);
   str(question, `${path}.question`);
@@ -29,25 +33,55 @@ export const quiz = (value: unknown, path = '$'): m.Quiz => {
     throw new ContractError(`${path}.interactionType`);
   const options = unknownObject(config, `${path}.config`);
   const type = interactionType as QuizType;
-  quizContract.set(quizId as number, { type, config: options });
-  const base = { quizId: quizId as number, question: question as string, hint: null };
-  if (type === 'OX') return { ...base, type: 'OX', options: {} };
+  const register = (adapted: m.Quiz): m.Quiz => {
+    quizContract.set(quizId as number, { type, config: options });
+    return adapted;
+  };
+  const base = {
+    ...m.quizMetadata(value, path),
+    quizId: quizId as number,
+    question: question as string,
+    hint: null,
+  };
+  if (type === 'OX') return register({ ...base, type: 'OX', options: {} });
   if (type === 'SINGLE')
-    return { ...base, type: 'MULTIPLE_CHOICE', options: { choices: choices(options.options) } };
+    return register({
+      ...base,
+      type: 'MULTIPLE_CHOICE',
+      options: { choices: choices(options.options) },
+    });
+  if (type === 'MULTI') {
+    const items = choices(options.options);
+    const answers = options.answers;
+    if (
+      items.length < 2 ||
+      !Array.isArray(answers) ||
+      !answers.length ||
+      new Set(answers).size !== answers.length ||
+      answers.some((index) => !Number.isSafeInteger(index) || index < 0 || index >= items.length)
+    )
+      throw new ContractError(`${path}.config.answers`);
+    return register({
+      ...base,
+      type: 'MULTIPLE_CHOICE',
+      options: { choices: items, answer: [...answers], mockHtmlType: 'multi' },
+    });
+  }
   if (type === 'BLANK') {
     const before = str(options.before, `${path}.config.before`);
     const after = str(options.after, `${path}.config.after`);
-    return {
+    return register({
       ...base,
       question: `${before} [[blank]] ${after}`,
       type: 'FILL_BLANK',
       options: { choices: choices(options.options), mockHtmlType: 'blank' },
-    };
+    });
   }
   if (type === 'MATCH') {
     const pairs = options.pairs;
     if (
       !Array.isArray(pairs) ||
+      pairs.length < 2 ||
       !pairs.every(
         (pair) =>
           Array.isArray(pair) && pair.length === 2 && pair.every((s) => typeof s === 'string'),
@@ -56,7 +90,7 @@ export const quiz = (value: unknown, path = '$'): m.Quiz => {
       throw new ContractError(`${path}.config.pairs`);
     const left = pairs.map((pair) => pair[0] as string);
     const right = pairs.map((pair) => pair[1] as string).reverse();
-    return {
+    return register({
       ...base,
       type: 'ORDERING',
       options: {
@@ -65,24 +99,24 @@ export const quiz = (value: unknown, path = '$'): m.Quiz => {
         answer: left.map((_, index) => right.length - index - 1),
         mockHtmlType: 'match',
       },
-    };
+    });
   }
   if (type === 'CHOSUNG')
-    return {
+    return register({
       ...base,
       type: 'CHOSUNG',
       options: { hint: str(options.hint, `${path}.config.hint`) },
-    };
+    });
   if (type === 'SLIDER') {
     const ticks = options.ticks;
     if (!Array.isArray(ticks) || ticks.length < 2 || !ticks.every((t) => typeof t === 'string'))
       throw new ContractError(`${path}.config.ticks`);
     const hint = options.hint === undefined ? undefined : str(options.hint, `${path}.config.hint`);
-    return {
+    return register({
       ...base,
       type: 'SLIDER',
       options: { ticks: [...ticks], ...(hint === undefined ? {} : { hint }) },
-    };
+    });
   }
   // These quiz types need interaction behavior that the existing screens cannot express.
   throw new UnsupportedQuizError(`${path}.interactionType=${type}`, quizId as number, type);
@@ -167,11 +201,12 @@ export const onboarding = (value: unknown, path = '$') => {
   // 온보딩 화면에는 초성·슬라이더 UI 를 붙이지 않았다. 답할 수 없는 문항으로 보상을 받지 않게 막는다.
   parsed.contents.forEach((item, index) => {
     const type = item.quiz?.type;
-    if (item.quiz && (type === 'CHOSUNG' || type === 'SLIDER'))
+    const multi = item.quiz?.interactionType === 'MULTI';
+    if (item.quiz && (type === 'CHOSUNG' || type === 'SLIDER' || multi))
       throw new UnsupportedQuizError(
-        `${path}.lesson.contents[${index}].quiz.interactionType=${type}`,
+        `${path}.lesson.contents[${index}].quiz.interactionType=${multi ? 'MULTI' : type}`,
         item.quiz.quizId,
-        type,
+        multi ? 'MULTI' : (type as 'CHOSUNG' | 'SLIDER'),
       );
   });
   return { lesson: parsed };
@@ -180,6 +215,17 @@ export const onboarding = (value: unknown, path = '$') => {
 export const answerResult = (value: unknown, path = '$') => {
   if (!objectValue(value)) throw new ContractError(path);
   return m.answerResult({ ...value, correctAnswer: value.correctAnswer ?? {} }, path);
+};
+export const isConstellationReward = (reward: {
+  type: string;
+  badge?: Record<string, unknown> | null;
+  source?: Record<string, unknown>;
+}) => {
+  const badgeType = reward.badge?.badgeType ?? reward.badge?.type;
+  return (
+    reward.type === 'CONSTELLATION' &&
+    (badgeType === 'CONSTELLATION' || (badgeType === undefined && reward.source?.lessonId == null))
+  );
 };
 export const encodeReviewAnswer = (reviewItemId: number, answer: m.QuizAnswer) =>
   encodeAnswer(reviewQuiz.get(reviewItemId) ?? reviewItemId, answer);
@@ -192,6 +238,22 @@ export function encodeAnswer(quizId: number, answer: m.QuizAnswer): unknown {
       break;
     case 'SINGLE':
       if ('index' in answer) return { answer: answer.index };
+      break;
+    case 'MULTI':
+      if ('texts' in answer) {
+        const options = contract.config.options as string[];
+        const answers = answer.texts.map((text) =>
+          typeof text === 'string' && /^\d+$/.test(text) ? Number(text) : NaN,
+        );
+        if (
+          answers.length &&
+          new Set(answers).size === answers.length &&
+          answers.every(
+            (index) => Number.isSafeInteger(index) && index >= 0 && index < options.length,
+          )
+        )
+          return { answers: answers.sort((a, b) => a - b) };
+      }
       break;
     case 'BLANK':
       if ('index' in answer) return { answer: answer.index };
@@ -219,7 +281,15 @@ export function encodeAnswer(quizId: number, answer: m.QuizAnswer): unknown {
     case 'MATCH':
       if ('order' in answer) {
         const pairs = contract.config.pairs as string[][];
-        return { pairs: pairs.map(([left, right]) => [left, right]) };
+        const right = pairs.map((pair) => pair[1]).reverse();
+        if (
+          answer.order.length === pairs.length &&
+          new Set(answer.order).size === pairs.length &&
+          answer.order.every(
+            (index) => Number.isSafeInteger(index) && index >= 0 && index < right.length,
+          )
+        )
+          return { pairs: pairs.map(([left], index) => [left, right[answer.order[index]]]) };
       }
       break;
   }
@@ -230,7 +300,10 @@ export const inventory = (value: unknown, path = '$') => {
   if (!objectValue(value)) throw new ContractError(path);
   const items = mapArray(value.items, `${path}.items`, (item, itemPath) => {
     if (objectValue(item) && 'copies' in item) {
-      const group = m.inventoryGroup(item, itemPath);
+      const group = m.inventoryGroup(
+        { ...item, option: item.option === undefined ? {} : item.option },
+        itemPath,
+      );
       if (group.copies.length !== group.ownedCount) throw new ContractError(`${itemPath}.copies`);
       return group.copies.map((copy) =>
         m.inventoryItem(
@@ -246,7 +319,12 @@ export const inventory = (value: unknown, path = '$') => {
         ),
       );
     }
-    return [m.inventoryItem(item, itemPath)];
+    return [
+      m.inventoryItem(
+        objectValue(item) && item.option === undefined ? { ...item, option: {} } : item,
+        itemPath,
+      ),
+    ];
   }).flat();
   return { items };
 };
@@ -329,7 +407,6 @@ export const purchaseRequest = (items: m.ShopSelection[]) => {
 };
 export const placementRequest = (placements: m.PlacementInput[]) =>
   placements.map(({ inventoryId, area, transform }) => {
-    const source = transform as Record<string, unknown>;
     return {
       inventoryId,
       area,
@@ -337,7 +414,7 @@ export const placementRequest = (placements: m.PlacementInput[]) =>
         x: transform.x,
         y: transform.y,
         layer: transform.layer,
-        ...(typeof source.flippedX === 'boolean' ? { flippedX: source.flippedX } : {}),
+        ...(typeof transform.flippedX === 'boolean' ? { flippedX: transform.flippedX } : {}),
       },
     };
   });
