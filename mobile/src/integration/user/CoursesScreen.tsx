@@ -105,7 +105,15 @@ function Courses() {
   const categories = [...new Set(courses.map((course) => course.category))];
   const listed = category ? courses.filter((course) => course.category === category) : courses;
   const currentCourse = courses.find((course) => course.courseId === currentCourseId);
-  const openCourse = (courseId: number) => router.push(`/learn/course/${courseId}`);
+  // 이미 읽은 완성일(API-905)을 함께 넘겨 상세 화면이 보상 내역을 다시 읽기 전에도 바로 보여 준다.
+  const openCourse = (courseId: number) =>
+    router.push({
+      pathname: '/learn/course/[courseId]',
+      params: {
+        courseId: String(courseId),
+        ...(recordDates[courseId] ? { completedOn: recordDates[courseId] } : {}),
+      },
+    });
   const openLesson = () => {
     if (nextLesson)
       router.push({

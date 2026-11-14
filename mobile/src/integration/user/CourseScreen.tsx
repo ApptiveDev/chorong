@@ -27,29 +27,34 @@ type Lesson = CourseDetail['lessons'][number];
 // 별자리(코스)의 레슨을 순서대로 보여 주고, 누르면 기존 학습 진입을 그대로 쓴다.
 // 완료한 레슨은 다시 하기(replay), 그 밖은 레슨 화면(/learn/lesson)으로 간다.
 export default function CourseScreen() {
-  const { courseId } = useLocalSearchParams<{ courseId: string }>(),
+  const { courseId, completedOn: passedCompletedOn } = useLocalSearchParams<{
+      courseId: string;
+      completedOn?: string;
+    }>(),
     router = useRouter(),
     session = useIntegration(),
     task = useTask();
   const { width } = useWindowDimensions();
   const [course, setCourse] = useState<CourseDetail | null>(null);
-  // 별자리 완성일. 레슨 completedAt 이 없으면 보상 내역(API-905)의 별자리 뱃지 지급일을 쓴다.
-  const [completedOn, setCompletedOn] = useState<string | null>(null);
+  // 별자리 완성일. 레슨 completedAt → 별자리 기록에서 넘긴 값 → 보상 내역(API-905) 뱃지 지급일 순으로 쓴다.
+  // 별자리 기록에서 들어오면 넘긴 값을 첫 화면부터 보여 준다.
+  const [completedOn, setCompletedOn] = useState<string | null>(passedCompletedOn || null);
   const load = () =>
     task.run(async () => {
       const data = await api.learning.course(positiveId(String(courseId)));
-      setCourse(data);
-      const fromLessons = constellationCompletedOn(data.lessons);
       const complete =
         data.lessons.length > 0 && data.lessons.every((lesson) => lesson.status === 'COMPLETED');
-      setCompletedOn(
-        fromLessons ??
-          (complete
-            ? ((await loadConstellationDates().catch((): Record<number, string> => ({})))[
-                data.courseId
-              ] ?? null)
-            : null),
-      );
+      // 완성일을 다 구한 뒤 코스와 함께 반영한다. 코스를 먼저 그리면 완성일만 한 박자 늦게 나타난다.
+      const date = !complete
+        ? null
+        : (constellationCompletedOn(data.lessons) ??
+          (passedCompletedOn ||
+            ((await loadConstellationDates().catch((): Record<number, string> => ({})))[
+              data.courseId
+            ] ??
+              null)));
+      setCourse(data);
+      setCompletedOn(date);
       return data;
     });
   // 다시 학습하고 돌아오면 진행 상태를 새로 읽는다.
