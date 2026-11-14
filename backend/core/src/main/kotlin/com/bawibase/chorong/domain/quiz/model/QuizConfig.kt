@@ -31,6 +31,7 @@ data class SingleConfig(
 enum class SinglePresentationType { AUDIO, TILE, ZOOM_OUT, SHARPEN, INLINE_WORD }
 
 @Schema(requiredProperties = ["type"], additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 data class SinglePresentation(
     val type: SinglePresentationType,
     @field:Schema(description = "AUDIO 음원 또는 이미지 공개 문제의 HTTP(S) 주소", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
