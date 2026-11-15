@@ -1,10 +1,18 @@
 openapi: 3.1.0
 info:
   title: 초롱 서비스 API
-  version: 0.3.2
+  version: 0.4.0
   description: |
-    10/30 개발 명세서 L2와 레슨 와이어프레임을 반영한 다음 버전의 API 계약입니다.
-    기존 L3의 세부 규칙은 L2·와이어프레임과 충돌하지 않는 범위에서 유지합니다.
+    피그마 개발자 전달용 페이지와 디자인 파일, 학습 콘텐츠 시뮬레이터, 학습 콘텐츠 회의 결정을 반영한 API 계약입니다.
+    기준 자료가 충돌하면 학습 유형과 퀴즈 콘텐츠는 시뮬레이터와 추가 유형 피그마를, 화면 동작은 개발자 전달용 페이지와 디자인을 따릅니다.
+    0.4.0의 주요 변경:
+    - 코스는 별자리, 레슨은 별입니다. 정해진 순서대로 한 레슨씩 열리며 하루 해금 제한이 없습니다. 별자리를 모두 완료해야 다음 별자리가 열립니다.
+    - 레슨 시작 전 필수 복습을 없앴습니다. 복습은 학습 홈의 복습하기로만 시작합니다.
+    - 에너지는 레슨 시작이 아니라 보상을 받는 완료 시점에 씁니다. 레슨 보상은 별가루 10개, 그날 첫 복습 보상은 별가루 5개입니다.
+    - 복습은 복습 전용 문제에서만 출제합니다. 복습 전용 문제는 레슨 진행에 나오지 않습니다.
+    - 개념 화면의 키워드, 레슨 엔딩 문구·출처·버전, 콘텐츠 고정 키(slug)를 추가했습니다.
+    - 이어하기용 입력 저장, 복습 상태 조회, 복습 회차 종료 API를 추가했습니다.
+    - 계정 고유번호와 닉네임 규칙(1~10자, 중복 불가), 기존 계정 전환, 구매·배치 동시 저장, 자유 입력 신고를 반영했습니다.
     - `operationId`는 기존 API 번호(API-101 …)를 유지합니다.
     - 인증: `Authorization: Bearer <accessToken>`. 게스트도 같은 헤더를 씁니다.
       보안 요구사항 `guest`는 게스트 이상, `member`는 회원(role=MEMBER)만 허용(게스트는 ERR-41).
@@ -187,7 +195,12 @@ paths:
       summary: OAuth 가입/로그인 (구글·카카오·애플)
       description: |
         F-01-04, F-02-03. `(provider, providerUid)` 일치 계정이 있으면 로그인, 없으면 신규 가입.
-        게스트 토큰으로 호출하면 전환 가입(이미 다른 회원 계정에 있는 수단이면 ERR-14).
+        게스트 토큰으로 호출하면 기록 저장(전환 가입)으로 처리하고, 게스트의 학습·보상 기록을 새 회원 계정으로 이어받습니다.
+        신규 가입한 회원의 기본 닉네임은 `No. ` + 무작위 숫자 8자리입니다.
+        게스트 토큰으로 호출했는데 해당 수단이 이미 다른 회원 계정에 있으면 ERR-14를 돌려줍니다.
+        앱은 기존 계정 확인을 띄우고, 사용자가 기존 계정으로 로그인하기를 고르면 `switchToExisting=true`로 다시 호출합니다.
+        이때는 기존 회원 계정으로 로그인하며 게스트 기록은 합치지 않습니다.
+        인증만 성공하고 기록 승계가 실패하면 성공 응답을 돌려주지 않습니다.
       security:
         - {}
         - guest: []
@@ -211,6 +224,10 @@ paths:
                   type: string
                   description: apple authorization code
                 deviceUuid: { type: string, format: uuid }
+                switchToExisting:
+                  type: boolean
+                  default: false
+                  description: 게스트 토큰으로 호출할 때만 사용. true면 기존 회원 계정으로 로그인하고 게스트 기록은 합치지 않습니다.
       responses:
         '200':
           description: 토큰 쌍과 유저
@@ -219,7 +236,7 @@ paths:
               schema: { $ref: '#/components/schemas/AuthResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
-          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER
+          description: ERR-14 ACCOUNT_EXISTS_FOR_PROVIDER. 게스트 기록 저장 중 기존 회원 계정을 발견함
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -367,7 +384,8 @@ paths:
       tags: [users]
       operationId: API-202
       summary: 내 정보 수정 (닉네임, 학습 알림 on/off)
-      description: F-02-02, F-03-03, F-15-05.
+      description: |
+        F-02-02, F-03-03, F-15-05. 닉네임은 앞뒤 공백을 뺀 1~10자이며 다른 계정과 중복될 수 없습니다(ERR-16).
       requestBody:
         required: true
         content:
@@ -375,7 +393,7 @@ paths:
             schema:
               type: object
               properties:
-                nickname: { type: string, minLength: 2, maxLength: 12 }
+                nickname: { type: string, minLength: 1, maxLength: 10 }
                 pushEnabled: { type: boolean }
       responses:
         '200':
@@ -387,6 +405,11 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: ERR-16 NICKNAME_TAKEN
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
     delete:
       tags: [auth]
       operationId: API-110
@@ -448,17 +471,10 @@ paths:
     get:
       tags: [learning]
       operationId: API-401
-      summary: 코스 목록 (분야·주제별)
-      description: F-04-02. ONBOARDING 코스는 제외합니다.
-      parameters:
-        - name: category
-          in: query
-          required: false
-          schema: { type: string }
-        - name: topic
-          in: query
-          required: false
-          schema: { type: string }
+      summary: 코스(별자리) 목록
+      description: |
+        F-04-02. 별자리를 정해진 순서(`order`)대로 돌려줍니다. ONBOARDING 코스는 제외합니다.
+        앞 별자리의 레슨을 모두 완료해야 다음 별자리가 열립니다. 분야·주제 선택은 MVP에서 제외합니다.
       responses:
         '200':
           description: 코스 목록
@@ -478,10 +494,11 @@ paths:
     get:
       tags: [learning]
       operationId: API-402
-      summary: 코스 상세 (레슨 목록 · 일일 해금 판정)
+      summary: 코스(별자리) 상세와 레슨 목록
       description: |
-        F-04-03, F-04-08. 호출 시 그 코스에 오늘(KST) 해금된 레슨이 없고 다음 미해금 레슨이 있으면
-        레슨 하나를 UNLOCKED로 만듭니다(접속한 날마다 코스당 1개).
+        F-04-03, F-04-08. 레슨은 정해진 순서대로 한 개씩 열립니다. 하루 해금 제한은 없습니다.
+        첫 레슨은 앞 별자리를 모두 완료했을 때, 나머지 레슨은 바로 앞 레슨을 완료했을 때 UNLOCKED가 됩니다.
+        조회만으로 상태를 바꾸지 않습니다.
       parameters:
         - $ref: '#/components/parameters/CourseId'
       responses:
@@ -500,7 +517,9 @@ paths:
       tags: [learning]
       operationId: API-403
       summary: 레슨 상세 (컨텐츠 목록)
-      description: F-04-01. 대화·그림·영상·퀴즈를 순서대로 돌려줍니다. 퀴즈 정답·해설은 제외합니다.
+      description: |
+        F-04-01. 나레이션·개념·퀴즈 컨텐츠를 순서대로 돌려줍니다. 퀴즈 정답·해설은 제외합니다.
+        복습 전용 문제는 레슨 컨텐츠에 포함하지 않습니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
       responses:
@@ -520,14 +539,12 @@ paths:
       operationId: API-404
       summary: 레슨 시작 / 이어하기 / 다시 하기
       description: |
-        F-04-04, F-04-07, F-04-10, F-05-05.
-        1) 해금 검사(미해금 ERR-20, `unlocksAt` 포함) → 2) 복습 세트가 만들어지면 `reviewRequired=true`로
-        먼저 돌려주고 레슨 진입은 복습 완료 후 → 3) UNLOCKED이면 IN_PROGRESS로.
-        `replay=true`는 COMPLETED 레슨 다시 하기(진행 상태 불변, 이미 받은 보상은 다시 주지 않음).
-        에너지: 레슨을 시작할 때 에너지 1개를 씁니다. 같은 레슨을 이어서 시작하면 다시 쓰지 않습니다.
-        에너지가 0이어도 학습은 진행하지만 완료 시 별가루를 주지 않습니다.
-        다시 하기는 별가루를 아직 받지 않은 레슨일 때만 에너지를 쓰고, 완료하면 그때 별가루를 줍니다.
-        온보딩 레슨은 에너지를 쓰지 않습니다.
+        F-04-04, F-04-07, F-04-10.
+        1) 열리지 않은 레슨이면 ERR-20 → 2) UNLOCKED이면 IN_PROGRESS로 바꿉니다.
+        IN_PROGRESS 레슨은 저장된 위치와 입력(`progress.draft`)을 함께 돌려줍니다. `restart=true`면 저장된 위치와 입력을 지우고 첫 컨텐츠부터 시작합니다.
+        `replay=true`는 COMPLETED 레슨 다시 하기입니다(진행 상태 불변).
+        시작할 때는 에너지를 쓰지 않습니다. 에너지가 0이어도 학습할 수 있으며, 보상을 아직 받지 않은 레슨에 에너지 0으로 진입하면
+        `energyNotice=true`를 돌려줍니다(앱은 에너지 소진 안내를 표시).
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -537,6 +554,10 @@ paths:
               type: object
               properties:
                 replay: { type: boolean, default: false }
+                restart:
+                  type: boolean
+                  default: false
+                  description: 이어하기 확인에서 처음부터를 고른 경우 true
       responses:
         '200':
           description: 레슨 시작 결과
@@ -552,14 +573,62 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
 
+  /lessons/{lessonId}/progress:
+    put:
+      tags: [learning]
+      operationId: API-409
+      summary: 레슨 진행 저장 (도중 나가기)
+      description: |
+        학습 도중 나가기에서 호출합니다. 현재 컨텐츠 위치와 아직 제출하지 않은 입력을 저장하고, 다음 이어하기에서 복원합니다.
+        `draft.input`은 앱이 정한 형식의 JSON이며 서버는 해석하지 않습니다(최대 4KB).
+        저장에 실패하면 앱은 현재 화면과 입력을 유지하고 다시 시도합니다.
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentId]
+              properties:
+                contentId:
+                  type: integer
+                  format: int64
+                  description: 현재 보고 있는 컨텐츠
+                draft:
+                  allOf:
+                    - $ref: '#/components/schemas/LessonDraft'
+                  nullable: true
+      responses:
+        '200':
+          description: 저장된 진행 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      progress: { $ref: '#/components/schemas/LessonProgress' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: ERR-07 진행 중이 아닌 레슨이거나 아직 도달하지 않은 컨텐츠
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
   /contents/{contentId}/complete:
     post:
       tags: [learning]
       operationId: API-405
       summary: 컨텐츠 완료 보고 (이어하기 위치 갱신)
       description: |
-        F-04-05, F-04-09. 마지막 컨텐츠면 레슨 완료 처리와 보상 지급까지 수행하고
-        `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다. 복습 미완료 상태면 ERR-21.
+        F-04-05, F-04-09. 컨텐츠는 순서대로만 완료할 수 있고, 퀴즈는 답안을 제출해야 완료됩니다.
+        완료하면 저장된 미제출 입력(draft)을 지웁니다.
+        마지막 컨텐츠면 레슨 완료 처리와 보상 지급까지 수행하고 `lessonCompleted=true`와 보상 본문을 함께 돌려줍니다.
+        보상 규칙은 API-407과 같습니다. 같은 컨텐츠를 다시 완료해도 완료 기록·보상·에너지 사용은 중복되지 않습니다.
       parameters:
         - name: contentId
           in: path
@@ -581,7 +650,7 @@ paths:
                       completion:
                         $ref: '#/components/schemas/LessonCompleteResponse'
         '409':
-          description: ERR-21 REVIEW_REQUIRED
+          description: ERR-07 앞 컨텐츠 미완료 또는 퀴즈 미제출
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -592,10 +661,12 @@ paths:
       operationId: API-406
       summary: 퀴즈 답안 제출·채점
       description: |
-        F-04-06, F-05-02, F-06-03, F-03-04. 채점 후 정답·해설·화면 피드백을 돌려주고 답안을 기록합니다.
-        레슨 학습(`replay=false`)이면 복습 풀(WRONG/CORRECT)을 갱신하고, 학습일·연속일을 갱신합니다.
+        F-04-06, F-06-03, F-03-04. 채점 후 정답·해설을 돌려주고 답안을 기록합니다.
         `QuizAnswer` 형식은 퀴즈의 `interactionType`과 일치해야 합니다.
-        해설이 없는 문항은 레슨 도입 질문이며 복습 풀과 레슨 결과의 정답 수에 넣지 않습니다.
+        오답이어도 다시 풀지 않고 다음 컨텐츠로 넘어갑니다.
+        해설이 없는 문항(레슨 도입 질문 등)도 정답 여부를 돌려주지만, 레슨의 틀린 문제 집계와 복습 대상에는 넣지 않습니다.
+        레슨 학습(`replay=false`)의 채점 결과로 레슨별 오답 여부를 갱신하며, 복습 출제(API-501)에 사용합니다. 학습일·연속일도 갱신합니다.
+        복습 전용 문제는 이 API로 제출할 수 없습니다(API-502 사용).
       parameters:
         - name: quizId
           in: path
@@ -628,16 +699,21 @@ paths:
       operationId: API-407
       summary: 레슨 완료 (보상 지급)
       description: |
-        F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03. 최초 완료 1회만 보상.
-        레슨 별가루는 시작할 때 에너지를 쓴 경우에만 줍니다. 별 뱃지·그림·코스 보상은 에너지와 무관합니다.
-        코스의 모든 레슨이 완료되면 코스 보상과 별자리 뱃지도 함께 지급.
-        와이어프레임의 결과 화면에 필요한 정답 수·문항 수와 획득한 별 뱃지를 함께 돌려줍니다.
+        F-04-09, F-04-11, F-11-01, F-11-03, F-13-02/03.
+        완료하면 항상 완료 기록을 남기고 별(STAR 뱃지)을 밝힙니다. 별가루 보상은 레슨별로 한 번만 받습니다.
+        - 보상을 받지 않은 레슨을 에너지가 있는 상태로 완료: 별가루 +10, 에너지 −1 (`rewardStatus=GRANTED`)
+        - 보상을 받지 않은 레슨을 에너지 0으로 완료: 별가루·에너지 변화 없음, 보상 미수령 유지 (`rewardStatus=NO_ENERGY`)
+        - 이미 보상을 받은 레슨을 다시 완료: 추가 지급·차감 없음 (`rewardStatus=ALREADY_GRANTED`)
+        첫 학습도 같은 규칙을 따르며 `firstLesson=true`로 첫 학습 완료 화면을 구분합니다.
+        코스의 모든 레슨을 처음 완료하면 별자리 뱃지와 별자리 완성 보너스를 함께 지급합니다(보너스 종류·수량은 미정).
+        같은 `Idempotency-Key`로 다시 호출하면 같은 결과를 돌려주며, 완료 결과 확인에 실패한 앱은 같은 키로 결과를 다시 조회합니다.
+        완료 화면에는 퀴즈 점수를 표시하지 않습니다.
       parameters:
         - $ref: '#/components/parameters/LessonId'
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
-          description: 지급된 보상
+          description: 완료 결과와 지급된 보상
           content:
             application/json:
               schema:
@@ -645,7 +721,7 @@ paths:
                 properties:
                   data: { $ref: '#/components/schemas/LessonCompleteResponse' }
         '409':
-          description: ERR-07 (마지막 컨텐츠 미완료) / ERR-21
+          description: ERR-07 마지막 컨텐츠 미완료
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -654,8 +730,11 @@ paths:
     get:
       tags: [learning]
       operationId: API-408
-      summary: 전체 진행 상황
-      description: F-04-08.
+      summary: 전체 진행 상황 (학습 홈)
+      description: |
+        F-04-08. `current`는 학습 홈의 물음표 별(지금 시작하거나 이어 갈 레슨)입니다.
+        저장된 중단 지점이 있으면 `resumable=true`이며 앱은 같은 카드를 이어하기로 표시합니다.
+        모든 레슨을 완료하면 `current`는 null입니다.
       responses:
         '200':
           description: 진행 상황
@@ -681,26 +760,47 @@ paths:
                         properties:
                           lessonId: { type: integer, format: int64 }
                           courseId: { type: integer, format: int64 }
+                          title: { type: string }
                           status: { $ref: '#/components/schemas/LessonStatus' }
+                          resumable: { type: boolean }
 
   # ---------------------------------------------------------------- API-5xx 복습
+  /reviews/status:
+    get:
+      tags: [review]
+      operationId: API-504
+      summary: 복습 가능 여부와 오늘 보상 상태
+      description: |
+        F-05-01. 학습 홈의 복습하기에서 호출합니다. 회차를 만들지 않습니다.
+        `available=false`(후보 5개 미만)면 앱은 학습 홈 위에 문제 부족 팝업을, true면 복습 안내 화면을 표시합니다.
+        `rewardEligible`은 오늘(KST) 복습 보상을 아직 받지 않았는지이며, 복습 안내 화면의 보상 상태 표시에 씁니다.
+      responses:
+        '200':
+          description: 복습 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ReviewStatus' }
+
   /reviews/next:
     get:
       tags: [review]
       operationId: API-501
-      summary: 복습 세트 조회 (5문항, 틀린 문제 80% · 맞춘 문제 20%)
+      summary: 복습 회차 시작 (5문항)
       description: |
-        F-05-01. 후보가 5개 미만이면 `reviewItems=[]`와 `message`("더 이상 복습할 문제가 없어요")를 돌려줍니다.
-        복습에서 오늘 맞춘 문제는 제외됩니다.
-      parameters:
-        - name: lessonId
-          in: query
-          required: false
-          description: 레슨 시작 전 복습이면 지정, 단독 복습은 생략
-          schema: { type: integer, format: int64 }
+        F-05-01. 복습 안내 화면의 복습 시작에서 호출합니다. 호출할 때마다 새 회차를 만들고, 끝나지 않은 이전 회차는 종료합니다.
+        복습 문제는 복습 전용 문제에서만 고릅니다. 후보는 완료한 레슨의 복습 전용 문제 중 재출제 제외 기간이 아닌 문제입니다.
+        - 틀린 문제가 있는 완료 레슨의 복습 전용 문제에서 최대 4개
+        - 모두 맞힌 완료 레슨의 복습 전용 문제에서 1개
+        - 부족한 자리는 남은 후보에서 중복 없이 무작위로 채움
+        같은 개념의 문제가 여러 개여도 문제마다 따로 후보로 관리합니다.
+        후보가 5개 미만이면 회차를 만들지 않고 `reviewItems=[]`와 `message`를 돌려줍니다.
+        복습에는 에너지를 쓰지 않습니다.
       responses:
         '200':
-          description: 복습 세트
+          description: 복습 회차
           content:
             application/json:
               schema:
@@ -714,8 +814,10 @@ paths:
       operationId: API-502
       summary: 복습 답안 제출
       description: |
-        F-05-03, F-05-06. 정답이면 다음 날 00:00 KST까지 재출제 제외(`excludedUntil`),
-        오답이면 WRONG 풀로 이동하고 바로 재출제 가능.
+        F-05-03, F-05-06. 채점 결과와 정답·해설을 돌려줍니다.
+        복습에서 푼 문제는 정답·오답과 관계없이 다음 날 00:00 KST부터 다시 후보가 됩니다(`excludedUntil`).
+        오답은 다음 복습 후보로 돌아가는 것이 확정이며, 정답 문제의 재출제 시점은 잠정입니다.
+        타일·줌아웃·점점 선명 문제에서 몇 단계에서 맞혔는지는 저장하지 않으며 앱이 결과 문구로만 표시합니다.
       parameters:
         - name: reviewItemId
           in: path
@@ -748,13 +850,22 @@ paths:
                             format: date-time
                             nullable: true
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: ERR-22 REVIEW_SESSION_CLOSED 종료된 회차의 문항
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   /reviews/complete:
     post:
       tags: [review]
       operationId: API-503
-      summary: 복습 세션 완료 (보상)
-      description: F-05-04, F-11-02. 5문항이 모두 오늘 제출된 것인지 확인 후 보상(하루 3세션까지).
+      summary: 복습 회차 완료 (보상)
+      description: |
+        F-05-04, F-11-02. 회차의 5문항을 모두 제출했는지 확인하고 완료 처리합니다.
+        한국 시간 기준 그날 첫 완료에만 별가루 +5를 지급합니다. 보상 여부는 시작이 아닌 완료 시각으로 판정하므로,
+        23시대에 시작해 자정 이후 완료한 회차도 완료한 날의 보상으로 처리합니다. 레슨 완료 보상과는 따로 집계합니다.
+        같은 `Idempotency-Key`로 다시 호출하면 같은 결과를 돌려주며 보상을 중복 지급하지 않습니다.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -763,23 +874,46 @@ paths:
           application/json:
             schema:
               type: object
-              required: [reviewItemIds]
+              required: [reviewSessionId]
               properties:
-                reviewItemIds:
-                  type: array
-                  minItems: 5
-                  maxItems: 5
-                  items: { type: integer, format: int64 }
+                reviewSessionId: { type: integer, format: int64 }
       responses:
         '200':
-          description: 보상 결과
+          description: 완료 결과
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  data: { $ref: '#/components/schemas/RewardResponse' }
+                  data: { $ref: '#/components/schemas/ReviewCompleteResponse' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: ERR-07 제출하지 않은 문항이 있음 / ERR-22 REVIEW_SESSION_CLOSED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /reviews/abandon:
+    post:
+      tags: [review]
+      operationId: API-505
+      summary: 복습 회차 종료 (도중 나가기)
+      description: |
+        복습 도중 나가기에서 호출합니다. 회차를 종료하며 완료 기록과 보상을 남기지 않습니다.
+        종료한 회차는 이어 할 수 없고, 다시 시작하면 새 문항으로 첫 문제부터 진행합니다.
+        이미 제출한 답안의 채점 결과(다음 복습 후보 반영)는 유지합니다. 이미 종료된 회차면 그대로 204를 돌려줍니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewSessionId]
+              properties:
+                reviewSessionId: { type: integer, format: int64 }
+      responses:
+        '204': { description: 종료됨 }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- API-6xx 온보딩
   /onboarding:
@@ -787,7 +921,7 @@ paths:
       tags: [onboarding]
       operationId: API-601
       summary: 온보딩 퀴즈 조회
-      description: F-06-03. `category=ONBOARDING` 코스의 유일한 레슨과 퀴즈 컨텐츠.
+      description: F-06-03. 온보딩 전용 코스(ONBOARDING)의 유일한 레슨과 퀴즈 컨텐츠. 코스 목록(API-401)에는 나오지 않습니다.
       responses:
         '200':
           description: 온보딩 레슨
@@ -1084,6 +1218,8 @@ paths:
       description: |
         F-09-06. 24시간 내 서로 다른 3명 이상이 같은 하우징(유저)을 신고하면 해당 유저는 30일간
         모든 유저에게서 숨겨집니다. 대상에게는 알리지 않습니다.
+        신고 사유는 자유 입력(`detail`)으로 받습니다. 앱은 사유가 비어 있으면 접수 버튼을 비활성화합니다.
+        `reason`은 선택이며 생략하면 OTHER로 저장합니다. 신고와 차단은 별개입니다.
       security:
         - member: []
       requestBody:
@@ -1092,11 +1228,15 @@ paths:
           application/json:
             schema:
               type: object
-              required: [housingId, reason]
+              required: [housingId, detail]
               properties:
                 housingId: { type: integer, format: int64 }
                 reason: { $ref: '#/components/schemas/ReportReason' }
-                detail: { type: string, maxLength: 255 }
+                detail:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  description: 자유 입력 신고 사유. 앞뒤 공백을 뺀 뒤 1자 이상
       responses:
         '200':
           description: 신고 접수
@@ -1240,6 +1380,10 @@ paths:
         같은 색상·모양 옵션의 아이템도 여러 개 구매할 수 있습니다.
         항목별 검증 순서: 해금(ERR-50) → 옵션 유효·판매 중(ERR-52) → 별가루 합계 잔액(ERR-51).
         하나라도 실패하면 전체 거부하고 `error.items[]`에 항목별 사유를 돌려줍니다.
+        꾸미기 화면의 저장에서는 `placements`를 함께 보냅니다. 이때 구매와 배치 저장(API-702와 같은 규칙)을 한 번에 처리하며,
+        둘 다 성공해야 별가루 차감·보유 수량·저장 배치를 반영합니다. 하나라도 실패하면 아무것도 반영하지 않습니다.
+        `placements`의 `inventoryId`는 이미 보유한 개별 ID 또는 이번 구매분을 가리키는 `new:{index}:{n}`(items 순번, 수량 안 순번, 0부터)를 씁니다.
+        결과가 불명확하면 같은 `Idempotency-Key`로 다시 요청해 이전 결과를 확인하며, 중복 차감·저장은 일어나지 않습니다.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1261,6 +1405,11 @@ paths:
                       itemId: { type: integer }
                       optionId: { type: integer, format: int64 }
                       quantity: { type: integer, minimum: 1, maximum: 50 }
+                placements:
+                  type: array
+                  maxItems: 200
+                  description: 함께 저장할 배치 전체. 생략하면 구매만 합니다. 빈 배열은 모두 회수입니다.
+                  items: { $ref: '#/components/schemas/PlacementInput' }
       responses:
         '200':
           description: 구매 결과
@@ -1276,8 +1425,12 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/InventoryItem' }
                       wallet: { $ref: '#/components/schemas/Wallet' }
+                      placements:
+                        type: array
+                        description: placements를 보낸 경우 저장된 배치
+                        items: { $ref: '#/components/schemas/Placement' }
         '400':
-          description: ERR-52 OPTION_INVALID / ERR-05
+          description: ERR-52 OPTION_INVALID / ERR-30 / ERR-31 / ERR-05
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PurchaseErrorResponse' }
@@ -1336,8 +1489,11 @@ paths:
     get:
       tags: [shop]
       operationId: API-906
-      summary: 별자리 목록과 획득 현황
-      description: F-13-04.
+      summary: 별자리 목록과 획득 현황 (내 별자리 지도·기록)
+      description: |
+        F-13-04. 전체 별자리를 순서대로 돌려줍니다. 지도 탭은 전체 진행과 다음 목표를, 기록 탭은 완성한 별자리와 완성일을 표시합니다.
+        별 수는 보상 지급이 아니라 레슨 완료 기록으로 셉니다. 에너지가 없어 보상을 받지 못한 레슨도 별을 밝힙니다.
+        `stars`는 별자리 상세(완료한 별의 학습 제목)와 다시 학습 진입에 씁니다.
       responses:
         '200':
           description: 별자리
@@ -1522,8 +1678,9 @@ components:
                 - LAST_AUTH_METHOD
                 - ACCOUNT_EXISTS_FOR_PROVIDER
                 - VERIFICATION_INVALID
+                - NICKNAME_TAKEN
                 - LESSON_LOCKED
-                - REVIEW_REQUIRED
+                - REVIEW_SESSION_CLOSED
                 - INVENTORY_ITEM_NOT_OWNED
                 - PLACEMENT_AREA_MISMATCH
                 - PLACEMENT_NOT_FOUND
@@ -1546,11 +1703,6 @@ components:
             retryAfter:
               type: integer
               description: ACCOUNT_LOCKED · RATE_LIMITED 시 초 단위
-            unlocksAt:
-              type: string
-              format: date-time
-              nullable: true
-              description: LESSON_LOCKED 시 다음 해금 시각
     PurchaseErrorResponse:
       allOf:
         - $ref: '#/components/schemas/ErrorResponse'
@@ -1589,15 +1741,22 @@ components:
       enum: [IOS, ANDROID]
     ContentType:
       type: string
-      description: ENUM-04
-      enum: [TEXT, IMAGE, VIDEO, QUIZ]
+      description: |
+        ENUM-04. 학습 콘텐츠 시뮬레이터의 화면 유형.
+        TEXT는 나레이션(화자별 대사), IMAGE는 개념 화면(그림·키워드·대사), QUIZ는 퀴즈입니다. 영상은 0.4.0에서 제외합니다.
+      enum: [TEXT, IMAGE, QUIZ]
     QuizType:
       type: string
-      description: 학습 콘텐츠 시뮬레이터의 퀴즈 유형. O/X, 하나 고르기, 여러 개 고르기, 빈칸, 슬라이더, 짝 맞추기, 초성.
+      description: |
+        학습 콘텐츠 시뮬레이터의 퀴즈 유형. O/X, 하나 고르기, 여러 개 고르기, 빈칸, 슬라이더, 짝 맞추기, 초성.
+        소리 듣고 고르기와 복습 유형(타일 벗기기, 줌아웃, 점점 선명, 틀린 곳 찾기)은 SINGLE의 `presentation`으로 표시합니다.
+        순서 맞추기는 제공하지 않습니다.
       enum: [OX, SINGLE, MULTI, BLANK, SLIDER, MATCH, CHOSUNG]
     LessonStatus:
       type: string
-      description: ENUM-06. LOCKED는 진행 행이 없는 레슨(응답 전용)
+      description: |
+        ENUM-06. LOCKED는 아직 열리지 않은 레슨(응답 전용), UNLOCKED는 열렸지만 시작하지 않은 레슨입니다.
+        레슨은 정해진 순서대로 앞 레슨을 완료하면 열립니다.
       enum: [LOCKED, UNLOCKED, IN_PROGRESS, COMPLETED]
     ItemType:
       type: string
@@ -1613,7 +1772,7 @@ components:
       enum: [IDLE, SIT, SLEEP]
     ReportReason:
       type: string
-      description: ENUM-10
+      description: ENUM-10. 신고 화면은 자유 입력만 받으므로 앱은 보통 생략하며, 서버는 OTHER로 저장합니다.
       enum: [INAPPROPRIATE_NAME, ABUSE, SPAM, OTHER]
     CurrencyType:
       type: string
@@ -1621,7 +1780,7 @@ components:
       enum: [STARDUST]
     RewardType:
       type: string
-      description: ENUM-12
+      description: ENUM-12. CONSTELLATION은 별자리 뱃지와 별자리 완성 보너스(종류·수량 미정)에 씁니다.
       enum: [WALLET, UNLOCK, INVENTORY, CONSTELLATION, ARTWORK]
     AcquiredVia:
       type: string
@@ -1646,6 +1805,10 @@ components:
       type: object
       properties:
         userId: { type: integer, format: int64 }
+        userCode:
+          type: string
+          pattern: '^[0-9]{8}$'
+          description: 계정마다 부여하는 8자리 고유번호. userId와 별개이며 바뀌지 않습니다.
         nickname: { type: string }
         status: { $ref: '#/components/schemas/UserStatus' }
     AuthResponse:
@@ -1668,7 +1831,9 @@ components:
           type: integer
           minimum: 0
           maximum: 5
-          description: 남은 에너지. 매일 00시(KST)에 5개로 채워지며 남은 개수는 이월하지 않습니다. 신규 사용자는 5개로 시작합니다.
+          description: |
+            남은 에너지. 매일 00시(KST)에 최대치까지 채워지며 남은 개수는 이월하지 않습니다. 신규 사용자는 최대치로 시작합니다.
+            최대치 5는 잠정값입니다. 에너지는 보상을 받는 레슨 완료 시 1개 쓰며, 학습과 복습을 제한하지 않습니다.
         energyResetsAt:
           type: string
           format: date-time
@@ -1677,7 +1842,13 @@ components:
       type: object
       properties:
         userId: { type: integer, format: int64 }
-        nickname: { type: string }
+        userCode:
+          type: string
+          pattern: '^[0-9]{8}$'
+          description: 8자리 계정 고유번호
+        nickname:
+          type: string
+          description: 1~10자, 중복 불가. 가입 시 기본값은 `No. ` + 무작위 숫자 8자리
         status: { $ref: '#/components/schemas/UserStatus' }
         providers:
           type: array
@@ -1704,11 +1875,18 @@ components:
     # ---- 학습
     CourseSummary:
       type: object
+      description: 코스는 별자리 하나입니다.
       properties:
         courseId: { type: integer, format: int64 }
-        title: { type: string }
-        category: { type: string }
-        topic: { type: string }
+        slug:
+          type: string
+          description: 콘텐츠 시뮬레이터의 별자리 고정 키(예 firefly). 콘텐츠를 다시 가져와도 바뀌지 않습니다.
+        title: { type: string, description: 별자리 이름 }
+        description: { type: string, description: '별자리 주제. 예: 빛과 색' }
+        order: { type: integer, minimum: 1, description: 별자리 진행 순서 }
+        locked:
+          type: boolean
+          description: 앞 별자리를 모두 완료하지 않아 아직 시작할 수 없으면 true
         totalLessons: { type: integer }
         completedLessons: { type: integer }
         constellation:
@@ -1719,16 +1897,19 @@ components:
             name: { type: string }
     LessonSummary:
       type: object
+      description: 레슨은 별자리 안의 별 하나입니다.
       properties:
         lessonId: { type: integer, format: int64 }
+        slug:
+          type: string
+          description: 콘텐츠 시뮬레이터의 레슨 고정 키(예 firefly/blue-pigment). 콘텐츠를 다시 가져와도 바뀌지 않습니다.
         title: { type: string }
+        keyword: { type: string, description: 레슨 대표 키워드 }
         order: { type: integer }
         status: { $ref: '#/components/schemas/LessonStatus' }
-        unlocksAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: LOCKED 레슨의 다음 해금 가능 시각(오늘 해금분이 남아 있으면 null)
+        rewardReceived:
+          type: boolean
+          description: 이 레슨의 별가루 보상을 받았는지. false인 완료 레슨은 에너지가 있을 때 다시 완료하면 보상을 받습니다.
         completedAt:
           type: string
           format: date-time
@@ -1738,7 +1919,6 @@ components:
         - $ref: '#/components/schemas/CourseSummary'
         - type: object
           properties:
-            description: { type: string }
             lessons:
               type: array
               items: { $ref: '#/components/schemas/LessonSummary' }
@@ -1785,6 +1965,9 @@ components:
       description: |
         SINGLE의 화면 표시 방식. 생략하면 일반 보기 선택 화면을 사용한다.
         답안은 모든 방식에서 {"answer": 보기순번}이다.
+        AUDIO는 소리 듣고 고르기(레슨), TILE·ZOOM_OUT·SHARPEN·INLINE_WORD는 복습 전용 문제의 타일 벗기기·줌아웃·점점 선명·틀린 곳 찾기다.
+        TILE·ZOOM_OUT·SHARPEN은 시간이 지나면 다음 단계로 자동 진행하며 간격은 앱이 정한다. 사용자는 단계가 끝나기 전에도 언제든 보기를 고를 수 있다.
+        몇 단계에서 맞혔는지는 앱이 결과 문구로만 표시하고 서버에 저장하지 않는다.
         AUDIO는 mediaUrl만, TILE은 mediaUrl·stages·rows·columns, ZOOM_OUT과 SHARPEN은 mediaUrl·stages가 필수다.
         INLINE_WORD는 options를 문장 속 낱말 순서로 사용하며 추가 필드는 받지 않는다.
       required: [type]
@@ -1795,7 +1978,7 @@ components:
         mediaUrl:
           type: string
           format: uri
-          description: AUDIO 음원 또는 TILE/ZOOM_OUT/SHARPEN 이미지의 HTTP(S) 주소. INLINE_WORD에서는 생략한다.
+          description: AUDIO 음원 또는 TILE/ZOOM_OUT/SHARPEN 이미지의 HTTP(S) 주소(S3). INLINE_WORD에서는 생략한다.
         stages:
           type: array
           minItems: 1
@@ -1879,13 +2062,19 @@ components:
         body:
           type: string
           nullable: true
+          description: 대사 없이 문장 하나만 보여 줄 때 사용합니다. 보통은 dialogue를 씁니다.
         mediaUrl:
           type: string
           format: uri-reference
           nullable: true
+          description: IMAGE(개념) 화면의 그림 주소(S3).
+        keyword:
+          type: string
+          nullable: true
+          description: IMAGE(개념) 화면에서 그림과 함께 강조해 보여 줄 개념 키워드. 예 청금석
         dialogue:
           type: array
-          description: TEXT 콘텐츠의 화자별 대사. 배열 순서대로 표시하며 탭할 때 다음 대사를 드러냅니다.
+          description: TEXT(나레이션)와 IMAGE(개념) 화면의 화자별 대사. 배열 순서대로 표시하며 탭할 때 다음 대사를 드러냅니다.
           items: { $ref: '#/components/schemas/DialogueLine' }
         source:
           type: string
@@ -1896,9 +2085,11 @@ components:
           nullable: true
     DialogueLine:
       type: object
-      required: [speaker, text]
+      required: [text]
       properties:
-        speaker: { type: string }
+        speaker:
+          type: string
+          description: 화자(별지기, 초롱이 등). 화자 없이 해설처럼 보여 주는 대사는 생략합니다.
         text: { type: string }
     LessonSegment:
       type: object
@@ -1916,15 +2107,45 @@ components:
       properties:
         lessonId: { type: integer, format: int64 }
         courseId: { type: integer, format: int64 }
+        slug: { type: string, description: 레슨 고정 키 }
         title: { type: string }
+        keyword: { type: string }
         description: { type: string }
+        version:
+          type: integer
+          minimum: 1
+          description: 콘텐츠 버전. 콘텐츠를 고쳐 다시 가져오면 올라갑니다.
+        source:
+          type: string
+          description: 레슨 전체의 참고 자료
+        ending:
+          type: object
+          description: 별 점등 화면에 보여 줄 엔딩
+          properties:
+            text: { type: string, description: '예: 별에 불 들어왔다냥!' }
+            imageUrl:
+              type: string
+              format: uri
+              nullable: true
+              description: 점등된 별 그림. 없으면 앱 기본 그림
         segments:
           type: array
           description: 레슨 상단 구간 표시와 구간별 현재 단계 계산에 사용합니다.
           items: { $ref: '#/components/schemas/LessonSegment' }
         contents:
           type: array
+          description: 복습 전용 문제를 제외한 레슨 컨텐츠
           items: { $ref: '#/components/schemas/Content' }
+    LessonDraft:
+      type: object
+      required: [contentId, input]
+      description: 이어하기에서 복원할, 아직 제출하지 않은 입력
+      properties:
+        contentId: { type: integer, format: int64 }
+        input:
+          type: object
+          additionalProperties: true
+          description: '앱이 정한 입력 상태. 예: 초성 입력 문자열, 슬라이더 위치, 고른 보기'
     LessonProgress:
       type: object
       properties:
@@ -1933,19 +2154,26 @@ components:
           type: integer
           format: int64
           nullable: true
+          description: 마지막으로 완료한 컨텐츠
         resumeContentId:
           type: integer
           format: int64
           nullable: true
+          description: 이어하기 시작 컨텐츠
+        draft:
+          allOf:
+            - $ref: '#/components/schemas/LessonDraft'
+          nullable: true
+        contentVersion:
+          type: integer
+          description: 진행을 저장한 시점의 레슨 버전. 현재 버전과 다르면 서버는 저장 위치를 보정하고 draft를 버립니다.
     LessonStartResponse:
       type: object
       properties:
-        reviewRequired: { type: boolean }
-        review:
-          allOf:
-            - $ref: '#/components/schemas/ReviewSet'
-          nullable: true
         progress: { $ref: '#/components/schemas/LessonProgress' }
+        energyNotice:
+          type: boolean
+          description: 보상 미수령 레슨에 에너지 0으로 진입했으면 true. 앱은 에너지 소진 안내를 표시합니다.
         contents:
           type: array
           items: { $ref: '#/components/schemas/Content' }
@@ -1960,7 +2188,7 @@ components:
         - MULTI: `{ "answers": [1, 2] }` (순서 무관)
         - SLIDER: `{ "answer": 0.28 }` (트랙 위치 0~1)
         - MATCH: `{ "pairs": [["왼쪽", "오른쪽"], ...] }` (짝 전체, 순서 무관)
-        - CHOSUNG: `{ "answer": "울트라마린" }` (공백을 빼고 비교)
+        - CHOSUNG: `{ "answer": "울트라마린" }` (공백을 빼고 비교. 인정 답안이 여러 개면 정답 표시는 대표 답안 하나)
       oneOf:
         - type: object
           description: OX
@@ -2023,7 +2251,9 @@ components:
           description: 완료된 문항에서 정답 표시용으로 반환합니다.
         explanation:
           type: string
-          description: 해설. 해설이 없는 문항(레슨 도입 질문)은 생략합니다. 앱은 결과 시트 없이 다음 화면으로 넘어갑니다.
+          description: |
+            해설. 앱은 결과 시트에 정답·오답, 해설, [다음] 버튼을 표시합니다.
+            해설이 없는 문항(레슨 도입 질문 등)은 생략하며, 앱은 시트에 정답·오답만 표시합니다.
         closeness:
           type: integer
           minimum: 0
@@ -2074,17 +2304,28 @@ components:
         - $ref: '#/components/schemas/RewardResponse'
         - type: object
           properties:
-            courseCompleted: { type: boolean }
-            quizSummary:
-              type: object
-              required: [correctCount, totalCount]
-              properties:
-                correctCount: { type: integer, minimum: 0 }
-                totalCount: { type: integer, minimum: 0 }
-              description: 레슨 결과 화면의 정답 수와 채점 대상 문항 수. 해설이 없는 문항은 세지 않습니다.
-            stardustSkipped:
+            rewardStatus:
+              type: string
+              enum: [GRANTED, NO_ENERGY, ALREADY_GRANTED]
+              description: |
+                GRANTED 별가루 +10·에너지 −1, NO_ENERGY 에너지가 없어 보상 미수령 유지, ALREADY_GRANTED 이미 받은 레슨이라 변화 없음.
+            firstLesson:
               type: boolean
-              description: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
+              description: 계정의 첫 레슨 완료면 true. 첫 학습 완료 화면에 씁니다.
+            firstCompletion:
+              type: boolean
+              description: 이 레슨을 처음 완료(별을 처음 밝힘)했으면 true. 다시 학습이면 false
+            courseCompleted:
+              type: boolean
+              description: 이번 완료로 별자리를 처음 완성했으면 true. 앱은 별자리 완성 화면으로 연결합니다.
+            nextLesson:
+              type: object
+              nullable: true
+              description: 다음에 열린 레슨. 모든 레슨을 완료했으면 null
+              properties:
+                lessonId: { type: integer, format: int64 }
+                courseId: { type: integer, format: int64 }
+                title: { type: string }
     RewardRecord:
       allOf:
         - $ref: '#/components/schemas/Reward'
@@ -2116,6 +2357,11 @@ components:
     ReviewSet:
       type: object
       properties:
+        reviewSessionId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 이번 회차 ID. 후보가 부족해 회차를 만들지 않았으면 null
         reviewItems:
           type: array
           maxItems: 5
@@ -2123,10 +2369,34 @@ components:
         message:
           type: string
           nullable: true
-          description: 문제가 부족할 때 "더 이상 복습할 문제가 없어요"
+          description: 문제가 부족할 때 안내 문구
         rewardEligible:
           type: boolean
-          description: 오늘 보상 세션(3회) 남아 있는지
+          description: 오늘(KST) 복습 보상을 아직 받지 않았는지
+    ReviewStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+          description: 복습 후보가 5개 이상이면 true
+        candidateCount: { type: integer, minimum: 0 }
+        rewardEligible:
+          type: boolean
+          description: 오늘(KST) 복습 보상을 아직 받지 않았는지
+        rewardAmount:
+          type: integer
+          description: 오늘 첫 복습 완료 시 받을 별가루(5)
+    ReviewCompleteResponse:
+      allOf:
+        - $ref: '#/components/schemas/RewardResponse'
+        - type: object
+          properties:
+            correctCount: { type: integer, minimum: 0, maximum: 5 }
+            totalCount: { type: integer, minimum: 0, maximum: 5 }
+            rewardStatus:
+              type: string
+              enum: [GRANTED, ALREADY_GRANTED]
+              description: GRANTED 오늘 첫 완료로 별가루 +5, ALREADY_GRANTED 오늘 이미 받아 보상 없음
 
     # ---- 하우징·아바타
     Transform:
@@ -2145,7 +2415,9 @@ components:
       type: object
       required: [inventoryId, area, transform]
       properties:
-        inventoryId: { type: string }
+        inventoryId:
+          type: string
+          description: 보유한 개별 ID. API-903에서 함께 구매하는 아이템은 `new:{items 순번}:{수량 안 순번}`으로 가리킵니다.
         area: { $ref: '#/components/schemas/HousingItemType' }
         transform: { $ref: '#/components/schemas/Transform' }
     Placement:
@@ -2299,13 +2571,40 @@ components:
       properties:
         constellationId: { type: integer, format: int64 }
         courseId: { type: integer, format: int64 }
+        order: { type: integer, minimum: 1 }
         name: { type: string }
+        description: { type: string }
+        status:
+          type: string
+          enum: [LOCKED, IN_PROGRESS, COMPLETED]
+          description: LOCKED 앞 별자리 미완료, IN_PROGRESS 진행 중(완료한 별 0개 포함), COMPLETED 모든 별 완료
         starCount: { type: integer }
-        earnedStars: { type: integer }
+        earnedStars:
+          type: integer
+          description: 완료한 레슨 수(보상 수령과 무관)
         badgeEarned: { type: boolean }
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: 별자리 완성일
         imageUrl:
           type: string
           format: uri
           nullable: true
+        stars:
+          type: array
+          items:
+            type: object
+            properties:
+              lessonId: { type: integer, format: int64 }
+              title: { type: string }
+              order: { type: integer }
+              completed: { type: boolean }
+              completedAt:
+                type: string
+                format: date-time
+                nullable: true
+
 
 
