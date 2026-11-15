@@ -8,6 +8,9 @@ export type { NarrationMessage };
 const GAP = 40;
 const SOURCE_SPACE = 40;
 const MOVE_DURATION = 350;
+// 발화자와 상관없이 최근 대사 2개까지 쌓아 보여 준다. 더 오래된 대사는 위로 밀리며 사라진다.
+const VISIBLE_LINES = 2;
+const AGE_OPACITY = [1, 0.6];
 
 function NarrationLine({
   message,
@@ -68,12 +71,15 @@ function NarrationCopy({ message }: { message: NarrationMessage }) {
 export function NarrationDialogue({
   messages,
   visibleCount,
+  endCount = messages.length,
   source,
   disabled,
   onAdvance,
 }: {
   messages: NarrationMessage[];
   visibleCount: number;
+  // 현재 콘텐츠의 마지막 대사까지의 개수. messages 에는 이어지는 다음 콘텐츠 대사도 미리 들어 있다(높이 측정용).
+  endCount?: number;
   source?: string;
   disabled: boolean;
   onAdvance: () => Promise<void>;
@@ -92,7 +98,8 @@ export function NarrationDialogue({
 
   const bottom = Math.min(370, Math.max(130, height * 0.47));
   const sourceSpace = Math.max(SOURCE_SPACE, sourceHeight + 22);
-  const shown = messages.slice(0, visibleCount);
+  // 사라지는 중인 대사(VISIBLE_LINES 번째 이전) 하나까지만 그린다. 그보다 오래된 대사는 이미 보이지 않는다.
+  const shown = messages.slice(Math.max(0, visibleCount - VISIBLE_LINES - 1), visibleCount);
   const ready =
     height > 0 &&
     messages.every((message) => lineHeights[message.id] > 0) &&
@@ -100,7 +107,7 @@ export function NarrationDialogue({
   const handlePress = async () => {
     if (locked.current || disabled || !ready) return;
     locked.current = true;
-    const isLast = visibleCount >= messages.length;
+    const isLast = visibleCount >= endCount;
     try {
       await onAdvance();
     } finally {
@@ -112,9 +119,7 @@ export function NarrationDialogue({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={
-        visibleCount < messages.length ? '다음 대화 보기' : '다음 학습 콘텐츠로 이동'
-      }
+      accessibilityLabel={visibleCount < endCount ? '다음 대화 보기' : '다음 학습 콘텐츠로 이동'}
       accessibilityState={{ disabled: disabled || !ready }}
       disabled={disabled || !ready}
       onPress={() => void handlePress()}
@@ -157,21 +162,21 @@ export function NarrationDialogue({
           const newer = shown.slice(index + 1);
           const offset = newer.reduce((sum, next) => sum + (lineHeights[next.id] ?? 0) + GAP, 0);
           const age = shown.length - 1 - index;
-          const ageOpacity = age === 0 ? 1 : age === 1 ? 0.6 : age === 2 ? 0.35 : 0.12;
+          const ageOpacity = AGE_OPACITY[age] ?? 0;
           const top = height - bottom - sourceSpace - offset - (lineHeights[message.id] ?? 0);
           const topFade = Math.max(0, Math.min(1, top / 80));
           return (
             <NarrationLine
               key={message.id}
               message={message}
-              index={index}
+              index={messages.indexOf(message)}
               offset={offset}
               opacity={age === 0 ? 1 : ageOpacity * topFade}
               bottom={bottom + sourceSpace}
             />
           );
         })}
-      {ready && source && visibleCount === messages.length ? (
+      {ready && source && visibleCount === endCount ? (
         <Text pointerEvents="none" style={[s.source, { bottom }]}>
           {source}
         </Text>

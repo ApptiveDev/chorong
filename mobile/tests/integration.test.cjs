@@ -817,7 +817,8 @@ test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 �
     completedCourse.completion.rewards
       .filter((item) => item.type === 'WALLET')
       .map((item) => item.amount),
-    [5, 10],
+    // 서버처럼 레슨 별가루 1만 주고 별자리 완성 보너스 별가루는 없다.
+    [1],
   );
   assert.equal(
     completedCourse.completion.rewards.some((item) => item.type === 'CONSTELLATION'),
@@ -1262,6 +1263,64 @@ test('mock CHOSUNG lesson grades on the mock server, then completes the lesson',
   assert.equal(reviewed.isCorrect, true);
 });
 
+test('mock CHOSUNG with a spaced hint grades every accepted spelling on the mock server', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const start = await api.learning.start(31, false);
+  const chosung = start.contents.find((content) => content.quiz?.type === 'CHOSUNG');
+  assert.equal(chosung.contentId, 3104);
+  assert.deepEqual(chosung.quiz.options, { hint: 'ㅈㅊ ㄱㅅ' });
+  // 기존 객관식 문항은 그대로 남는다.
+  assert.equal(start.contents.filter((content) => content.quiz).length, 2);
+
+  const wrong = await api.learning.answer(chosung.quiz.quizId, { texts: ['전체수'] }, true);
+  assert.equal(wrong.isCorrect, false);
+  assert.equal(wrong.correctAnswer.answer, '전체 개수');
+  assert.match(wrong.explanation, /\n/);
+  for (const texts of [['전체개수'], ['전체 개수']]) {
+    const right = await api.learning.answer(chosung.quiz.quizId, { texts }, true);
+    assert.equal(right.isCorrect, true);
+  }
+});
+
+const chosungInput = require('../.expo/integration-tests/user/chosungInput');
+
+test('CHOSUNG slot count comes from the hint without spaces', () => {
+  assert.equal(chosungInput.chosungSlotCount('ㅎㅇㅎ'), 3);
+  assert.equal(chosungInput.chosungSlotCount(' ㅈㅊ  ㄱㅅ '), 4);
+  assert.equal(chosungInput.chosungHintLabel('ㅎㅇㅎ'), 'ㅎ ㅇ ㅎ');
+  assert.equal(chosungInput.chosungHintLabel('ㅈㅊ ㄱㅅ'), 'ㅈ ㅊ   ㄱ ㅅ');
+});
+
+test('CHOSUNG auto submit waits until every slot holds a finished syllable', () => {
+  const filled = chosungInput.isChosungInputFilled;
+  // 핵융합 입력 과정: 마지막 글자 조합 중(ㅎ)에는 제출하지 않는다.
+  assert.equal(filled('핵융', 3), false);
+  assert.equal(filled('핵융ㅎ', 3), false);
+  // 하 는 완성 글자라 칸이 찼다고 본다. 받침이 붙을 수 있어 화면은 CHOSUNG_SETTLE_MS 동안 더 기다린다.
+  assert.equal(filled('핵융하', 3), true);
+  assert.equal(filled('핵융합', 3), true);
+  // 조합형(첫가끝) 낱자와 넘치는 입력은 제출하지 않는다.
+  assert.equal(filled('핵융하', 3), false);
+  assert.equal(filled('핵융합이', 3), false);
+  // 공백은 서버처럼 빼고 센다.
+  assert.equal(filled('전체 개수', 4), true);
+  assert.equal(filled('전체 개ㅅ', 4), false);
+  assert.equal(filled('', 0), false);
+  assert.ok(chosungInput.CHOSUNG_SETTLE_MS > 0);
+});
+
 const slider = require('../.expo/integration-tests/user/sliderQuizState');
 
 test('SLIDER config maps string ticks and optional hint; answer is a 0~1 position', async () => {
@@ -1540,6 +1599,52 @@ test('목업 TEXT 콘텐츠는 기존처럼 화자별 대사로 표시된다', a
       assert.ok(['별지기', '초롱이'].includes(message.speaker));
       assert.ok(message.text.length > 0);
     }
+  }
+});
+
+test('에너지 없이 별자리 마지막 레슨을 마치면 완성 보너스 별가루도 주지 않는다', () => {
+  const original = JSON.parse(JSON.stringify(mockSnapshot()));
+  try {
+    const fresh = {
+      ...original,
+      wallet: { ...original.wallet, energy: 5 },
+      startedLessons: [],
+      rewardedLessons: [],
+      completed: [],
+      completedConstellations: [],
+    };
+    assert.equal(restoreMockSnapshot(fresh), true);
+    const finish = (lessonId) => {
+      mockApi('API-404', { path: { lessonId }, body: { replay: false } });
+      let result;
+      for (const content of mockApi('API-403', { path: { lessonId } }).data.data.contents)
+        result = mockApi('API-405', { path: { contentId: content.contentId } }).data.data;
+      return result;
+    };
+    const lessons = mockApi('API-402', { path: { courseId: 3 } }).data.data.lessons;
+    for (const lesson of lessons.slice(0, -1)) finish(lesson.lessonId);
+
+    const snapshot = JSON.parse(JSON.stringify(mockSnapshot()));
+    assert.equal(
+      restoreMockSnapshot({ ...snapshot, wallet: { ...snapshot.wallet, energy: 0 } }),
+      true,
+    );
+    const stardust = mockApi('API-904', {}).data.data.stardust;
+    const result = finish(lessons.at(-1).lessonId);
+    assert.equal(result.lessonCompleted, true);
+    assert.equal(result.completion.courseCompleted, true);
+    assert.equal(result.completion.stardustSkipped, true);
+    assert.equal(
+      result.completion.rewards.some((item) => item.type === 'WALLET'),
+      false,
+    );
+    assert.equal(
+      result.completion.rewards.some((item) => item.type === 'CONSTELLATION'),
+      true,
+    );
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust);
+  } finally {
+    restoreMockSnapshot(original);
   }
 });
 
@@ -2096,13 +2201,13 @@ test('목업 다시 하기: 에너지 없이 마친 레슨은 에너지를 쓰�
     assert.equal(rewarded.completion.wallet.energy, 1);
     assert.equal(rewarded.lessonCompleted, true);
     assert.deepEqual(rewarded.completion.rewards, [
-      { type: 'WALLET', currency: 'STARDUST', amount: 5 },
+      { type: 'WALLET', currency: 'STARDUST', amount: 1 },
     ]);
     assert.equal(rewarded.completion.stardustSkipped, false);
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 1);
     assert.deepEqual(replayCompletion(rewarded.completion), {
       kind: 'replayRewarded',
-      stardust: 5,
+      stardust: 1,
     });
 
     // 같은 레슨을 또 다시 하면 에너지·별가루 모두 변하지 않는다.
@@ -2110,7 +2215,7 @@ test('목업 다시 하기: 에너지 없이 마친 레슨은 에너지를 쓰�
     assert.equal(plain.lessonCompleted, true);
     assert.equal(plain.completion, null);
     assert.equal(mockApi('API-904', {}).data.data.energy, 1);
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 5);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 1);
     assert.deepEqual(replayCompletion(plain.completion), { kind: 'replayPlain' });
   } finally {
     restoreMockSnapshot(original);
@@ -2154,15 +2259,15 @@ test('목업 복습 완료는 하루 3세션까지 보상하고 같은 키 재�
       mockApi('API-503', { body: { reviewItemIds: [1, 2, 3, 4, 5] }, key }).data.data;
     const stardust = mockApi('API-904', {}).data.data.stardust;
     const first = complete('review-test-1');
-    assert.deepEqual(reviewCompletion(first.rewards), { kind: 'reviewRewarded', stardust: 3 });
+    assert.deepEqual(reviewCompletion(first.rewards), { kind: 'reviewRewarded', stardust: 1 });
     assert.deepEqual(complete('review-test-1'), first);
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 3);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 1);
     complete('review-test-2');
     complete('review-test-3');
     const fourth = complete('review-test-4');
     assert.deepEqual(fourth.rewards, []);
     assert.deepEqual(reviewCompletion(fourth.rewards), { kind: 'reviewAlreadyRewarded' });
-    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 9);
+    assert.equal(mockApi('API-904', {}).data.data.stardust, stardust + 3);
   } finally {
     restoreMockSnapshot(original);
   }

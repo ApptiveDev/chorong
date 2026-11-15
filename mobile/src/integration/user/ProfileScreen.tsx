@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackArrow } from '../../components/settings/ControlSettingsUI';
+import { signOutFromGoogle } from '../googleSignIn';
 import Svg, { Path } from 'react-native-svg';
 import { AppButton } from '../../components/AppButton';
 import { client, integrationApi as api, useMockApi } from '../runtime';
@@ -124,6 +125,7 @@ export default function ProfileScreen() {
         setEndingSession(false);
         throw error;
       }
+      await signOutFromGoogle();
       if (kind === 'logout') setLogoutOpen(false);
       setWithdrawOpen(false);
       const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;

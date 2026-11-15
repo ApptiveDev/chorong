@@ -84,6 +84,7 @@ jobs:
             OTEL_ENABLED=true
             OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm.bawi-observability.local:4318
             OTEL_TENANT=chorong
+            GOOGLE_OAUTH_CLIENT_IDS=132361929925-jdn0p4dlv439ji7m60p8b08920lqhuca.apps.googleusercontent.com,132361929925-tfdlathgv2lbu4ebuvg48sjlsstffbo5.apps.googleusercontent.com,132361929925-0aqotq4s28qtnp8egofasl8pks7ok0oe.apps.googleusercontent.com
 
       - name: ECS 서비스 배포
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2

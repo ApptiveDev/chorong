@@ -71,7 +71,7 @@ const courseFields = {
   courseId: num,
   title: str,
   category: str,
-  topic: str,
+  // topic 은 0.3.2 에서 추가된 선택 필드다. 이전 응답에는 없으므로 아래에서 선택값으로 따로 검사한다.
   totalLessons: num,
   completedLessons: num,
   constellation: nullable(object({ constellationId: num, name: str })),

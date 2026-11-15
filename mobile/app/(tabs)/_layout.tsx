@@ -16,16 +16,16 @@ const dockItems = [
 
 type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0] & {
   bottom: number;
-  guest: boolean;
 };
 
-function DockBar({ state, navigation, bottom, guest }: DockBarProps) {
-  const guestControlRoom = guest && state.routes[state.index]?.name === 'more';
+function DockBar({ state, navigation, bottom }: DockBarProps) {
+  // 제어실은 회원·비회원 모두 밝은 배경이라 내비 바도 회색으로 맞춘다.
+  const controlRoom = state.routes[state.index]?.name === 'more';
   return (
     <View
       style={[
         dockStyles.bar,
-        guestControlRoom && dockStyles.guestBar,
+        controlRoom && dockStyles.controlBar,
         { height: 64 + bottom, paddingBottom: bottom },
       ]}
     >
@@ -53,13 +53,13 @@ function DockBar({ state, navigation, bottom, guest }: DockBarProps) {
               style={[
                 dockStyles.item,
                 selected && dockStyles.selected,
-                selected && guestControlRoom && dockStyles.guestSelected,
+                selected && controlRoom && dockStyles.controlSelected,
               ]}
             >
               <Text
                 style={[
                   dockStyles.label,
-                  guestControlRoom && dockStyles.guestLabel,
+                  controlRoom && dockStyles.controlLabel,
                   selected && dockStyles.selectedLabel,
                 ]}
               >
@@ -96,11 +96,7 @@ function TabNavigator() {
 
   return (
     <Tabs
-      tabBar={(props) =>
-        isEditing ? null : (
-          <DockBar {...props} bottom={bottom} guest={session.user?.status === 'GUEST'} />
-        )
-      }
+      tabBar={(props) => (isEditing ? null : <DockBar {...props} bottom={bottom} />)}
       screenOptions={{
         headerShown: false,
       }}
@@ -121,11 +117,11 @@ function TabNavigator() {
 
 const dockStyles = StyleSheet.create({
   bar: { width: '100%', backgroundColor: '#161616' },
-  guestBar: { backgroundColor: '#e4e4e4' },
+  controlBar: { backgroundColor: '#e4e4e4' },
   items: { width: '100%', height: 64, flexDirection: 'row' },
   item: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
   selected: { borderBottomWidth: 4, borderBottomColor: '#f1f1f1' },
-  guestSelected: { borderBottomColor: '#161616' },
+  controlSelected: { borderBottomColor: '#161616' },
   label: {
     color: '#f1f1f1',
     fontSize: 16,
@@ -134,5 +130,5 @@ const dockStyles = StyleSheet.create({
     includeFontPadding: false,
   },
   selectedLabel: { fontFamily: 'PretendardBold' },
-  guestLabel: { color: '#161616' },
+  controlLabel: { color: '#161616' },
 });

@@ -10,12 +10,24 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../hooks';
+import { signInWithGoogle } from '../googleSignIn';
 import { integrationApi as api, useMockApi } from '../runtime';
 
 export type SocialProvider = 'apple' | 'google' | 'kakao';
 
 // 소셜 계속하기 공용 처리. 로그인 화면과 첫 학습 완료 로그인 모달이 같이 쓴다.
-export async function continueWithSocial(provider: SocialProvider, authenticated: boolean) {
+// 사용자가 소셜 로그인을 취소하면 false 를 돌려준다.
+export async function continueWithSocial(
+  provider: SocialProvider,
+  authenticated: boolean,
+): Promise<boolean> {
+  if (provider === 'google') {
+    // 게스트로 로그인한 상태면 서버가 현재 계정에 Google 을 연결한다.
+    const idToken = await signInWithGoogle();
+    if (!idToken) return false;
+    await api.account.oauth('google', { idToken });
+    return true;
+  }
   if (useMockApi) {
     await api.account.oauth(provider, { accessToken: 'mock-social-login' });
   } else if (!authenticated) {
@@ -23,6 +35,7 @@ export async function continueWithSocial(provider: SocialProvider, authenticated
     if (!platform) throw new Error('웹에서는 임시 로그인을 사용할 수 없습니다.');
     await api.account.guest(platform);
   }
+  return true;
 }
 
 const googleLetters = [
@@ -55,7 +68,7 @@ export default function SocialLoginScreen() {
   const continueWith = (provider: SocialProvider) => {
     if (task.busy) return;
     void task.run(async () => {
-      await continueWithSocial(provider, session.authenticated);
+      if (!(await continueWithSocial(provider, session.authenticated))) return;
       router.replace(afterLogin);
     });
   };

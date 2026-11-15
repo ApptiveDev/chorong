@@ -1,8 +1,13 @@
 import type { EnabledApiId } from './catalog';
 import type { MockResponder } from './client';
 import {
+  chosungCountMockQuizId,
   chosungMockQuizId,
   sliderMockQuizId,
+  tileMockQuizId,
+  sharpenMockQuizId,
+  zoomOutMockQuizId,
+  inlineWordMockQuizId,
   courses,
   inventory,
   lessons,
@@ -152,6 +157,12 @@ const replayProgress = new Map<number, Set<number>>();
 // 에너지 없이 마쳐 레슨 별가루를 아직 받지 않은 레슨. 명세(API-404): 다시 하기는 이런 레슨일 때만
 // 에너지를 쓰고, 완료하면 그때 별가루를 준다. 목업 스냅샷에는 저장하지 않는다.
 const unpaidStardustLessons = new Set<number>();
+// 서버 보상 상수(LessonCompletionService·ReviewCompletionService·OnboardingService)와 같은 값.
+// 별자리 완성은 뱃지만 주고 별가루 보너스는 없다.
+const LESSON_STARDUST = 1;
+const REVIEW_STARDUST = 1;
+const ONBOARDING_STARDUST = 50;
+let onboardingRewarded = false;
 const replayEnergySpent = new Set<number>();
 // 명세(API-503): 복습 보상은 하루 3세션까지. 같은 Idempotency-Key 는 같은 응답을 돌려준다.
 const REVIEW_DAILY_REWARD_LIMIT = 3;
@@ -169,10 +180,9 @@ const completion = (courseId?: number, newBadge = false, stardustSkipped = false
   rewards: [
     ...(stardustSkipped
       ? []
-      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]),
+      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: LESSON_STARDUST }]),
     ...(newBadge
       ? [
-          { type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 10 },
           {
             type: 'CONSTELLATION' as const,
             badge: {
@@ -295,11 +305,19 @@ const scoreOtherLessonAnswer = (quizId: number, raw: unknown) => {
   };
 };
 
-// 서버 채점 대역. 명세대로 공백을 빼고 비교하고 correctAnswer 는 { answer: 문자열 } 로 돌려준다.
+// 서버 채점 대역. 서버(QuizGrader.chosung)처럼 인정 정답 목록과 공백을 빼고 비교하고
+// correctAnswer 는 첫 정답 문자열 { answer: 문자열 } 로 돌려준다.
 const chosungMockAnswers = new Map([
   [
     chosungMockQuizId,
-    { answer: '증발', explanation: '물이 데워져 수증기가 되는 현상을 증발이라고 해요.' },
+    { answers: ['증발'], explanation: '물이 데워져 수증기가 되는 현상을 증발이라고 해요.' },
+  ],
+  [
+    chosungCountMockQuizId,
+    {
+      answers: ['전체 개수'],
+      explanation: '마지막에 말한 수가 전체 개수예요.\n셋까지 셌다면 모두 세 개예요.',
+    },
   ],
 ]);
 const scoreChosungAnswer = (quizId: number, raw: unknown) => {
@@ -308,7 +326,49 @@ const scoreChosungAnswer = (quizId: number, raw: unknown) => {
   const answer = body(raw).answer;
   const normalize = (value: string) => value.replace(/\s/g, '');
   return {
-    correct: typeof answer === 'string' && normalize(answer) === normalize(expected.answer),
+    correct:
+      typeof answer === 'string' &&
+      expected.answers.some((accepted) => normalize(accepted) === normalize(answer)),
+    expected: expected.answers[0],
+    explanation: expected.explanation,
+  };
+};
+// 서버 채점 대역. SINGLE 표시 방식(TILE 등)은 일반 SINGLE 처럼 보기 순번 { answer } 로 채점한다.
+const presentedMockAnswers = new Map([
+  [
+    tileMockQuizId,
+    {
+      answer: 0,
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
+    },
+  ],
+  [
+    sharpenMockQuizId,
+    {
+      answer: 0,
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
+    },
+  ],
+  [
+    zoomOutMockQuizId,
+    {
+      answer: 0,
+      explanation: '수소 원자핵 넷이 합쳐지는 핵융합 그림이에요.',
+    },
+  ],
+  [
+    inlineWordMockQuizId,
+    {
+      answer: 6,
+      explanation: '수소 원자핵이 합쳐지는 일, 핵융합이에요.\n이때 줄어든 질량이 빛과 열이 돼요.',
+    },
+  ],
+]);
+const scorePresentedAnswer = (quizId: number, raw: unknown) => {
+  const expected = presentedMockAnswers.get(quizId);
+  if (!expected) return null;
+  return {
+    correct: body(raw).answer === expected.answer,
     expected: expected.answer,
     explanation: expected.explanation,
   };
@@ -504,11 +564,17 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         state.completed.has(content.contentId),
       );
       const lastContentId = completedContents.at(-1)?.contentId ?? null;
+      // API-402 레슨 상태와 같은 기준이다. 보상을 받은 뒤 목업 레슨에 콘텐츠가 늘어나면
+      // 남은 콘텐츠가 있으므로 IN_PROGRESS 로 이어 하게 한다.
+      const allCompleted = completedContents.length === selected.contents.length;
       return response({
         reviewRequired: false,
         review: null,
         progress: {
-          status: state.rewardedLessons.has(selected.lessonId) ? 'COMPLETED' : 'IN_PROGRESS',
+          status:
+            state.rewardedLessons.has(selected.lessonId) && allCompleted
+              ? 'COMPLETED'
+              : 'IN_PROGRESS',
           lastContentId,
           resumeContentId:
             selected.contents.find((content) => !state.completed.has(content.contentId))
@@ -536,11 +602,17 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           const paid = replayEnergySpent.has(selected.lessonId);
           if (paid) {
             unpaidStardustLessons.delete(selected.lessonId);
-            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + LESSON_STARDUST };
           }
           replayCompletion = {
             rewards: paid
-              ? [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: 5 }]
+              ? [
+                  {
+                    type: 'WALLET' as const,
+                    currency: 'STARDUST' as const,
+                    amount: LESSON_STARDUST,
+                  },
+                ]
               : [],
             wallet: state.wallet,
             courseCompleted: courseDone(selected.courseId),
@@ -562,14 +634,13 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         state.rewardedLessons.add(selected.lessonId);
         noEnergyLessons.delete(selected.lessonId);
         if (!stardustSkipped)
-          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 5 };
+          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + LESSON_STARDUST };
         else unpaidStardustLessons.add(selected.lessonId);
         if (
           courseDone(selected.courseId) &&
           !state.completedConstellations.has(selected.courseId)
         ) {
           state.completedConstellations.set(selected.courseId, new Date().toISOString());
-          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 10 };
           newBadge = true;
         }
       }
@@ -596,6 +667,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         ? (scoreFirstLessonAnswer(quizId, input.answer) ??
           scoreChosungAnswer(quizId, input.answer) ??
           scoreSliderAnswer(quizId, input.answer) ??
+          scorePresentedAnswer(quizId, input.answer) ??
           scoreOtherLessonAnswer(quizId, input.answer))
         : null;
       if (!scored) throw new Error(`MOCK_QUIZ_NOT_FOUND: quizId=${quizId ?? 'unknown'}`);
@@ -699,10 +771,10 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       const paid = reviewRewardEligible();
       if (paid) {
         reviewRewards.paid += 1;
-        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + 3 };
+        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + REVIEW_STARDUST };
       }
       const data = {
-        rewards: paid ? [{ type: 'WALLET', currency: 'STARDUST', amount: 3 }] : [],
+        rewards: paid ? [{ type: 'WALLET', currency: 'STARDUST', amount: REVIEW_STARDUST }] : [],
         wallet: state.wallet,
       };
       if (key) reviewResponses.set(key, data);
@@ -710,8 +782,21 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     }
     case 'API-601':
       return response({ lesson: lessons[0] });
-    case 'API-602':
-      return response({ rewards: [], wallet: state.wallet, onboardingCompleted: true });
+    case 'API-602': {
+      // 서버처럼 건너뛰지 않고 마친 첫 완료에만 별가루를 준다.
+      const paid = input.skipped !== true && !onboardingRewarded;
+      if (paid) {
+        onboardingRewarded = true;
+        state.wallet = { ...state.wallet, stardust: state.wallet.stardust + ONBOARDING_STARDUST };
+      }
+      return response({
+        rewards: paid
+          ? [{ type: 'WALLET', currency: 'STARDUST', amount: ONBOARDING_STARDUST }]
+          : [],
+        wallet: state.wallet,
+        onboardingCompleted: true,
+      });
+    }
     case 'API-701':
       return response({
         ...room,

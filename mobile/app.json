@@ -7,10 +7,12 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bawibase.chorong"
+      "bundleIdentifier": "com.bawibase.chorong",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.bawibase.chorong",
@@ -30,6 +32,13 @@
     "plugins": ["expo-router", "expo-secure-store"],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "53239bf7-50ec-4fb5-bec8-03fb8a403cc1"
+      }
+    },
+    "owner": "bawibase-inc"
   }
 }

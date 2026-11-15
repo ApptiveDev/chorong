@@ -12,10 +12,11 @@ import {
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
 
-type Choice = { index: number; label: string };
+export type Choice = { index: number; label: string };
 type Phase = 'UNANSWERED' | 'FEEDBACK' | 'ANSWERED' | 'TRANSITIONING';
 
-function choicesFor(quiz: Quiz): Choice[] | null {
+// 소리 듣고 고르기(AudioChoiceQuiz)도 같은 SINGLE 보기·정답 해석을 쓴다.
+export function choicesFor(quiz: Quiz): Choice[] | null {
   if (quiz.type !== 'MULTIPLE_CHOICE' || quiz.options?.mockHtmlType === 'multi') return null;
   const raw = quiz.options?.choices;
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -37,7 +38,7 @@ export function hasSingleChoiceOptions(quiz: Quiz): boolean {
   return choicesFor(quiz) !== null;
 }
 
-function correctChoiceIndex(result: AnswerResult, quiz: Quiz): number | null {
+export function correctChoiceIndex(result: AnswerResult, quiz: Quiz): number | null {
   const raw = result.correctAnswer.index ?? result.correctAnswer.answer ?? quiz.options?.answer;
   const value = Array.isArray(raw) ? raw[0] : raw;
   return Number.isSafeInteger(value) ? (value as number) : null;
