@@ -164,16 +164,14 @@ class QuizGrader {
             stored.ensure(stages == null && rows == null && columns == null)
             return
         }
+        // 타일은 사용자가 눌러서 벗기므로 단계 값이 없다.
+        if (presentation.type == SinglePresentationType.TILE) {
+            stored.ensure(stages == null && rows != null && columns != null && rows in 2..8 && columns in 2..8)
+            return
+        }
         stored.ensure(stages != null && stages.isNotEmpty() && stages.size <= 64)
         val values = checkNotNull(stages)
         when (presentation.type) {
-            SinglePresentationType.TILE -> {
-                stored.ensure(rows != null && columns != null && rows in 2..8 && columns in 2..8)
-                val total = checkNotNull(rows) * checkNotNull(columns)
-                stored.ensure(values.all { it in 1..total } && values.zipWithNext().all { (a, b) -> a < b })
-                stored.ensure(values.last() == total)
-            }
-
             SinglePresentationType.ZOOM_OUT -> {
                 stored.ensure(rows == null && columns == null)
                 stored.ensure(values.all { it in 1..8 } && values.zipWithNext().all { (a, b) -> a > b })
@@ -186,7 +184,7 @@ class QuizGrader {
                 stored.ensure(values.last() == 0)
             }
 
-            SinglePresentationType.AUDIO, SinglePresentationType.INLINE_WORD -> {
+            SinglePresentationType.AUDIO, SinglePresentationType.TILE, SinglePresentationType.INLINE_WORD -> {
                 return
             }
         }

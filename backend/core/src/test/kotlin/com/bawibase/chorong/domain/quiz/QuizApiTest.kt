@@ -72,7 +72,7 @@ class QuizApiTest {
     private var userId = 0L
 
     private val responseFields =
-        setOf("quizId", "lessonId", "question", "instruction", "interactionType", "config", "difficulty", "quizOrder")
+        setOf("quizId", "lessonId", "question", "instruction", "interactionType", "config", "difficulty", "quizOrder", "graded")
 
     @BeforeEach
     fun signIn() {

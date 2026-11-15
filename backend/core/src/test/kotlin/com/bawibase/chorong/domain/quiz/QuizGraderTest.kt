@@ -172,7 +172,12 @@ class QuizGraderTest {
             Triple("single", """{"options":["a","b"],"presentation":{"type":"AUDIO","mediaUrl":"ftp://example.com/sound.mp3"}}""", null),
             Triple(
                 "single",
-                """{"options":["a","b"],"presentation":{"type":"TILE","mediaUrl":"https://example.com/a.png","rows":3,"columns":4,"stages":[1,11]}}""",
+                """{"options":["a","b"],"presentation":{"type":"TILE","mediaUrl":"https://example.com/a.png","rows":3,"columns":4,"stages":[1,12]}}""",
+                null,
+            ),
+            Triple(
+                "single",
+                """{"options":["a","b"],"presentation":{"type":"TILE","mediaUrl":"https://example.com/a.png","columns":4}}""",
                 null,
             ),
             Triple(
