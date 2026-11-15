@@ -46,7 +46,7 @@ class NoteControllerTest {
         mockMvc.get("/docs/index.html").andExpect {
             status { isOk() }
             content { string(org.hamcrest.Matchers.containsString("createApiReference")) }
-            content { string(org.hamcrest.Matchers.containsString("0.4.0")) }
+            content { string(org.hamcrest.Matchers.containsString("0.4.1")) }
             content { string(org.hamcrest.Matchers.containsString("/docs/openapi.yaml")) }
         }
     }
@@ -67,7 +67,7 @@ class NoteControllerTest {
         assertTrue(expectedBytes.contentEquals(served), "런타임 명세가 docs/openapi.yaml과 다릅니다")
 
         val document = Yaml().load<Map<String, Any>>(expectedBytes.inputStream())
-        assertEquals("0.4.0", (document["info"] as Map<*, *>)["version"])
+        assertEquals("0.4.1", (document["info"] as Map<*, *>)["version"])
         val paths = document["paths"] as Map<*, *>
         val operations = mutableListOf<Triple<String, String, String>>()
         for ((path, pathItem) in paths) {
@@ -78,7 +78,7 @@ class NoteControllerTest {
                 operations += Triple(operationId, (method as String).uppercase(), path as String)
             }
         }
-        assertEquals(50, operations.size)
+        assertEquals(49, operations.size)
         assertEquals(operations.size, operations.map { it.first }.toSet().size, "operationId 중복")
         val expected =
             """
@@ -131,7 +131,6 @@ class NoteControllerTest {
             API-905 GET /users/me/rewards
             API-906 GET /constellations
             API-907 GET /users/me/inventory
-            API-908 GET /users/me/artworks
             """.trimIndent()
                 .lines()
                 .map { line ->
