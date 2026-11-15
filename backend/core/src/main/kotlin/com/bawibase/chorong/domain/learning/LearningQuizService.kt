@@ -37,6 +37,7 @@ class LearningQuizService(
     private val reviewGate: ReviewGateService,
     private val studyStreak: StudyStreakService,
     private val clock: Clock,
+    private val unlocks: LessonUnlockService,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -73,6 +74,7 @@ class LearningQuizService(
             return result.toAnswerResult(studyStreak.current(userId))
         }
 
+        if (!unlocks.ensureProgress(userId, lesson.lessonId)) throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
         val progress =
             jdbc
                 .query(
@@ -81,10 +83,10 @@ class LearningQuizService(
                     userId,
                     lesson.lessonId,
                 ).firstOrNull()
-        if (progress == null) throw lessonLocked(userId, lesson.courseId)
+        if (progress == null) throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
         if (replay && progress != "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (!replay && progress == "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
-        if (progress !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw lessonLocked(userId, lesson.courseId)
+        if (progress !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
         reviewGate.enforce(userId, lesson.lessonId)
 
         val result = quizzes.submitPublic(userId, quizId, answer, replay)
@@ -125,23 +127,6 @@ class LearningQuizService(
             availableOn,
             submittedAt,
         )
-    }
-
-    private fun lessonLocked(
-        userId: Long,
-        courseId: Long,
-    ): ApiV1Exception {
-        val today = LocalDate.ofInstant(clock.instant(), kst)
-        val alreadyUnlocked =
-            jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM course_daily_unlock WHERE user_id = ? AND course_id = ? AND unlock_date = ?)",
-                Boolean::class.java,
-                userId,
-                courseId,
-                today,
-            ) ?: false
-        val unlocksAt = if (alreadyUnlocked) today.plusDays(1).atStartOfDay(kst).toInstant() else null
-        return ApiV1Exception(ApiErrorCode.LESSON_LOCKED, unlocksAt = unlocksAt)
     }
 
     private fun QuizAttemptResponse.toAnswerResult(streakDays: Int) =
