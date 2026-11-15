@@ -2,7 +2,6 @@ package com.bawibase.chorong.common.api
 
 import com.fasterxml.jackson.annotation.JsonInclude
 import org.springframework.http.HttpStatus
-import java.time.Instant
 
 data class ApiResponse<T>(
     val data: T,
@@ -28,7 +27,6 @@ data class ApiError(
     val message: String = code.message,
     val fields: List<FieldViolation>? = null,
     val retryAfter: Long? = null,
-    val unlocksAt: Instant? = null,
     val items: List<ApiErrorItem>? = null,
 )
 
@@ -85,7 +83,6 @@ class ApiV1Exception(
         code: ApiErrorCode,
         fields: List<FieldViolation>? = null,
         retryAfter: Long? = null,
-        unlocksAt: Instant? = null,
         items: List<ApiErrorItem>? = null,
-    ) : this(ApiError(code, fields = fields, retryAfter = retryAfter, unlocksAt = unlocksAt, items = items))
+    ) : this(ApiError(code, fields = fields, retryAfter = retryAfter, items = items))
 }

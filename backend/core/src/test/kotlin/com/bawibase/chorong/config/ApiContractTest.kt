@@ -118,7 +118,7 @@ class ApiContractTest {
         }
         mvc.get("/api/v1/contract/error/LESSON_LOCKED") { with(jwt()) }.andExpect {
             status { isForbidden() }
-            jsonPath("$.error.unlocksAt") { value("2026-11-01T00:00:00Z") }
+            jsonPath("$.error.unlocksAt") { doesNotExist() }
         }
         mvc.get("/api/v1/contract/error/RATE_LIMITED") { with(jwt()) }.andExpect {
             status { isTooManyRequests() }
@@ -265,7 +265,6 @@ class ApiContractTest {
             throw ApiV1Exception(
                 code,
                 retryAfter = if (code in listOf(ApiErrorCode.RATE_LIMITED, ApiErrorCode.ACCOUNT_LOCKED)) 90 else null,
-                unlocksAt = if (code == ApiErrorCode.LESSON_LOCKED) Instant.parse("2026-11-01T00:00:00Z") else null,
             )
 
         @PostMapping("/body")

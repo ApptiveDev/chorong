@@ -6,9 +6,6 @@ import com.bawibase.chorong.domain.user.service.UserWalletService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.Clock
-import java.time.LocalDate
-import java.time.ZoneId
 
 @Service
 class LessonProgressService(
@@ -18,10 +15,8 @@ class LessonProgressService(
     private val lessonCompletion: LessonCompletionService,
     private val lessonReplay: LessonReplayService,
     private val wallets: UserWalletService,
-    private val clock: Clock,
+    private val unlocks: LessonUnlockService,
 ) {
-    private val kst = ZoneId.of("Asia/Seoul")
-
     @Transactional
     fun start(
         userId: Long,
@@ -31,11 +26,12 @@ class LessonProgressService(
         requireId(userId)
         requireId(lessonId)
         ensureUser(userId)
-        val courseId = lessonCourse(lessonId)
-        val row = progress(userId, lessonId) ?: throw locked(userId, courseId)
+        lessonCourse(lessonId)
+        if (!unlocks.ensureProgress(userId, lessonId)) throw locked()
+        val row = progress(userId, lessonId, true) ?: throw locked()
         if (row.status == "COMPLETED" && !replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (row.status != "COMPLETED" && replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
-        if (row.status !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw locked(userId, courseId)
+        if (row.status !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw locked()
         val requiredReview = reviewGate.requiredSet(userId, lessonId)
         if (requiredReview != null) {
             return LessonStartResponse(
@@ -87,8 +83,7 @@ class LessonProgressService(
                     },
                     contentId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
-        val courseId = lessonCourse(content.lessonId)
-        val row = progress(userId, content.lessonId, true) ?: throw locked(userId, courseId)
+        val row = progress(userId, content.lessonId, true) ?: throw locked()
         if (row.status == "COMPLETED") {
             if (!lessonReplay.isActive(userId, content.lessonId)) {
                 if (row.lastContentId != contentId) throw ApiV1Exception(ApiErrorCode.CONFLICT)
@@ -111,7 +106,7 @@ class LessonProgressService(
             return replayed.copy(completion = lessonCompletion.completeReplay(userId, content.lessonId))
         }
         if (row.lastContentId == contentId) return result(content.lessonId, row)
-        if (row.status !in setOf("UNLOCKED", "IN_PROGRESS")) throw locked(userId, courseId)
+        if (row.status !in setOf("UNLOCKED", "IN_PROGRESS")) throw locked()
         reviewGate.enforce(userId, content.lessonId)
         if (nextContentId(content.lessonId, row.lastContentId) != contentId) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (content.type == "QUIZ" && !hasCompletedAttempt(userId, content.quizId)) throw ApiV1Exception(ApiErrorCode.CONFLICT)
@@ -146,16 +141,11 @@ class LessonProgressService(
                 { rs, _ -> CourseProgressSummary(rs.getLong("course_id"), rs.getInt("completed"), rs.getInt("total")) },
                 userId,
             )
+        // 중단 지점(last_content_id)이 있으면 이어하기로 표시한다.
         val current =
-            jdbc
-                .query(
-                    """SELECT lp.lesson_id,lp.course_id,lp.status FROM lesson_progress lp
-             JOIN course c ON c.course_id=lp.course_id
-             WHERE lp.user_id=? AND lp.status IN ('UNLOCKED','IN_PROGRESS') AND NOT c.is_onboarding
-             ORDER BY lp.modified_at DESC,lp.lesson_id LIMIT 1""",
-                    { rs, _ -> CurrentLessonProgress(rs.getLong("lesson_id"), rs.getLong("course_id"), rs.getString("status")) },
-                    userId,
-                ).firstOrNull()
+            unlocks.map(userId).current()?.let {
+                CurrentLessonProgress(it.lessonId, it.courseId, it.title, it.status, it.status == "IN_PROGRESS" && it.lastContentId != null)
+            }
         return LearningProgressSummary(courses, current)
     }
 
@@ -250,22 +240,7 @@ class LessonProgressService(
         if (status == null || status == "WITHDRAWN") throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
     }
 
-    private fun locked(
-        userId: Long,
-        courseId: Long,
-    ): ApiV1Exception {
-        val today = LocalDate.ofInstant(clock.instant(), kst)
-        val used =
-            jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM course_daily_unlock WHERE user_id=? AND course_id=? AND unlock_date=?)",
-                Boolean::class.java,
-                userId,
-                courseId,
-                today,
-            ) ?: false
-        val unlocksAt = if (used) today.plusDays(1).atStartOfDay(kst).toInstant() else null
-        return ApiV1Exception(ApiErrorCode.LESSON_LOCKED, unlocksAt = unlocksAt)
-    }
+    private fun locked() = ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
 
     private fun requireId(id: Long) {
         if (id <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)

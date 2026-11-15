@@ -23,8 +23,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.HandlerMethodValidationException
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
-import java.time.Instant
-import java.time.OffsetDateTime
 
 @RestControllerAdvice
 class ApiExceptionHandler {
@@ -258,18 +256,10 @@ class ApiExceptionHandler {
                     }
                 }
             }
-        val unlocksAt =
-            when (val value = e.details["unlocksAt"]) {
-                is Instant -> value
-                is OffsetDateTime -> value.toInstant()
-                is String -> runCatching { Instant.parse(value) }.getOrNull()
-                else -> null
-            }
         return ApiError(
             code,
             fields = (e.details["field"] as? String)?.let { listOf(FieldViolation(it, code.message)) },
             retryAfter = (e.details["retryAfter"] as? Number)?.toLong(),
-            unlocksAt = unlocksAt,
         )
     }
 

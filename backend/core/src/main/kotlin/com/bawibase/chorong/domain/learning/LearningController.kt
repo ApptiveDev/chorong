@@ -25,6 +25,7 @@ data class CourseSummary(
     // 0.4.0부터 명세에 없지만 앱 호환을 위해 남긴다.
     val category: String?,
     val topic: String?,
+    val locked: Boolean,
     val totalLessons: Int,
     val completedLessons: Int,
     val constellation: Any? = null,
@@ -37,6 +38,7 @@ data class LessonSummary(
     val keyword: String,
     val order: Int,
     val status: String = "LOCKED",
+    // 하루 해금이 없어져 항상 null이다. 앱 응답 검사가 이 칸을 요구해서 남긴다.
     val unlocksAt: java.time.Instant? = null,
     val completedAt: java.time.Instant? = null,
 )
@@ -49,6 +51,7 @@ data class CourseDetail(
     val order: Int,
     val category: String?,
     val topic: String?,
+    val locked: Boolean = false,
     val totalLessons: Int,
     val completedLessons: Int,
     val constellation: Any?,
@@ -137,7 +140,9 @@ data class CourseProgressSummary(
 data class CurrentLessonProgress(
     val lessonId: Long,
     val courseId: Long,
+    val title: String,
     val status: String,
+    val resumable: Boolean,
 )
 
 data class LearningProgressSummary(

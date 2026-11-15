@@ -60,6 +60,8 @@ class LearningApiTest {
 
     @Autowired lateinit var lessonCompletion: LessonCompletionService
 
+    @Autowired lateinit var lessonProgress: LessonProgressService
+
     @Autowired lateinit var studyStreak: StudyStreakService
 
     @Autowired lateinit var entityManager: EntityManager
@@ -928,39 +930,71 @@ class LearningApiTest {
     }
 
     @Test
-    fun `KST boundary unlocks one new lesson per day and counts completed lessons`() {
-        val courseId = createCourse("KST boundary", 3)
-        `when`(clock.instant()).thenReturn(Instant.parse("2026-01-01T14:59:59Z"))
+    fun `lessons unlock in order and the next constellation waits for the previous one`() {
+        val first = createCourse("순서 A", 2)
+        val second = createCourse("순서 B", 1)
+        onlyCourses(first, second)
+        val (a1, a2) = lessonIds(first)
+        val (b1) = lessonIds(second)
 
-        val beforeMidnight = learning.getCourse(userId, courseId)
-        assertEquals(listOf("UNLOCKED", "LOCKED", "LOCKED"), beforeMidnight.lessons.map { it.status })
-        assertEquals(Instant.parse("2026-01-01T15:00:00Z"), beforeMidnight.lessons[1].unlocksAt)
+        assertEquals(listOf("UNLOCKED", "LOCKED"), learning.getCourse(userId, first).lessons.map { it.status })
+        assertEquals(listOf("LOCKED"), learning.getCourse(userId, second).lessons.map { it.status })
+        assertEquals(listOf(false, true), learning.listCourses(userId).map { it.locked })
+        assertEquals(true, learning.getCourse(userId, second).locked)
+        assertEquals(null, learning.getCourse(userId, first).lessons[1].unlocksAt)
+        assertEquals(0, progressRows(), "viewing must not create progress")
+        assertEquals(CurrentLessonProgress(a1, first, "레슨 1", "UNLOCKED", false), lessonProgress.getProgress(userId).current)
 
-        val repeated = learning.getCourse(userId, courseId)
-        assertEquals(1, unlockCount(courseId))
-        assertEquals(beforeMidnight.lessons.map { it.status }, repeated.lessons.map { it.status })
+        mvc.post("/api/v1/lessons/$a2/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.code") { value("LESSON_LOCKED") }
+            jsonPath("$.error.unlocksAt") { doesNotExist() }
+        }
 
-        `when`(clock.instant()).thenReturn(Instant.parse("2026-01-01T15:00:00Z"))
-        val afterMidnight = learning.getCourse(userId, courseId)
-        assertEquals(listOf("UNLOCKED", "UNLOCKED", "LOCKED"), afterMidnight.lessons.map { it.status })
-        assertEquals(Instant.parse("2026-01-02T15:00:00Z"), afterMidnight.lessons[2].unlocksAt)
+        complete(a1, first)
+        assertEquals(listOf("COMPLETED", "UNLOCKED"), learning.getCourse(userId, first).lessons.map { it.status })
+        assertEquals(listOf("LOCKED"), learning.getCourse(userId, second).lessons.map { it.status })
 
-        `when`(clock.instant()).thenReturn(Instant.parse("2026-01-02T15:00:00Z"))
-        val allUnlocked = learning.getCourse(userId, courseId)
-        assertEquals(listOf("UNLOCKED", "UNLOCKED", "UNLOCKED"), allUnlocked.lessons.map { it.status })
+        complete(a2, first)
+        assertEquals(listOf("UNLOCKED"), learning.getCourse(userId, second).lessons.map { it.status })
+        assertEquals(listOf(false, false), learning.listCourses(userId).map { it.locked })
+        assertEquals(CurrentLessonProgress(b1, second, "레슨 1", "UNLOCKED", false), lessonProgress.getProgress(userId).current)
+
+        val contentId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,1,'TEXT','본문') RETURNING content_id",
+                    Long::class.java,
+                    b1,
+                ),
+            )
         jdbc.update(
-            "UPDATE lesson_progress SET status='COMPLETED', completed_at=? WHERE course_id=?",
-            Timestamp.from(Instant.parse("2026-01-02T15:01:00Z")),
-            courseId,
+            "INSERT INTO lesson_progress(user_id,lesson_id,course_id,status,last_content_id) VALUES (?,?,?,'IN_PROGRESS',?)",
+            userId,
+            b1,
+            second,
+            contentId,
         )
-        assertEquals(3, learning.listCourses(userId).first { it.courseId == courseId }.completedLessons)
-        assertEquals(3, unlockCount(courseId))
-        `when`(clock.instant()).thenReturn(Instant.parse("2026-01-03T15:00:00Z"))
-        assertEquals(listOf("COMPLETED", "COMPLETED", "COMPLETED"), learning.getCourse(userId, courseId).lessons.map { it.status })
-        assertEquals(3, unlockCount(courseId))
+        assertEquals(CurrentLessonProgress(b1, second, "레슨 1", "IN_PROGRESS", true), lessonProgress.getProgress(userId).current)
 
-        val anotherUserId = checkNotNull(users.saveAndFlush(UserEntity(nickname = "다른 학습자")).id)
-        assertEquals(listOf("UNLOCKED", "LOCKED", "LOCKED"), learning.getCourse(anotherUserId, courseId).lessons.map { it.status })
+        jdbc.update("UPDATE lesson_progress SET status='COMPLETED', completed_at=now() WHERE user_id=? AND lesson_id=?", userId, b1)
+        assertEquals(null, lessonProgress.getProgress(userId).current)
+        assertEquals(3, learning.listCourses(userId).sumOf { it.completedLessons })
+    }
+
+    @Test
+    fun `starting an unlocked lesson creates its progress`() {
+        val courseId = createCourse("시작", 1)
+        onlyCourses(courseId)
+        val (lessonId) = lessonIds(courseId)
+
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+        }
+        assertEquals(
+            "IN_PROGRESS",
+            jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId),
+        )
     }
 
     @Test
@@ -1014,26 +1048,6 @@ class LearningApiTest {
             jdbc.update("DELETE FROM user_wallet WHERE user_id=?", userId)
             jdbc.update("DELETE FROM app_user WHERE user_id=?", userId)
             jdbc.update("DELETE FROM course WHERE course_id=?", courseId)
-        }
-    }
-
-    @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    fun `concurrent course detail requests create one unlock`() {
-        val courseId = createCourse("Concurrent", 2)
-        val pool = Executors.newFixedThreadPool(8)
-        try {
-            val requests = (1..8).map { pool.submit<List<String>> { learning.getCourse(userId, courseId).lessons.map { it.status } } }
-            val results = requests.map { it.get() }
-            assertEquals(1, unlockCount(courseId))
-            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM lesson_progress WHERE course_id=?", Int::class.java, courseId))
-            assertEquals(1, results.map { it.count { status -> status == "UNLOCKED" } }.distinct().size)
-            assertEquals(listOf("UNLOCKED", "LOCKED"), results.first())
-        } finally {
-            pool.shutdownNow()
-            jdbc.update("DELETE FROM course WHERE course_id=?", courseId)
-            jdbc.update("DELETE FROM user_refresh_token WHERE user_id=?", userId)
-            jdbc.update("DELETE FROM app_user WHERE user_id=?", userId)
         }
     }
 
@@ -1196,8 +1210,9 @@ class LearningApiTest {
 
     @Test
     fun `locked lesson rejects submission without recording an attempt`() {
-        val (_, lessonId) = createUnlockedLesson("locked quiz")
-        jdbc.update("DELETE FROM lesson_progress WHERE user_id=? AND lesson_id=?", userId, lessonId)
+        // 앞 레슨을 끝내지 않은 두 번째 레슨은 잠겨 있다.
+        val courseId = createCourse("locked quiz", 2)
+        val lessonId = lessonIds(courseId)[1]
         val fixture = quizFixtures().first()
         val quizId = seedFixture(fixture, lessonId, 0)
 
@@ -1481,8 +1496,29 @@ class LearningApiTest {
         return courseId
     }
 
-    private fun unlockCount(courseId: Long): Int =
-        checkNotNull(jdbc.queryForObject("SELECT COUNT(*) FROM course_daily_unlock WHERE course_id=?", Int::class.java, courseId))
+    /** 다른 테스트가 남긴 코스가 순서 계산에 끼지 않도록 나머지를 온보딩으로 돌린다. 트랜잭션이 끝나면 되돌아간다. */
+    private fun onlyCourses(vararg courseIds: Long) {
+        jdbc.update("UPDATE course SET is_onboarding = TRUE WHERE course_id NOT IN (${courseIds.joinToString(",")})")
+        courseIds.forEachIndexed { index, id -> jdbc.update("UPDATE course SET course_order = ? WHERE course_id = ?", index + 1, id) }
+    }
+
+    private fun lessonIds(courseId: Long): List<Long> =
+        jdbc.queryForList("SELECT lesson_id FROM lesson WHERE course_id=? ORDER BY lesson_order", Long::class.java, courseId)
+
+    private fun progressRows(): Int =
+        checkNotNull(jdbc.queryForObject("SELECT COUNT(*) FROM lesson_progress WHERE user_id=?", Int::class.java, userId))
+
+    private fun complete(
+        lessonId: Long,
+        courseId: Long,
+    ) {
+        jdbc.update(
+            "INSERT INTO lesson_progress(user_id,lesson_id,course_id,status,completed_at) VALUES (?,?,?,'COMPLETED',now())",
+            userId,
+            lessonId,
+            courseId,
+        )
+    }
 
     private fun createUnlockedLesson(title: String): Pair<Long, Long> {
         val courseId = createCourse(title, 1)
