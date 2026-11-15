@@ -46,7 +46,7 @@ class NoteControllerTest {
         mockMvc.get("/docs/index.html").andExpect {
             status { isOk() }
             content { string(org.hamcrest.Matchers.containsString("createApiReference")) }
-            content { string(org.hamcrest.Matchers.containsString("0.3.2")) }
+            content { string(org.hamcrest.Matchers.containsString("0.4.0")) }
             content { string(org.hamcrest.Matchers.containsString("/docs/openapi.yaml")) }
         }
     }
@@ -67,7 +67,7 @@ class NoteControllerTest {
         assertTrue(expectedBytes.contentEquals(served), "런타임 명세가 docs/openapi.yaml과 다릅니다")
 
         val document = Yaml().load<Map<String, Any>>(expectedBytes.inputStream())
-        assertEquals("0.3.2", (document["info"] as Map<*, *>)["version"])
+        assertEquals("0.4.0", (document["info"] as Map<*, *>)["version"])
         val paths = document["paths"] as Map<*, *>
         val operations = mutableListOf<Triple<String, String, String>>()
         for ((path, pathItem) in paths) {
@@ -78,7 +78,7 @@ class NoteControllerTest {
                 operations += Triple(operationId, (method as String).uppercase(), path as String)
             }
         }
-        assertEquals(47, operations.size)
+        assertEquals(50, operations.size)
         assertEquals(operations.size, operations.map { it.first }.toSet().size, "operationId 중복")
         val expected =
             """
@@ -104,9 +104,12 @@ class NoteControllerTest {
             API-406 POST /quizzes/{quizId}/answer
             API-407 POST /lessons/{lessonId}/complete
             API-408 GET /users/me/progress
+            API-409 PUT /lessons/{lessonId}/progress
             API-501 GET /reviews/next
             API-502 POST /reviews/{reviewItemId}/answer
             API-503 POST /reviews/complete
+            API-504 GET /reviews/status
+            API-505 POST /reviews/abandon
             API-601 GET /onboarding
             API-602 POST /onboarding/complete
             API-701 GET /housings/me

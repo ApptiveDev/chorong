@@ -43,6 +43,9 @@ web-build/
 # Local access notes and credentials
 /.local/
 
+# Local files
+/local-only/
+
 # Local API comparison notes
 /openapi0_2.yaml
 /해야할일.md
