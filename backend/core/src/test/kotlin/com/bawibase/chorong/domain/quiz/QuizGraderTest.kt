@@ -123,6 +123,12 @@ class QuizGraderTest {
     }
 
     @Test
+    fun `inline word keeps the correct word beside the answer`() {
+        val quiz = quiz("single-inline", answer = """{"answer":4,"correctWord":"돈다"}""")
+        assertEquals(true, grade(quiz, """{"answer":4}""").correct)
+    }
+
+    @Test
     fun `chosung accepts any stored alternative`() {
         val quiz = quiz("chosung", answer = """{"answer":["울트라마린","울트라 마린 블루"]}""")
         assertEquals(true, grade(quiz, """{"answer":"울트라마린블루"}""").correct)
@@ -195,6 +201,8 @@ class QuizGraderTest {
                 """{"options":["a","b"],"presentation":{"type":"INLINE_WORD","mediaUrl":"https://example.com/a.png"}}""",
                 null,
             ),
+            Triple("single", null, """{"answer":1,"correctWord":"바른 낱말"}"""),
+            Triple("single-inline", null, """{"answer":4,"correctWord":" "}"""),
             Triple("blank", """{"before":" ","after":"뒤","options":["a","b"]}""", """{"answer":0}"""),
             Triple("multi", null, """{"answers":[]}"""),
             Triple("multi", null, """{"answers":[1,1]}"""),

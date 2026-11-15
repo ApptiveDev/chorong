@@ -64,6 +64,20 @@ kotlin {
     }
 }
 
+// 컨텐츠 검사용 main이 따로 있어 서버 진입점을 지정한다.
+springBoot {
+    mainClass = "com.bawibase.chorong.ChorongApplicationKt"
+}
+
+// 컨텐츠 JSON을 DB 없이 검사한다. 상대 경로는 저장소 루트 기준이다. 사용법은 docs/CONTENT_IMPORT.md.
+tasks.register<JavaExec>("contentCheck") {
+    group = "chorong"
+    description = "별자리 컨텐츠 JSON 검사"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.bawibase.chorong.domain.learning.contentimport.ContentCheckKt"
+    workingDir = rootDir.parentFile
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
 

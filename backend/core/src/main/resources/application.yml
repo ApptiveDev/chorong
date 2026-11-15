@@ -101,6 +101,8 @@ app:
       team-id: ${APPLE_OAUTH_TEAM_ID:}
       key-id: ${APPLE_OAUTH_KEY_ID:}
       private-key: ${APPLE_OAUTH_PRIVATE_KEY:}
+  # 그림·음원 주소의 앞부분. 비밀이 아니다. prod는 https://media-chorong.bawibase.com/
+  media-base-url: ${CHORONG_MEDIA_BASE_URL:https://media-chorong-dev.bawibase.com/}
   quiz-preview:
     # 개발 스키마 chorong_dev에서만 적용한다. 운영 스키마에서는 항상 차단한다.
     enabled: ${QUIZ_PREVIEW_ENABLED:true}
