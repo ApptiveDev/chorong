@@ -22,37 +22,31 @@ class LearningService(
     private val kst = ZoneId.of("Asia/Seoul")
 
     @Transactional(readOnly = true)
-    fun listCourses(
-        userId: Long,
-        category: String?,
-        topic: String? = null,
-    ): List<CourseSummary> {
+    fun listCourses(userId: Long): List<CourseSummary> {
         requireId(userId)
         return jdbc.query(
-            """SELECT c.course_id, c.title, c.category, c.topic, COUNT(DISTINCT l.lesson_id)::int AS total,
+            """SELECT c.course_id, c.slug, c.title, c.description, c.course_order, c.category, c.topic,
+                      COUNT(DISTINCT l.lesson_id)::int AS total,
                       COUNT(DISTINCT lp.lesson_id) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed
                FROM course c
                LEFT JOIN lesson l ON l.course_id = c.course_id
                LEFT JOIN lesson_progress lp ON lp.lesson_id = l.lesson_id AND lp.user_id = ?
                WHERE NOT c.is_onboarding
-                 AND (CAST(? AS VARCHAR) IS NULL OR c.category = ?)
-                 AND (CAST(? AS VARCHAR) IS NULL OR c.topic = ?)
                GROUP BY c.course_id ORDER BY c.course_order, c.course_id""",
             { rs, _ ->
                 CourseSummary(
-                    rs.getLong("course_id"),
-                    rs.getString("title"),
-                    rs.getString("category"),
-                    rs.getString("topic"),
-                    rs.getInt("total"),
-                    rs.getInt("completed"),
+                    courseId = rs.getLong("course_id"),
+                    slug = rs.getString("slug"),
+                    title = rs.getString("title"),
+                    description = rs.getString("description"),
+                    order = rs.getInt("course_order"),
+                    category = rs.getString("category"),
+                    topic = rs.getString("topic"),
+                    totalLessons = rs.getInt("total"),
+                    completedLessons = rs.getInt("completed"),
                 )
             },
             userId,
-            category,
-            category,
-            topic,
-            topic,
         )
     }
 
@@ -67,7 +61,8 @@ class LearningService(
         val course =
             jdbc
                 .query(
-                    """SELECT c.course_id, c.title, c.category, c.topic, c.description, COUNT(l.lesson_id)::int AS total,
+                    """SELECT c.course_id, c.slug, c.title, c.description, c.course_order, c.category, c.topic,
+                          COUNT(l.lesson_id)::int AS total,
                           COUNT(lp.lesson_id) FILTER (WHERE lp.status = 'COMPLETED')::int AS completed
                    FROM course c
                    LEFT JOIN lesson l ON l.course_id = c.course_id
@@ -76,15 +71,17 @@ class LearningService(
                    GROUP BY c.course_id""",
                     { rs, _ ->
                         CourseDetail(
-                            rs.getLong("course_id"),
-                            rs.getString("title"),
-                            rs.getString("category"),
-                            rs.getString("topic"),
-                            rs.getInt("total"),
-                            rs.getInt("completed"),
-                            null,
-                            rs.getString("description"),
-                            emptyList(),
+                            courseId = rs.getLong("course_id"),
+                            slug = rs.getString("slug"),
+                            title = rs.getString("title"),
+                            description = rs.getString("description"),
+                            order = rs.getInt("course_order"),
+                            category = rs.getString("category"),
+                            topic = rs.getString("topic"),
+                            totalLessons = rs.getInt("total"),
+                            completedLessons = rs.getInt("completed"),
+                            constellation = null,
+                            lessons = emptyList(),
                         )
                     },
                     userId,
@@ -116,7 +113,7 @@ class LearningService(
         val unlocksAt = if (hasUnlockedToday) today.plusDays(1).atStartOfDay(kst).toInstant() else null
         val lessons =
             jdbc.query(
-                """SELECT l.lesson_id, l.title, l.lesson_order, lp.status, lp.completed_at
+                """SELECT l.lesson_id, l.slug, l.title, l.keyword, l.lesson_order, lp.status, lp.completed_at
                    FROM lesson l
                    LEFT JOIN lesson_progress lp ON lp.lesson_id = l.lesson_id AND lp.user_id = ?
                    WHERE l.course_id = ? ORDER BY l.lesson_order, l.lesson_id""",
@@ -125,7 +122,9 @@ class LearningService(
                     val completedAt = rs.getTimestamp("completed_at")?.toInstant()
                     LessonSummary(
                         lessonId = rs.getLong("lesson_id"),
+                        slug = rs.getString("slug"),
                         title = rs.getString("title"),
+                        keyword = rs.getString("keyword"),
                         order = rs.getInt("lesson_order"),
                         status = status,
                         unlocksAt = unlocksAt.takeIf { status == "LOCKED" },
@@ -141,47 +140,70 @@ class LearningService(
     @Transactional(readOnly = true)
     fun getLesson(lessonId: Long): LessonDetail {
         requireId(lessonId)
+        var onboarding = false
         val lesson =
             jdbc
                 .query(
-                    "SELECT lesson_id, course_id, title, description FROM lesson WHERE lesson_id = ?",
+                    """SELECT l.lesson_id, l.course_id, l.slug, l.title, l.keyword, l.description, l.content_version, l.source,
+                          l.ending_text, l.ending_image_url, c.is_onboarding
+                       FROM lesson l JOIN course c ON c.course_id = l.course_id
+                       WHERE l.lesson_id = ?""",
                     { rs, _ ->
+                        onboarding = rs.getBoolean("is_onboarding")
                         LessonDetail(
-                            rs.getLong("lesson_id"),
-                            rs.getLong("course_id"),
-                            rs.getString("title"),
-                            rs.getString("description"),
-                            emptyList(),
-                            emptyList(),
+                            lessonId = rs.getLong("lesson_id"),
+                            courseId = rs.getLong("course_id"),
+                            slug = rs.getString("slug"),
+                            title = rs.getString("title"),
+                            keyword = rs.getString("keyword"),
+                            description = rs.getString("description"),
+                            version = rs.getInt("content_version"),
+                            source = rs.getString("source"),
+                            ending = LessonEnding(rs.getString("ending_text"), rs.getString("ending_image_url")),
+                            segments = emptyList(),
+                            contents = emptyList(),
                         )
                     },
                     lessonId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
-        val contents =
+        val loaded =
             jdbc.query(
-                """SELECT content_id, content_order, content_type, body, media_url, quiz_id, segment_id, dialogue, source
+                """SELECT content_id, content_order, content_type, body, media_url, keyword, quiz_id, segment_id, dialogue, source
                    FROM lesson_content WHERE lesson_id = ? ORDER BY content_order, content_id""",
                 { rs, _ ->
                     val quizId = rs.getLong("quiz_id").let { if (rs.wasNull()) null else it }
                     LearningContent(
-                        rs.getLong("content_id"),
-                        rs.getInt("content_order"),
-                        rs.getString("segment_id") ?: "legacy-$lessonId",
-                        rs.getString("content_type"),
-                        rs.getString("body"),
-                        rs.getString("media_url"),
-                        quizId?.let { quizService.get(it) },
-                        mapper.readTree(rs.getString("dialogue")).map { line ->
-                            require(line.isObject && line["speaker"]?.isTextual == true && line["text"]?.isTextual == true) {
-                                "Invalid dialogue for content ${rs.getLong("content_id")}"
-                            }
-                            DialogueLine(line["speaker"].textValue(), line["text"].textValue())
-                        },
-                        rs.getString("source"),
+                        contentId = rs.getLong("content_id"),
+                        order = rs.getInt("content_order"),
+                        segmentId = rs.getString("segment_id") ?: "legacy-$lessonId",
+                        contentType = rs.getString("content_type"),
+                        body = rs.getString("body"),
+                        mediaUrl = rs.getString("media_url"),
+                        keyword = rs.getString("keyword"),
+                        quiz = quizId?.let { quizService.get(it) },
+                        dialogue =
+                            mapper.readTree(rs.getString("dialogue")).map { line ->
+                                val speaker = line["speaker"]
+                                require(
+                                    line.isObject &&
+                                        (speaker == null || speaker.isTextual) &&
+                                        line["text"]?.isTextual == true,
+                                ) {
+                                    "Invalid dialogue for content ${rs.getLong("content_id")}"
+                                }
+                                DialogueLine(speaker?.textValue(), line["text"].textValue())
+                            },
+                        source = rs.getString("source"),
                     )
                 },
                 lessonId,
             )
+        // 학습 레슨의 첫 퀴즈는 레슨을 여는 질문이라 채점하지 않는다. 온보딩은 모두 채점한다.
+        val firstQuizId = if (onboarding) null else loaded.firstOrNull { it.quiz != null }?.contentId
+        val contents =
+            loaded.map { content ->
+                if (content.contentId == firstQuizId) content.copy(quiz = content.quiz?.copy(graded = false)) else content
+            }
         val contentBySegment = contents.groupBy { it.segmentId }
         val segments =
             jdbc

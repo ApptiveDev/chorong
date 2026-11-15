@@ -18,9 +18,13 @@ import org.springframework.web.bind.annotation.RestController
 
 data class CourseSummary(
     val courseId: Long,
+    val slug: String,
     val title: String,
-    val category: String,
-    val topic: String,
+    val description: String,
+    val order: Int,
+    // 0.4.0부터 명세에 없지만 앱 호환을 위해 남긴다.
+    val category: String?,
+    val topic: String?,
     val totalLessons: Int,
     val completedLessons: Int,
     val constellation: Any? = null,
@@ -28,7 +32,9 @@ data class CourseSummary(
 
 data class LessonSummary(
     val lessonId: Long,
+    val slug: String,
     val title: String,
+    val keyword: String,
     val order: Int,
     val status: String = "LOCKED",
     val unlocksAt: java.time.Instant? = null,
@@ -37,13 +43,15 @@ data class LessonSummary(
 
 data class CourseDetail(
     val courseId: Long,
+    val slug: String,
     val title: String,
-    val category: String,
-    val topic: String,
+    val description: String,
+    val order: Int,
+    val category: String?,
+    val topic: String?,
     val totalLessons: Int,
     val completedLessons: Int,
     val constellation: Any?,
-    val description: String,
     val lessons: List<LessonSummary>,
 )
 
@@ -54,6 +62,8 @@ data class LearningContent(
     val contentType: String,
     val body: String?,
     val mediaUrl: String?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val keyword: String?,
     val quiz: QuizPublicResponse?,
     @field:JsonInclude(JsonInclude.Include.NON_EMPTY)
     val dialogue: List<DialogueLine>,
@@ -62,7 +72,8 @@ data class LearningContent(
 )
 
 data class DialogueLine(
-    val speaker: String,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val speaker: String?,
     val text: String,
 )
 
@@ -73,11 +84,22 @@ data class LessonSegment(
     val contentIds: List<Long>,
 )
 
+data class LessonEnding(
+    val text: String,
+    val imageUrl: String?,
+)
+
 data class LessonDetail(
     val lessonId: Long,
     val courseId: Long,
+    val slug: String,
     val title: String,
+    val keyword: String,
     val description: String,
+    val version: Int,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val source: String?,
+    val ending: LessonEnding,
     val segments: List<LessonSegment>,
     val contents: List<LearningContent>,
 )
@@ -158,12 +180,10 @@ class LearningController(
     }
 
     @GetMapping("/courses")
-    @Operation(operationId = "API-401", summary = "코스 목록", description = "ONBOARDING 코스는 제외한다.")
+    @Operation(operationId = "API-401", summary = "코스(별자리) 목록", description = "ONBOARDING 코스는 제외하고 order 순으로 돌려준다.")
     fun courses(
         @CurrentUserId userId: Long,
-        @RequestParam(required = false) category: String?,
-        @RequestParam(required = false) topic: String?,
-    ): ApiResponse<Map<String, List<CourseSummary>>> = ApiResponse(mapOf("courses" to learning.listCourses(userId, category, topic)))
+    ): ApiResponse<Map<String, List<CourseSummary>>> = ApiResponse(mapOf("courses" to learning.listCourses(userId)))
 
     @GetMapping("/courses/{courseId}")
     @Operation(operationId = "API-402", summary = "코스 상세")

@@ -37,6 +37,8 @@ data class QuizResponse(
     @param:Schema(description = "난이도 문자열. 고정된 값 목록은 없다.")
     val difficulty: String,
     val quizOrder: Int,
+    @param:Schema(description = "채점하는 퀴즈면 true. 학습 레슨의 첫 퀴즈만 false다.")
+    val graded: Boolean = true,
 ) {
     companion object {
         fun from(

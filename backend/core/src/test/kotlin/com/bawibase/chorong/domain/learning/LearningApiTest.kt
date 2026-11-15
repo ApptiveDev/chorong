@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DataAccessException
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
@@ -36,6 +37,7 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 @SpringBootTest
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
@@ -132,10 +134,16 @@ class LearningApiTest {
 
     @Test
     fun `course listing filters onboarding and content returns public quiz only`() {
-        jdbc.update("INSERT INTO course(title,category,topic,description,course_order) VALUES ('일반 코스','SCIENCE','일반 코스','설명',1)")
+        jdbc.update(
+            "INSERT INTO course(slug,title,category,topic,description,course_order) VALUES ('firefly','일반 코스','SCIENCE','일반 코스','빛과 색',1)",
+        )
         val courseId = jdbc.queryForObject("SELECT course_id FROM course WHERE title='일반 코스'", Long::class.java)
-        jdbc.update("INSERT INTO course(title,category,topic,is_onboarding) VALUES ('온보딩','START','온보딩',true)")
-        jdbc.update("INSERT INTO lesson(course_id,title,lesson_order) VALUES (?, '레슨 1', 1)", courseId)
+        jdbc.update("INSERT INTO course(slug,title,category,topic,is_onboarding) VALUES ('onboarding','온보딩','START','온보딩',true)")
+        jdbc.update(
+            """INSERT INTO lesson(course_id,slug,title,keyword,lesson_order,content_version,source,ending_text,ending_image_url)
+               VALUES (?, 'firefly/blue-pigment', '레슨 1', '울트라마린', 1, 2, '출처 모음', '별에 불 들어왔다냥!', 'https://example.com/star.svg')""",
+            courseId,
+        )
         val lessonId = jdbc.queryForObject("SELECT lesson_id FROM lesson WHERE course_id=?", Long::class.java, courseId)
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?, 0, 'TEXT', '학습 본문')", lessonId)
         val quiz =
@@ -154,11 +162,8 @@ class LearningApiTest {
             )
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,quiz_id) VALUES (?, 1, 'QUIZ', ?)", lessonId, quiz.id)
         jdbc.update(
-            "INSERT INTO lesson_content(lesson_id,content_order,content_type,media_url) VALUES (?, 2, 'IMAGE', 'https://example.com/image.png')",
-            lessonId,
-        )
-        jdbc.update(
-            "INSERT INTO lesson_content(lesson_id,content_order,content_type,media_url) VALUES (?, 3, 'VIDEO', 'https://example.com/video.mp4')",
+            """INSERT INTO lesson_content(lesson_id,content_order,content_type,media_url,keyword,dialogue)
+               VALUES (?, 2, 'IMAGE', 'https://example.com/image.png', '청금석', '[{"text":"해설 대사"}]'::jsonb)""",
             lessonId,
         )
         entityManager.flush()
@@ -167,18 +172,29 @@ class LearningApiTest {
             status { isOk() }
             jsonPath("$.data.courses.length()") { value(1) }
             jsonPath("$.data.courses[0].title") { value("일반 코스") }
-            jsonPath("$.data.courses[0].topic") { value("일반 코스") }
+            jsonPath("$.data.courses[0].slug") { value("firefly") }
+            jsonPath("$.data.courses[0].description") { value("빛과 색") }
+            jsonPath("$.data.courses[0].order") { value(1) }
             jsonPath("$.data.courses[0].totalLessons") { value(1) }
         }
         mvc.get("/api/v1/courses/$courseId") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.topic") { value("일반 코스") }
+            jsonPath("$.data.slug") { value("firefly") }
+            jsonPath("$.data.order") { value(1) }
             jsonPath("$.data.lessons[0].lessonId") { value(lessonId) }
+            jsonPath("$.data.lessons[0].slug") { value("firefly/blue-pigment") }
+            jsonPath("$.data.lessons[0].keyword") { value("울트라마린") }
             jsonPath("$.data.lessons[0].status") { value("UNLOCKED") }
         }
         mvc.get("/api/v1/lessons/$lessonId") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.contents.length()") { value(4) }
+            jsonPath("$.data.slug") { value("firefly/blue-pigment") }
+            jsonPath("$.data.keyword") { value("울트라마린") }
+            jsonPath("$.data.version") { value(2) }
+            jsonPath("$.data.source") { value("출처 모음") }
+            jsonPath("$.data.ending.text") { value("별에 불 들어왔다냥!") }
+            jsonPath("$.data.ending.imageUrl") { value("https://example.com/star.svg") }
+            jsonPath("$.data.contents.length()") { value(3) }
             jsonPath("$.data.contents[0].contentType") { value("TEXT") }
             jsonPath("$.data.contents[0].body") { value("학습 본문") }
             jsonPath("$.data.contents[1].contentType") { value("QUIZ") }
@@ -189,59 +205,127 @@ class LearningApiTest {
             jsonPath("$.data.contents[1].quiz.type") { doesNotExist() }
             jsonPath("$.data.contents[1].quiz.answer") { doesNotExist() }
             jsonPath("$.data.contents[1].quiz.explanation") { doesNotExist() }
+            jsonPath("$.data.contents[1].quiz.graded") { value(false) }
             jsonPath("$.data.contents[2].contentType") { value("IMAGE") }
-            jsonPath("$.data.contents[3].contentType") { value("VIDEO") }
+            jsonPath("$.data.contents[2].keyword") { value("청금석") }
+            jsonPath("$.data.contents[2].dialogue[0].text") { value("해설 대사") }
+            jsonPath("$.data.contents[2].dialogue[0].speaker") { doesNotExist() }
         }
         assertEquals(23L, quizzes.findById(checkNotNull(quiz.id)).orElseThrow().lessonId)
     }
 
     @Test
-    fun `course listing filters category and topic separately and together`() {
+    fun `course listing returns all courses in order and ignores old category and topic filters`() {
         jdbc.update(
-            """INSERT INTO course(title,category,topic,course_order) VALUES
-               ('우주 과학','SCIENCE','SPACE',1),
-               ('자연 과학','SCIENCE','NATURE',2),
-               ('우주 예술','ART','SPACE',3),
-               ('자연 예술','ART','NATURE',4)""",
+            """INSERT INTO course(slug,title,course_order) VALUES
+               ('third','세 번째',3),
+               ('first','첫 번째',1),
+               ('second','두 번째',2)""",
         )
 
         mvc
             .get("/api/v1/courses") {
                 header(HttpHeaders.AUTHORIZATION, auth)
                 param("category", "SCIENCE")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.data.courses.length()") { value(2) }
-            }
-        mvc
-            .get("/api/v1/courses") {
-                header(HttpHeaders.AUTHORIZATION, auth)
                 param("topic", "SPACE")
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.courses.length()") { value(2) }
-            }
-        mvc
-            .get("/api/v1/courses") {
-                header(HttpHeaders.AUTHORIZATION, auth)
-                param("category", "SCIENCE")
-                param("topic", "SPACE")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.data.courses.length()") { value(1) }
-                jsonPath("$.data.courses[0].title") { value("우주 과학") }
-                jsonPath("$.data.courses[0].topic") { value("SPACE") }
-            }
-        mvc
-            .get("/api/v1/courses") {
-                header(HttpHeaders.AUTHORIZATION, auth)
-                param("category", "ART")
-                param("topic", "MISSING")
-            }.andExpect {
-                status { isOk() }
-                jsonPath("$.data.courses.length()") { value(0) }
+                jsonPath("$.data.courses.length()") { value(3) }
+                jsonPath("$.data.courses[0].slug") { value("first") }
+                jsonPath("$.data.courses[1].slug") { value("second") }
+                jsonPath("$.data.courses[2].slug") { value("third") }
             }
     }
+
+    @Test
+    fun `only the first quiz of a learning lesson is ungraded and onboarding quizzes are all graded`() {
+        val courseId = createCourse("graded", 1)
+        val lessonId = checkNotNull(jdbc.queryForObject("SELECT lesson_id FROM lesson WHERE course_id=?", Long::class.java, courseId))
+        jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?, 1, 'TEXT', '도입')", lessonId)
+        listOf(2, 3).forEach { order ->
+            jdbc.update(
+                "INSERT INTO lesson_content(lesson_id,content_order,content_type,quiz_id) VALUES (?, ?, 'QUIZ', ?)",
+                lessonId,
+                order,
+                saveSingleQuiz(lessonId, order).id,
+            )
+        }
+
+        fun gradedFlags() =
+            mvc
+                .get("/api/v1/lessons/$lessonId") { header(HttpHeaders.AUTHORIZATION, auth) }
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+                .let { mapper.readTree(it)["data"]["contents"] }
+                .filter { it["contentType"].asText() == "QUIZ" }
+                .map { it["quiz"]["graded"].asBoolean() }
+
+        assertEquals(listOf(false, true), gradedFlags())
+        jdbc.update("UPDATE course SET is_onboarding=true WHERE course_id=?", courseId)
+        assertEquals(listOf(true, true), gradedFlags())
+    }
+
+    @Test
+    fun `review only quiz cannot be linked as lesson content`() {
+        val courseId = createCourse("review-only", 1)
+        val lessonId = checkNotNull(jdbc.queryForObject("SELECT lesson_id FROM lesson WHERE course_id=?", Long::class.java, courseId))
+        val quizId = checkNotNull(saveSingleQuiz(lessonId, 1).id)
+        jdbc.update("UPDATE quiz_item SET review_only=true WHERE quiz_id=?", quizId)
+
+        mvc.get("/api/v1/lessons/$lessonId") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.contents.length()") { value(0) }
+        }
+        assertFailsWith<DataAccessException> {
+            jdbc.update(
+                "INSERT INTO lesson_content(lesson_id,content_order,content_type,quiz_id) VALUES (?, 1, 'QUIZ', ?)",
+                lessonId,
+                quizId,
+            )
+        }
+    }
+
+    @Test
+    fun `lesson quiz cannot be turned into a review only quiz`() {
+        val courseId = createCourse("linked", 1)
+        val lessonId = checkNotNull(jdbc.queryForObject("SELECT lesson_id FROM lesson WHERE course_id=?", Long::class.java, courseId))
+        val quizId = checkNotNull(saveSingleQuiz(lessonId, 1).id)
+        jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,quiz_id) VALUES (?, 1, 'QUIZ', ?)", lessonId, quizId)
+
+        assertFailsWith<DataAccessException> { jdbc.update("UPDATE quiz_item SET review_only=true WHERE quiz_id=?", quizId) }
+    }
+
+    @Test
+    fun `video content type is no longer accepted`() {
+        val courseId = createCourse("video", 1)
+        val lessonId = checkNotNull(jdbc.queryForObject("SELECT lesson_id FROM lesson WHERE course_id=?", Long::class.java, courseId))
+
+        assertFailsWith<DataAccessException> {
+            jdbc.update(
+                "INSERT INTO lesson_content(lesson_id,content_order,content_type,media_url) VALUES (?, 1, 'VIDEO', 'https://example.com/v.mp4')",
+                lessonId,
+            )
+        }
+    }
+
+    private fun saveSingleQuiz(
+        lessonId: Long,
+        order: Int,
+    ): QuizItemEntity =
+        quizzes.saveAndFlush(
+            QuizItemEntity(
+                lessonId = lessonId,
+                question = "질문 $order",
+                instruction = "선택",
+                interactionType = QuizInteractionType.SINGLE,
+                config = mapOf("options" to listOf("가", "나")),
+                answer = mapOf("answer" to 0),
+                explanation = "해설",
+                difficulty = "EASY",
+                quizOrder = order,
+            ),
+        )
 
     @Test
     fun `missing course and lesson return not found`() {
@@ -869,7 +953,7 @@ class LearningApiTest {
             Timestamp.from(Instant.parse("2026-01-02T15:01:00Z")),
             courseId,
         )
-        assertEquals(3, learning.listCourses(userId, null).first { it.courseId == courseId }.completedLessons)
+        assertEquals(3, learning.listCourses(userId).first { it.courseId == courseId }.completedLessons)
         assertEquals(3, unlockCount(courseId))
         `when`(clock.instant()).thenReturn(Instant.parse("2026-01-03T15:00:00Z"))
         assertEquals(listOf("COMPLETED", "COMPLETED", "COMPLETED"), learning.getCourse(userId, courseId).lessons.map { it.status })
@@ -1382,12 +1466,14 @@ class LearningApiTest {
         title: String,
         lessons: Int,
     ): Long {
-        jdbc.update("INSERT INTO course(title,category,topic) VALUES (?, 'TEST', ?)", "$title-${UUID.randomUUID()}", title)
+        val slug = "c-" + UUID.randomUUID().toString().replace("-", "")
+        jdbc.update("INSERT INTO course(slug,title,category,topic) VALUES (?, ?, 'TEST', ?)", slug, "$title-$slug", title)
         val courseId = checkNotNull(jdbc.queryForObject("SELECT course_id FROM course ORDER BY course_id DESC LIMIT 1", Long::class.java))
         repeat(lessons) { order ->
             jdbc.update(
-                "INSERT INTO lesson(course_id,title,lesson_order) VALUES (?, ?, ?)",
+                "INSERT INTO lesson(course_id,slug,title,lesson_order) VALUES (?, ?, ?, ?)",
                 courseId,
+                "$slug/l${order + 1}",
                 "레슨 ${order + 1}",
                 order + 1,
             )

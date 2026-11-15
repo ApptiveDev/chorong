@@ -37,7 +37,7 @@ data class SinglePresentation(
     @field:Schema(description = "AUDIO 음원 또는 이미지 공개 문제의 HTTP(S) 주소", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     val mediaUrl: String? = null,
     @field:Schema(
-        description = "TILE은 공개 타일 수, ZOOM_OUT은 배율, SHARPEN은 흐림 반경. 앞에서 뒤로 진행한다.",
+        description = "ZOOM_OUT은 배율, SHARPEN은 흐림 반경. 누를 때마다 앞에서 뒤로 진행한다. TILE은 생략한다.",
         requiredMode = Schema.RequiredMode.NOT_REQUIRED,
     )
     val stages: List<Int>? = null,
