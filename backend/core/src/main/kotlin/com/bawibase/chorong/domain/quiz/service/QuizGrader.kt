@@ -50,6 +50,10 @@ class QuizGrader {
 
             is SingleQuizDefinition -> {
                 quiz.config.presentation?.let(::validatePresentation)
+                quiz.answer.correctWord?.let {
+                    stored.text(it)
+                    stored.ensure(quiz.config.presentation?.type == SinglePresentationType.INLINE_WORD)
+                }
                 index(quiz.config.options, quiz.answer.answer)
             }
 

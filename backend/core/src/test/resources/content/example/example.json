@@ -1,0 +1,244 @@
+{
+  "id": "example",
+  "name": "모든 유형 예시자리",
+  "desc": "예시",
+  "order": 99,
+  "memo": "유형별 작성 예시 모음. 실제 컨텐츠가 아니다. 문장은 반딧불자리 레슨에서 가져왔다",
+  "lessons": [
+    {
+      "id": "all-types",
+      "title": "모든 유형 예시",
+      "keyword": "예시",
+      "source": "반딧불자리 레슨에서 가져온 예시",
+      "ending": {
+        "text": "별에 불 들어왔다냥!"
+      },
+      "screens": [
+        {
+          "type": "quiz",
+          "kind": "single",
+          "section": "질문",
+          "question": "옛 그림 속 성모 마리아는 왜 자주 파란 옷일까?",
+          "options": [
+            "유행이라서",
+            "가장 귀한 색이라서",
+            "하늘을 뜻해서"
+          ],
+          "answer": 1
+        },
+        {
+          "type": "narration",
+          "section": "나레이션",
+          "lines": [
+            {
+              "speaker": "초롱이",
+              "text": "돌가루가 뭐 그렇게 비싸냥?"
+            },
+            {
+              "speaker": "별지기",
+              "text": "유럽에서는 나지 않는 돌이었어요.\n멀리 아프가니스탄 산속 광산에서 캐 왔죠."
+            }
+          ],
+          "source": "National Gallery, Sassoferrato 'The Virgin in Prayer' · Journey through colour"
+        },
+        {
+          "type": "concept",
+          "section": "개념",
+          "keyword": "청금석",
+          "image": "lapis.svg",
+          "lines": [
+            {
+              "speaker": "별지기",
+              "text": "가장 귀한 색이라서예요.\n그 파랑은 파란 물감 가운데 가장 비쌌어요."
+            },
+            {
+              "speaker": "별지기",
+              "text": "파란 돌을 갈아서 만든 물감이었거든요.\n이 돌이 청금석이에요."
+            }
+          ],
+          "source": "National Gallery, Sassoferrato 'The Virgin in Prayer' · Colour Stories: Blue"
+        },
+        {
+          "type": "quiz",
+          "kind": "ox",
+          "section": "OX",
+          "question": "이 파란 물감이 금보다 비쌀 때도 있었다.",
+          "answer": true,
+          "explain": "가장 좋은 등급은 금보다 값이 더 나갈 때도 있었어요. 돌을 구하기가 그만큼 어려웠거든요.",
+          "source": "National Gallery, Colour Stories: Blue"
+        },
+        {
+          "type": "quiz",
+          "kind": "multi",
+          "section": "여러 개 고르기",
+          "question": "그 뒤 화가들에게 생긴 일을 모두 고르세요.",
+          "options": [
+            "청금석을 더 찾았다",
+            "파랑을 넉넉히 썼다",
+            "물감값 부담이 줄었다"
+          ],
+          "answers": [
+            1,
+            2
+          ],
+          "explain": "값싼 인공 물감이 비싼 돌 물감 자리를 대신했어요.\n훗날 인상파 화가들도 이 파랑을 많이 썼어요.",
+          "source": "ColourLex, Ultramarine artificial"
+        },
+        {
+          "type": "quiz",
+          "kind": "blank",
+          "section": "빈칸",
+          "before": "너무 비싸서, 밑칠은",
+          "after": "하기도 했어요.",
+          "options": [
+            "같은 파랑으로",
+            "금가루로",
+            "더 싼 파랑으로"
+          ],
+          "answer": 2,
+          "explain": "밑에는 더 싼 파란 물감을 깔기도 했어요.\n비싼 파랑은 아껴 쓴 거예요.",
+          "source": "Wikipedia Ultramarine"
+        },
+        {
+          "type": "quiz",
+          "kind": "slider",
+          "section": "슬라이더",
+          "question": "상금의 주인은 언제 나왔을까?",
+          "hint": "끌어서 고르기",
+          "ticks": [
+            "1800년",
+            "1850년",
+            "1900년"
+          ],
+          "answer": 0.28,
+          "tolerance": 0.08
+        },
+        {
+          "type": "quiz",
+          "kind": "match",
+          "section": "짝 맞추기",
+          "question": "짝을 맞춰 보세요.",
+          "pairs": [
+            [
+              "청금석",
+              "아프가니스탄"
+            ],
+            [
+              "울트라마린",
+              "바다 건너"
+            ],
+            [
+              "마리아의 옷",
+              "가장 귀한 색"
+            ],
+            [
+              "1828년",
+              "인공 물감에 상금"
+            ]
+          ],
+          "explain": "아프가니스탄에서 온 청금석으로 울트라마린을 만들었어요. 1828년 인공 물감이 상을 받은 뒤 값이 내렸어요."
+        },
+        {
+          "type": "quiz",
+          "kind": "chosung",
+          "section": "초성",
+          "question": "청금석을 갈아 만든 파란 물감의 이름은?",
+          "hint": "ㅇㅌㄹㅁㄹ",
+          "answer": [
+            "울트라마린"
+          ],
+          "explain": "울트라마린. '바다 건너'라는 뜻이에요."
+        },
+        {
+          "type": "quiz",
+          "kind": "sound",
+          "section": "소리 듣고 고르기",
+          "memo": "예시로 만든 문제. 시뮬레이터에는 없는 유형",
+          "question": "방금 들은 악기는 무엇일까요?",
+          "audio": "oboe.mp3",
+          "options": [
+            "오보에",
+            "바이올린",
+            "플루트"
+          ],
+          "answer": 0,
+          "explain": "공연 전에 '라'를 길게 불어 모두가 음을 맞추는 악기, 오보에예요."
+        }
+      ],
+      "reviewQuizzes": [
+        {
+          "type": "quiz",
+          "kind": "tile",
+          "memo": "예시로 만든 복습 전용 문제",
+          "question": "이것은 무엇일까요?",
+          "image": "fusion.svg",
+          "rows": 6,
+          "columns": 8,
+          "options": [
+            "핵융합",
+            "핵분열",
+            "연소"
+          ],
+          "answer": 0,
+          "explain": "수소 원자핵 넷이 합쳐지는 핵융합 그림이에요."
+        },
+        {
+          "type": "quiz",
+          "kind": "zoomout",
+          "memo": "예시로 만든 복습 전용 문제",
+          "question": "이것은 무엇일까요?",
+          "image": "fusion.svg",
+          "stages": [
+            3,
+            2,
+            1
+          ],
+          "options": [
+            "핵융합",
+            "핵분열",
+            "연소"
+          ],
+          "answer": 0,
+          "explain": "수소 원자핵 넷이 합쳐지는 핵융합 그림이에요."
+        },
+        {
+          "type": "quiz",
+          "kind": "sharpen",
+          "memo": "예시로 만든 복습 전용 문제",
+          "question": "이것은 무엇일까요?",
+          "image": "fusion.svg",
+          "stages": [
+            24,
+            12,
+            6,
+            0
+          ],
+          "options": [
+            "핵융합",
+            "핵분열",
+            "연소"
+          ],
+          "answer": 0,
+          "explain": "수소 원자핵 넷이 합쳐지는 핵융합 그림이에요."
+        },
+        {
+          "type": "quiz",
+          "kind": "wrongword",
+          "memo": "예시로 만든 복습 전용 문제",
+          "question": "틀린 곳을 찾아 누르세요.",
+          "sentence": "태양 한가운데서 수소 원자핵 넷이 합쳐져 [산소] 하나가 돼요.",
+          "correct": "헬륨",
+          "explain": "헬륨이 맞아요. 수소 원자핵 넷이 합쳐지면 헬륨 하나가 돼요."
+        },
+        {
+          "type": "quiz",
+          "kind": "ox",
+          "memo": "예시로 만든 복습 전용 문제. 일반 유형도 복습 전용으로 쓸 수 있다",
+          "question": "태양은 장작처럼 산소로 불타고 있다.",
+          "answer": false,
+          "explain": "태양은 불타는 게 아니라 원자핵이 합쳐지며 빛을 내요."
+        }
+      ]
+    }
+  ]
+}

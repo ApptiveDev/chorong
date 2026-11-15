@@ -9,8 +9,10 @@ data class OxAnswer(
     val answer: Boolean,
 ) : QuizAnswer
 
+/** correctWord는 INLINE_WORD(틀린 곳 찾기)의 바른 낱말. 문제 config로 내보내지 않는다. */
 data class SingleAnswer(
     val answer: Int,
+    val correctWord: String? = null,
 ) : QuizAnswer
 
 data class MultiAnswer(
