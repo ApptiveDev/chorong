@@ -18,6 +18,7 @@ class ReviewSetService(
     private val jdbc: JdbcTemplate,
     private val quizzes: QuizService,
     private val clock: Clock,
+    private val rewardRule: ReviewRewardRule,
 ) {
     private val kst = ZoneId.of("Asia/Seoul")
 
@@ -34,12 +35,12 @@ class ReviewSetService(
                 ).firstOrNull()
         if (validUser == null) throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
 
-        val existing = findOpenSession(userId, today)
-        if (existing != null) return sessionResponse(existing, userId, today)
+        // 호출할 때마다 새 회차를 만든다. 끝나지 않은 이전 회차는 닫는다.
+        jdbc.update("UPDATE review_session SET status='ABANDONED' WHERE user_id=? AND status='OPEN'", userId)
 
         val available = candidates(userId, today)
         if (available.size < ReviewSelection.SESSION_SIZE) {
-            return ReviewSetResponse(emptyList(), EMPTY_MESSAGE, rewardEligible(userId, today))
+            return ReviewSetResponse(null, emptyList(), EMPTY_MESSAGE, rewardRule.eligible(userId))
         }
 
         val sessionId =
@@ -60,26 +61,25 @@ class ReviewSetService(
                 if (candidate.reviewOnly) "REVIEW_ONLY" else "LESSON_WRONG",
             )
         }
-        return sessionResponse(sessionId, userId, today)
+        return sessionResponse(sessionId, userId)
     }
 
-    // 레슨 전 필수 복습(lesson_id 있는 회차)은 없어졌다. 레슨과 무관한 회차만 이어 쓴다.
-    private fun findOpenSession(
-        userId: Long,
-        today: LocalDate,
-    ): Long? =
-        jdbc
-            .query(
-                "SELECT review_session_id FROM review_session WHERE user_id=? AND review_date=? AND lesson_id IS NULL AND status='OPEN'",
-                { rs, _ -> rs.getLong(1) },
-                userId,
-                Date.valueOf(today),
-            ).firstOrNull()
+    /** API-504. 회차를 만들지 않고 후보 수와 오늘 보상 여부만 돌려준다. */
+    @Transactional(readOnly = true)
+    fun status(userId: Long): ReviewStatusResponse {
+        if (userId <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val count = candidateCount(userId)
+        return ReviewStatusResponse(
+            available = count >= ReviewSelection.SESSION_SIZE,
+            candidateCount = count,
+            rewardEligible = rewardRule.eligible(userId),
+            rewardAmount = ReviewRewardRule.REVIEW_STARDUST_REWARD,
+        )
+    }
 
     private fun sessionResponse(
         sessionId: Long,
         userId: Long,
-        today: LocalDate,
     ): ReviewSetResponse {
         val items =
             jdbc
@@ -88,7 +88,7 @@ class ReviewSetService(
                     { rs, _ -> ItemRow(rs.getLong("review_item_id"), rs.getLong("quiz_id")) },
                     sessionId,
                 ).map { ReviewItemResponse(it.reviewItemId, quizzes.get(it.quizId)) }
-        return ReviewSetResponse(items, rewardEligible = rewardEligible(userId, today))
+        return ReviewSetResponse(sessionId, items, rewardEligible = rewardRule.eligible(userId))
     }
 
     /** API-504에서도 쓴다. 재출제 제외 기간이 아닌 후보 수. */
@@ -139,26 +139,12 @@ class ReviewSetService(
             Date.valueOf(today),
         )
 
-    private fun rewardEligible(
-        userId: Long,
-        today: LocalDate,
-    ): Boolean =
-        (
-            jdbc.queryForObject(
-                "SELECT COUNT(*) FROM review_session WHERE user_id=? AND review_date=? AND reward_granted",
-                Int::class.java,
-                userId,
-                Date.valueOf(today),
-            ) ?: 0
-        ) < DAILY_REWARD_LIMIT
-
     private data class ItemRow(
         val reviewItemId: Long,
         val quizId: Long,
     )
 
     companion object {
-        private const val DAILY_REWARD_LIMIT = 3
         private const val EMPTY_MESSAGE = "더 이상 복습할 문제가 없어요"
     }
 }

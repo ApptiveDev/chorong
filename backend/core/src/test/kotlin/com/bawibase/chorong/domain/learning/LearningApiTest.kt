@@ -40,6 +40,7 @@ import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 @SpringBootTest
@@ -610,12 +611,25 @@ class LearningApiTest {
         assertEquals(2, chosen.count { it in wrongQuizzes })
         assertEquals(1, chosen.count { it in perfectReviewOnly })
 
+        mvc.get("/api/v1/reviews/status") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.available") { value(true) }
+            jsonPath("$.data.candidateCount") { value(7) }
+            jsonPath("$.data.rewardEligible") { value(true) }
+            jsonPath("$.data.rewardAmount") { value(5) }
+        }
+        // 다시 시작하면 새 회차를 만들고 이전 회차는 닫는다.
+        val firstSession = mapper.readTree(first)["data"]["reviewSessionId"].asLong()
         val second =
             mvc
                 .get("/api/v1/reviews/next") { header(HttpHeaders.AUTHORIZATION, auth) }
                 .andReturn()
                 .response.contentAsString
-        assertEquals(items.map { it["reviewItemId"] }, mapper.readTree(second)["data"]["reviewItems"].map { it["reviewItemId"] })
+        assertNotEquals(firstSession, mapper.readTree(second)["data"]["reviewSessionId"].asLong())
+        assertEquals(
+            "ABANDONED",
+            jdbc.queryForObject("SELECT status FROM review_session WHERE review_session_id=?", String::class.java, firstSession),
+        )
 
         // 열린 회차를 지우고 후보를 제외 기간으로 돌리면 5개 미만이라 회차를 만들지 않는다.
         jdbc.update("DELETE FROM review_session WHERE user_id=?", userId)
@@ -629,8 +643,13 @@ class LearningApiTest {
             )
         }
         assertEquals(3, reviewSets.candidateCount(userId))
+        mvc.get("/api/v1/reviews/status") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            jsonPath("$.data.available") { value(false) }
+            jsonPath("$.data.candidateCount") { value(3) }
+        }
         mvc.get("/api/v1/reviews/next") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
+            jsonPath("$.data.reviewSessionId") { value(null) }
             jsonPath("$.data.reviewItems.length()") { value(0) }
             jsonPath("$.data.message") { value("더 이상 복습할 문제가 없어요") }
         }
@@ -708,7 +727,6 @@ class LearningApiTest {
                 correctQuizId,
             ),
         )
-        mvc.get("/api/v1/reviews/next") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
         val repeated =
             postReviewAnswer(correctItemId, mapper.readTree("""{"answer":0}"""))
                 .andExpect { status { isOk() } }
@@ -831,60 +849,102 @@ class LearningApiTest {
     }
 
     @Test
-    fun `review session completion grants at most three stars and is idempotent`() {
+    fun `review completion grants five stardust once per completion day without energy`() {
         val (_, lessonId) = createUnlockedLesson("review complete")
         val quizIds = quizFixtures().take(5).mapIndexed { index, fixture -> seedFixture(fixture, lessonId, index) }
-        val firstItems = createReviewSessionItems(quizIds, completed = false)
-        val firstKey = UUID.randomUUID().toString()
-        postReviewComplete(firstItems, firstKey).andExpect { status { isConflict() } }
-        val itemPlaceholders = List(5) { "?" }.joinToString(",")
         jdbc.update(
-            "UPDATE review_session_item SET completed=true, correct=true, answered_at=?, attempt_id=review_item_id WHERE review_item_id IN ($itemPlaceholders)",
-            Timestamp.from(clock.instant()),
-            *firstItems.toTypedArray(),
+            "INSERT INTO user_wallet(user_id,energy,energy_date) VALUES (?,0,?) ON CONFLICT (user_id) DO UPDATE SET energy=0, energy_date=?",
+            userId,
+            java.sql.Date.valueOf(today()),
+            java.sql.Date.valueOf(today()),
         )
-        postReviewComplete(firstItems, firstKey).andExpect {
+        entityManager.clear()
+
+        val first = sessionOf(createReviewSessionItems(quizIds, completed = false))
+        val key = UUID.randomUUID().toString()
+        postReviewComplete(first, key).andExpect { status { isConflict() } }
+        jdbc.update(
+            "UPDATE review_session_item SET completed=true, correct=(item_order < 3), answered_at=now(), attempt_id=review_item_id WHERE review_session_id=?",
+            first,
+        )
+        postReviewComplete(first, key).andExpect {
             status { isOk() }
-            jsonPath("$.data.rewards.length()") { value(1) }
-            jsonPath("$.data.rewards[0].currency") { value("STARDUST") }
-            jsonPath("$.data.rewards[0].amount") { value(1) }
-            jsonPath("$.data.wallet.stardust") { value(1) }
+            jsonPath("$.data.rewardStatus") { value("GRANTED") }
+            jsonPath("$.data.correctCount") { value(3) }
+            jsonPath("$.data.totalCount") { value(5) }
+            jsonPath("$.data.rewards[0].amount") { value(5) }
+            jsonPath("$.data.wallet.stardust") { value(5) }
+            jsonPath("$.data.wallet.energy") { value(0) }
         }
-        postReviewComplete(firstItems, firstKey).andExpect {
+        postReviewComplete(first, key).andExpect {
             status { isOk() }
             jsonPath("$.data.rewards.length()") { value(1) }
-            jsonPath("$.data.wallet.stardust") { value(1) }
+            jsonPath("$.data.wallet.stardust") { value(5) }
         }
         mvc.get("/api/v1/users/me/rewards") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.rewards[0].source") { isMap() }
             jsonPath("$.data.rewards[0].source.lessonId") { doesNotExist() }
         }
-        postReviewComplete(firstItems.reversed(), firstKey).andExpect { status { isConflict() } }
-        postReviewComplete(firstItems, UUID.randomUUID().toString()).andExpect {
+        postReviewComplete(first, UUID.randomUUID().toString()).andExpect {
             status { isOk() }
+            jsonPath("$.data.rewardStatus") { value("ALREADY_GRANTED") }
             jsonPath("$.data.rewards.length()") { value(0) }
-            jsonPath("$.data.wallet.stardust") { value(1) }
         }
 
-        repeat(3) { index ->
-            val itemIds = createReviewSessionItems(quizIds, completed = true)
-            postReviewComplete(itemIds, UUID.randomUUID().toString()).andExpect {
-                status { isOk() }
-                jsonPath("$.data.rewards.length()") { value(if (index < 2) 1 else 0) }
-                jsonPath("$.data.wallet.stardust") { value(minOf(index + 2, 3)) }
-            }
+        // 같은 날 두 번째 완료는 보상이 없다.
+        postReviewComplete(sessionOf(createReviewSessionItems(quizIds, completed = true)), UUID.randomUUID().toString()).andExpect {
+            status { isOk() }
+            jsonPath("$.data.rewardStatus") { value("ALREADY_GRANTED") }
+            jsonPath("$.data.wallet.stardust") { value(5) }
         }
-        val today = java.sql.Date.valueOf(java.time.LocalDate.ofInstant(clock.instant(), java.time.ZoneId.of("Asia/Seoul")))
+
+        // 23시대에 시작해 자정 뒤에 끝낸 회차는 끝낸 날의 보상을 받는다.
+        val lateSession = sessionOf(createReviewSessionItems(quizIds, completed = true))
+        val nextDay = today().plusDays(1).atStartOfDay(java.time.ZoneId.of("Asia/Seoul")).toInstant()
+        `when`(clock.instant()).thenReturn(nextDay)
+        postReviewComplete(lateSession, UUID.randomUUID().toString()).andExpect {
+            status { isOk() }
+            jsonPath("$.data.rewardStatus") { value("GRANTED") }
+            jsonPath("$.data.wallet.stardust") { value(10) }
+        }
+        assertEquals(0, jdbc.queryForObject("SELECT energy FROM user_wallet WHERE user_id=?", Int::class.java, userId))
+    }
+
+    @Test
+    fun `abandoned review sessions reject answers and completion`() {
+        val (_, lessonId) = createUnlockedLesson("review abandon")
+        val quizIds = quizFixtures().take(5).mapIndexed { index, fixture -> seedFixture(fixture, lessonId, index) }
+        val items = createReviewSessionItems(quizIds, completed = false)
+        val sessionId = sessionOf(items)
+        val single = quizFixtures().first()
+        postReviewAnswer(items[0], single["correctResponse"]).andExpect { status { isOk() } }
+
+        abandon(sessionId).andExpect { status { isNoContent() } }
+        abandon(sessionId).andExpect { status { isNoContent() } }
         assertEquals(
-            3,
+            "ABANDONED",
+            jdbc.queryForObject("SELECT status FROM review_session WHERE review_session_id=?", String::class.java, sessionId),
+        )
+        // 이미 낸 답의 재출제 반영은 남는다.
+        assertEquals(
+            java.sql.Date.valueOf(today().plusDays(1)),
             jdbc.queryForObject(
-                "SELECT COUNT(*) FROM review_session WHERE user_id=? AND review_date=? AND reward_granted",
-                Int::class.java,
+                "SELECT available_on FROM quiz_review_pool WHERE user_id=? AND quiz_id=?",
+                java.sql.Date::class.java,
                 userId,
-                today,
+                quizIds[0],
             ),
         )
+        postReviewAnswer(items[1], quizFixtures()[1]["correctResponse"]).andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("REVIEW_SESSION_CLOSED") }
+        }
+        postReviewComplete(sessionId, UUID.randomUUID().toString()).andExpect {
+            status { isConflict() }
+            jsonPath("$.error.code") { value("REVIEW_SESSION_CLOSED") }
+        }
+        abandon(999_999).andExpect { status { isNotFound() } }
     }
 
     @Test
@@ -1754,14 +1814,30 @@ class LearningApiTest {
     }
 
     private fun postReviewComplete(
-        reviewItemIds: List<Long>,
+        reviewSessionId: Long,
         key: String,
     ) = mvc.post("/api/v1/reviews/complete") {
         header(HttpHeaders.AUTHORIZATION, auth)
         header("Idempotency-Key", key)
         contentType = MediaType.APPLICATION_JSON
-        content = mapper.writeValueAsBytes(mapOf("reviewItemIds" to reviewItemIds))
+        content = mapper.writeValueAsBytes(mapOf("reviewSessionId" to reviewSessionId))
     }
+
+    private fun abandon(reviewSessionId: Long) =
+        mvc.post("/api/v1/reviews/abandon") {
+            header(HttpHeaders.AUTHORIZATION, auth)
+            contentType = MediaType.APPLICATION_JSON
+            content = mapper.writeValueAsBytes(mapOf("reviewSessionId" to reviewSessionId))
+        }
+
+    private fun sessionOf(itemIds: List<Long>): Long =
+        checkNotNull(
+            jdbc.queryForObject(
+                "SELECT review_session_id FROM review_session_item WHERE review_item_id=?",
+                Long::class.java,
+                itemIds.first(),
+            ),
+        )
 
     private fun createReviewSessionItems(
         quizIds: List<Long>,
