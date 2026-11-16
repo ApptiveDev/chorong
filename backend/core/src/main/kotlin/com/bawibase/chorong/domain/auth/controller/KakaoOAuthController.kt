@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController
 data class KakaoOAuthRequest(
     @field:NotBlank @field:Size(max = 8192) val accessToken: String,
     @field:Pattern(regexp = GuestAuthRequest.UUID_PATTERN) val deviceUuid: String,
+    val switchToExisting: Boolean = false,
 )
 
 @RestController
@@ -36,6 +37,8 @@ class KakaoOAuthController(
         @Valid @RequestBody request: KakaoOAuthRequest,
     ): ApiResponse<GuestAuthData> {
         val subject = verifier.verify(request.accessToken)
-        return ApiResponse(oauth.authenticate(AuthProvider.KAKAO, subject, request.deviceUuid, jwt?.subject?.toLongOrNull()))
+        return ApiResponse(
+            oauth.authenticate(AuthProvider.KAKAO, subject, request.deviceUuid, jwt?.subject?.toLongOrNull(), request.switchToExisting),
+        )
     }
 }
