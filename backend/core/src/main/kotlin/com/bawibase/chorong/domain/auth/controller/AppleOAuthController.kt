@@ -22,6 +22,7 @@ data class AppleOAuthRequest(
     @field:NotBlank @field:Size(max = 16384) val idToken: String,
     @field:NotBlank @field:Size(max = 4096) val authorizationCode: String,
     @field:Pattern(regexp = GuestAuthRequest.UUID_PATTERN) val deviceUuid: String,
+    val switchToExisting: Boolean = false,
 )
 
 @RestController
@@ -37,6 +38,8 @@ class AppleOAuthController(
         @Valid @RequestBody request: AppleOAuthRequest,
     ): ApiResponse<GuestAuthData> {
         val subject = verifier.verifier.verify(request.idToken, request.authorizationCode)
-        return ApiResponse(oauth.authenticate(AuthProvider.APPLE, subject, request.deviceUuid, jwt?.subject?.toLongOrNull()))
+        return ApiResponse(
+            oauth.authenticate(AuthProvider.APPLE, subject, request.deviceUuid, jwt?.subject?.toLongOrNull(), request.switchToExisting),
+        )
     }
 }

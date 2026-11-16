@@ -4,6 +4,7 @@ import com.bawibase.chorong.common.api.ApiError
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiErrorItem
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.domain.housing.dto.HousingCoordinatePlacementBatchRequest
 import com.bawibase.chorong.domain.housing.dto.HousingStorePurchaseRequest
 import com.bawibase.chorong.domain.housing.dto.HousingStorePurchaseResponse
 import com.bawibase.chorong.domain.idempotency.IdempotencyService
@@ -22,6 +23,7 @@ class HousingStorePurchaseService(
     private val idempotency: IdempotencyService,
     private val wallets: UserWalletService,
     private val inventoryReader: RewardReadService,
+    private val housing: HousingService,
 ) {
     @Transactional
     fun purchase(
@@ -82,15 +84,44 @@ class HousingStorePurchaseService(
         if (errors.isNotEmpty()) fail(errors)
 
         wallet.stardust -= stardustCost
-        request.items.forEach { requested ->
-            repeat(requested.quantity) {
-                jdbc.update("INSERT INTO housing_store_owned_option (user_id,option_id) VALUES (?,?)", userId, requested.optionId)
+        // newInventoryIds[i][n] 은 items 의 i 번째 항목에서 n 번째로 산 보유 ID 다.
+        val newInventoryIds =
+            request.items.map { requested ->
+                List(requested.quantity) {
+                    checkNotNull(
+                        jdbc.queryForObject(
+                            "INSERT INTO housing_store_owned_option (user_id,option_id) VALUES (?,?) RETURNING inventory_id",
+                            Long::class.java,
+                            userId,
+                            requested.optionId,
+                        ),
+                    )
+                }
             }
-        }
+        // 배치 검증이 실패하면 예외가 트랜잭션 전체를 되돌려 차감과 구매분도 남지 않는다.
+        val placements =
+            request.placements?.let { requested ->
+                val resolved = requested.map { it.copy(inventoryId = resolveInventoryId(it.inventoryId, newInventoryIds)) }
+                housing.saveCoordinatePlacements(userId, HousingCoordinatePlacementBatchRequest(resolved)).placements
+            }
         val ownedByOption = inventoryReader.inventory(userId, null).items.associateBy { it.optionId }
         val inventory = options.filterNotNull().distinctBy { it.optionId }.map { checkNotNull(ownedByOption[it.optionId]) }
         logger.info("shop.store_purchased userId={} itemCount={} stardust={}", userId, inventory.size, stardustCost)
-        return HousingStorePurchaseResponse(inventory, wallets.balances(wallet))
+        return HousingStorePurchaseResponse(inventory, wallets.balances(wallet), placements)
+    }
+
+    /** `new:{index}:{n}` 을 이번 구매분의 `store:{id}` 로 바꾼다. 범위를 벗어나면 미보유(ERR-30)다. */
+    private fun resolveInventoryId(
+        inventoryId: String,
+        newInventoryIds: List<List<Long>>,
+    ): String {
+        if (!inventoryId.startsWith(NEW_PREFIX)) return inventoryId
+        val parts = inventoryId.removePrefix(NEW_PREFIX).split(':')
+        val index = parts.getOrNull(0)?.takeIf { it.all(Char::isDigit) }?.toIntOrNull()
+        val copy = parts.getOrNull(1)?.takeIf { it.all(Char::isDigit) }?.toIntOrNull()
+        val id =
+            if (parts.size == 2 && index != null && copy != null) newInventoryIds.getOrNull(index)?.getOrNull(copy) else null
+        return STORE_PREFIX + (id ?: throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED))
     }
 
     private fun findItem(itemId: Long): StoreItem? =
@@ -165,6 +196,8 @@ class HousingStorePurchaseService(
     private companion object {
         const val OPERATION_ID = "API-903"
         const val STARDUST = "STARDUST"
+        const val NEW_PREFIX = "new:"
+        const val STORE_PREFIX = "store:"
         val logger = LoggerFactory.getLogger(HousingStorePurchaseService::class.java)
     }
 }

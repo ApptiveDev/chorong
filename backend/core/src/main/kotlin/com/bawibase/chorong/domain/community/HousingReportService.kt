@@ -2,13 +2,15 @@ package com.bawibase.chorong.domain.community
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.common.api.FieldViolation
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 data class HousingReportRequest(
     val housingId: Long,
-    val reason: String,
+    // 생략하면 OTHER 로 저장한다.
+    val reason: String? = null,
     val detail: String? = null,
 )
 
@@ -28,10 +30,15 @@ class HousingReportService(
         requireId(reporterUserId)
         requireId(request.housingId)
         if (reporterUserId == request.housingId) throw ApiV1Exception(ApiErrorCode.SELF_TARGET)
-        if (request.reason !in REASONS ||
-            request.detail?.codePointCount(0, request.detail.length)?.let { it > MAX_DETAIL_LENGTH } == true
-        ) {
-            throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val reason = request.reason ?: DEFAULT_REASON
+        if (reason !in REASONS) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        // 신고 사유는 자유 입력이 필수다. 앞뒤 공백을 뺀 뒤 1~255자.
+        val detail = request.detail?.trim().orEmpty()
+        if (detail.codePointCount(0, detail.length) !in 1..MAX_DETAIL_LENGTH) {
+            throw ApiV1Exception(
+                ApiErrorCode.VALIDATION_FAILED,
+                fields = listOf(FieldViolation("detail", "신고 사유를 1~255자로 입력하세요.")),
+            )
         }
         requireActiveMember(reporterUserId)
         requireActiveTarget(request.housingId)
@@ -48,8 +55,8 @@ class HousingReportService(
                     { rs, _ -> rs.getLong("report_id") },
                     request.housingId,
                     reporterUserId,
-                    request.reason,
-                    request.detail?.trim()?.takeIf { it.isNotEmpty() },
+                    reason,
+                    detail,
                     request.housingId,
                     reporterUserId,
                 ).firstOrNull()
@@ -120,6 +127,7 @@ class HousingReportService(
     companion object {
         private const val REPORT_THRESHOLD = 3
         private const val MAX_DETAIL_LENGTH = 255
+        private const val DEFAULT_REASON = "OTHER"
         private val REASONS = setOf("INAPPROPRIATE_NAME", "ABUSE", "SPAM", "OTHER")
     }
 }

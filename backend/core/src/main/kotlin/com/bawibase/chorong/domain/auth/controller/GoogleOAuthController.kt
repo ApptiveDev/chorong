@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController
 data class GoogleOAuthRequest(
     @field:NotBlank @field:Size(max = 16384) val idToken: String,
     @field:Pattern(regexp = GuestAuthRequest.UUID_PATTERN) val deviceUuid: String,
+    val switchToExisting: Boolean = false,
 )
 
 @RestController
@@ -35,6 +36,6 @@ class GoogleOAuthController(
         @Valid @RequestBody request: GoogleOAuthRequest,
     ): ApiResponse<GuestAuthData> {
         val subject = verifier.verify(request.idToken)
-        return ApiResponse(google.authenticate(subject, request.deviceUuid, jwt?.subject?.toLongOrNull()))
+        return ApiResponse(google.authenticate(subject, request.deviceUuid, jwt?.subject?.toLongOrNull(), request.switchToExisting))
     }
 }

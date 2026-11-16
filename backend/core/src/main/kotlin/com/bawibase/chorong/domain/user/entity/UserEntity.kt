@@ -10,7 +10,9 @@ import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import org.hibernate.annotations.CreationTimestamp
+import org.hibernate.annotations.Generated
 import org.hibernate.annotations.UpdateTimestamp
+import org.hibernate.generator.EventType
 import java.time.LocalDate
 import java.time.OffsetDateTime
 
@@ -26,6 +28,11 @@ class UserEntity(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "user_id")
     var id: Long? = null
+
+    // DB 시퀀스가 INSERT 때 채운다.
+    @Generated(event = [EventType.INSERT])
+    @Column(name = "user_code", insertable = false, updatable = false, length = 8)
+    var userCode: String? = null
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
