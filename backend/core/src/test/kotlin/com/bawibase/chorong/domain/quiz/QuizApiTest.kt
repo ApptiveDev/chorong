@@ -666,7 +666,7 @@ class QuizApiTest {
         assertTrue(operation["parameters"].none { it["name"].asText() == "userId" })
         assertEquals(setOf("response"), docs["components"]["schemas"]["QuizAttemptRequest"]["properties"].fieldNames().asSequence().toSet())
         assertEquals(
-            setOf("attemptId", "graded", "correct", "completed", "explanation", "correctAnswer", "closeness", "source"),
+            setOf("attemptId", "graded", "correct", "completed", "explanation", "correctAnswer", "closeness", "source", "correctWord"),
             docs["components"]["schemas"]["QuizAttemptResponse"]["properties"].fieldNames().asSequence().toSet(),
         )
     }

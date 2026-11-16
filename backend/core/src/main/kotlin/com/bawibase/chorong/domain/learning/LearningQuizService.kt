@@ -16,8 +16,10 @@ import java.time.ZoneId
 
 data class AnswerResult(
     val attemptId: Long,
+    // 학습 레슨의 첫 퀴즈는 채점하지 않는다. 그때 isCorrect는 null이고 correctAnswer를 생략한다.
+    val graded: Boolean,
     @field:JsonInclude(JsonInclude.Include.ALWAYS)
-    val isCorrect: Boolean,
+    val isCorrect: Boolean?,
     val completed: Boolean,
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val correctAnswer: JsonNode?,
@@ -28,6 +30,8 @@ data class AnswerResult(
     val closeness: Int? = null,
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val source: String? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val correctWord: String? = null,
 )
 
 @Service
@@ -87,7 +91,7 @@ class LearningQuizService(
         if (!replay && progress == "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (progress !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
 
-        val result = quizzes.submitPublic(userId, quizId, answer, replay)
+        val result = quizzes.submitPublic(userId, quizId, answer, replay, graded = !isFirstQuiz(lesson.lessonId, quizId))
         if (replay) return result.toAnswerResult(studyStreak.current(userId))
 
         jdbc.update(
@@ -95,40 +99,35 @@ class LearningQuizService(
             userId,
             lesson.lessonId,
         )
-        // 해설 없는 문항은 레슨 도입 질문이라 점수와 복습에 넣지 않는다.
-        if (result.completed && result.explanation != null) {
-            val now = Timestamp.from(clock.instant())
-            val studyDate = LocalDate.ofInstant(now.toInstant(), kst)
-            updateReviewPool(userId, quizId, result, studyDate, now)
+        // 처음 학습할 때 틀린 퀴즈는 레슨이 끝나면 복습 후보가 된다. 맞혔거나 채점하지 않은 퀴즈는 기록하지 않는다.
+        if (result.completed && result.graded && result.correct == false) {
+            jdbc.update(
+                """INSERT INTO quiz_review_pool(user_id, quiz_id, lesson_wrong, available_on, last_submitted_at)
+                   VALUES (?, ?, TRUE, ?, ?)
+                   ON CONFLICT (user_id, quiz_id) DO UPDATE SET lesson_wrong = TRUE, modified_at = now()""",
+                userId,
+                quizId,
+                LocalDate.ofInstant(clock.instant(), kst),
+                Timestamp.from(clock.instant()),
+            )
         }
         return result.toAnswerResult(studyStreak.current(userId))
     }
 
-    private fun updateReviewPool(
-        userId: Long,
+    /** 학습 레슨에서 순서상 첫 퀴즈. API-403의 QuizPublic.graded=false와 같은 기준이다. */
+    private fun isFirstQuiz(
+        lessonId: Long,
         quizId: Long,
-        result: QuizAttemptResponse,
-        studyDate: LocalDate,
-        submittedAt: Timestamp,
-    ) {
-        val status = if (result.correct == true) "CORRECT" else "WRONG"
-        val availableOn = if (status == "CORRECT") studyDate.plusDays(1) else studyDate
-        jdbc.update(
-            """INSERT INTO quiz_review_pool(user_id, quiz_id, status, available_on, last_submitted_at)
-               VALUES (?, ?, ?, ?, ?)
-               ON CONFLICT (user_id, quiz_id) DO UPDATE SET status = EXCLUDED.status,
-                 available_on = EXCLUDED.available_on, last_submitted_at = EXCLUDED.last_submitted_at,
-                 modified_at = now()""",
-            userId,
-            quizId,
-            status,
-            availableOn,
-            submittedAt,
-        )
-    }
+    ): Boolean =
+        jdbc
+            .query(
+                "SELECT quiz_id FROM lesson_content WHERE lesson_id = ? AND quiz_id IS NOT NULL ORDER BY content_order, content_id LIMIT 1",
+                { rs, _ -> rs.getLong(1) },
+                lessonId,
+            ).firstOrNull() == quizId
 
     private fun QuizAttemptResponse.toAnswerResult(streakDays: Int) =
-        AnswerResult(attemptId, checkNotNull(correct), completed, correctAnswer, explanation, streakDays, closeness, source)
+        AnswerResult(attemptId, graded, correct, completed, correctAnswer, explanation, streakDays, closeness, source, correctWord)
 
     private data class LinkedLesson(
         val lessonId: Long,
