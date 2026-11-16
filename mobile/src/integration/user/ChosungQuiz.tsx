@@ -23,6 +23,7 @@ import {
   isChosungInputFilled,
 } from './chosungInput';
 import { FEEDBACK_SHEET_COLORS, QuizFeedbackSheet } from './QuizFeedbackSheet';
+import { gradedAnnouncement, isUngraded } from './quizGrading';
 
 export function isChosungQuiz(quiz: Quiz | null | undefined): boolean {
   return quiz?.type === 'CHOSUNG' && typeof quiz.options?.hint === 'string';
@@ -40,6 +41,8 @@ export function ChosungQuiz({
   submit,
   onGraded,
   onAdvance,
+  initialText = '',
+  onTextChange,
 }: {
   quiz: Quiz;
   scale: number;
@@ -47,15 +50,19 @@ export function ChosungQuiz({
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
   onGraded: (result: AnswerResult) => void;
   onAdvance: () => Promise<void> | void;
+  // 이어하기로 복원한 미제출 입력(API-404 progress.draft). 복원만 하고 자동 제출하지 않는다.
+  initialText?: string;
+  // 입력이 바뀔 때마다 알린다. 학습 화면이 도중 나가기(API-409)의 draft 로 저장한다.
+  onTextChange?: (text: string) => void;
 }) {
   const hint = String(quiz.options?.hint ?? '');
   const slotCount = chosungSlotCount(hint);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const [phase, setPhase] = useState<Phase>('INPUT');
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [error, setError] = useState('');
   const phaseRef = useRef<Phase>('INPUT');
-  const textRef = useRef('');
+  const textRef = useRef(initialText);
   const inputRef = useRef<TextInput>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = useRef(true);
@@ -94,7 +101,7 @@ export function ChosungQuiz({
       setResult(graded);
       onGraded(graded);
       moveTo('GRADED');
-      AccessibilityInfo.announceForAccessibility(graded.isCorrect ? '정답' : '오답');
+      AccessibilityInfo.announceForAccessibility(gradedAnnouncement(quiz, graded));
       sheetProgress.setValue(0);
       const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
       if (!active.current) return;
@@ -120,6 +127,7 @@ export function ChosungQuiz({
     const value = compactChosung(next);
     textRef.current = value;
     setText(value);
+    onTextChange?.(value);
     clearSettle();
     if (isChosungInputFilled(value, slotCount))
       settleTimer.current = setTimeout(() => void grade(), CHOSUNG_SETTLE_MS);
@@ -139,11 +147,14 @@ export function ChosungQuiz({
 
   const graded = phase === 'GRADED' || phase === 'TRANSITIONING';
   const locked = disabled || phase !== 'INPUT';
+  // 채점하지 않는 문항은 정답·오답 색과 정답 표시 없이 입력한 그대로 둔다.
+  const ungraded = isUngraded(quiz, result);
   const expected =
-    result && !result.isCorrect && typeof result.correctAnswer.answer === 'string'
+    result && !ungraded && !result.isCorrect && typeof result.correctAnswer.answer === 'string'
       ? result.correctAnswer.answer
       : null;
-  const resultColor = result ? (result.isCorrect ? color.correct : color.wrong) : color.base;
+  const resultColor =
+    result && !ungraded ? (result.isCorrect ? color.correct : color.wrong) : color.base;
 
   return (
     <View style={s.stage}>
@@ -212,6 +223,7 @@ export function ChosungQuiz({
           progress={sheetProgress}
           nextDisabled={phase !== 'GRADED'}
           onNext={advance}
+          ungraded={ungraded}
         />
       ) : null}
     </View>

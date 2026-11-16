@@ -19,6 +19,7 @@
     "../src/integration/user/reviewStart.ts",
     "../src/integration/user/constellationRecord.ts",
     "../src/integration/user/welcomeFlow.ts",
+    "../src/integration/user/socialLoginResult.ts",
     "../src/integration/user/profileNickname.ts",
     "../src/integration/user/sliderQuizState.ts",
     "../src/integration/user/chosungInput.ts",

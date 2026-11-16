@@ -1,6 +1,7 @@
 // SINGLE 의 표시 방식(config.presentation) 화면 공통 틀.
 // 질문 → 미디어(소리·타일 등) → 보기 → 채점 뒤 해설 시트 순서이고, 미디어 칸만 방식별로 바꾼다.
-// 답안은 일반 SINGLE 과 같은 보기 순번이다. 쓰는 곳: AudioChoiceQuiz, TileRevealQuiz.
+// 답안은 일반 SINGLE 과 같은 보기 순번이다.
+// 쓰는 곳: SingleChoiceQuiz(미디어 없음), AudioChoiceQuiz, TileRevealQuiz, ZoomOutQuiz, SharpenQuiz, InlineWordQuiz.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AccessibilityInfo,
@@ -15,6 +16,7 @@ import {
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { FEEDBACK_SHEET_COLORS, QuizFeedbackSheet } from './QuizFeedbackSheet';
 import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
+import { gradedAnnouncement, isUngraded } from './quizGrading';
 import { choicesFor, correctChoiceIndex, type Choice } from './SingleChoiceQuiz';
 
 type Phase = 'UNANSWERED' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
@@ -32,12 +34,16 @@ export type PresentedChoiceProps = {
 /** 미디어 칸이 받는 상태. locked: 보기를 고른 뒤(채점 중 포함), graded: 채점 결과가 나온 뒤. */
 export type PresentedMediaState = { locked: boolean; graded: boolean };
 
-/** 보기 칸이 받는 상태. correctIndex 는 오답일 때 서버가 알려 준 정답 순번이다. */
+/**
+ * 보기 칸이 받는 상태. correctIndex 는 오답일 때 서버가 알려 준 정답 순번이다.
+ * ungraded 면 채점하지 않는 문항이라 정답·오답 색을 칠하지 않는다(correctIndex 도 null).
+ */
 export type PresentedChoicesState = {
   choices: Choice[];
   selected: number | null;
   correctIndex: number | null;
   result: AnswerResult | null;
+  ungraded: boolean;
   locked: boolean;
   choose: (index: number) => void;
 };
@@ -102,7 +108,7 @@ export function PresentedChoiceQuiz({
       setResult(graded);
       onGraded(graded);
       moveTo('GRADED');
-      AccessibilityInfo.announceForAccessibility(graded.isCorrect ? '정답' : '오답');
+      AccessibilityInfo.announceForAccessibility(gradedAnnouncement(quiz, graded));
       sheetProgress.setValue(0);
       const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
       if (!active.current) return;
@@ -137,7 +143,8 @@ export function PresentedChoiceQuiz({
   if (!choices) return <Text style={s.error}>선택지를 불러오지 못했습니다.</Text>;
   const graded = phase === 'GRADED' || phase === 'TRANSITIONING';
   const locked = disabled || phase !== 'UNANSWERED';
-  const correctIndex = result ? correctChoiceIndex(result, quiz) : null;
+  const ungraded = isUngraded(quiz, result);
+  const correctIndex = result && !ungraded ? correctChoiceIndex(result, quiz) : null;
 
   return (
     <View style={s.stage}>
@@ -168,16 +175,20 @@ export function PresentedChoiceQuiz({
               selected,
               correctIndex,
               result,
+              ungraded,
               locked,
               choose: (index) => void choose(index),
             })
           ) : (
             <View style={[s.options, { width: 320 * scale }]}>
               {choices.map((choice) => {
+                // 채점하지 않는 문항은 색을 바꾸지 않는다.
                 const correct =
                   !!result &&
+                  !ungraded &&
                   (result.isCorrect ? selected === choice.index : correctIndex === choice.index);
-                const wrong = !!result && !result.isCorrect && selected === choice.index;
+                const wrong =
+                  !!result && !ungraded && !result.isCorrect && selected === choice.index;
                 return (
                   <Pressable
                     key={choice.index}
@@ -219,6 +230,7 @@ export function PresentedChoiceQuiz({
           nextDisabled={phase !== 'GRADED'}
           onNext={advance}
           correctNote={correctNote}
+          ungraded={ungraded}
         />
       ) : null}
     </View>

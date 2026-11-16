@@ -2,15 +2,16 @@ import type { Content } from '../models';
 
 // speaker 는 서버 값을 그대로 보존한다. '초롱이' 만 캐릭터 스타일이 따로 있고,
 // 그 밖의 값(예상하지 못한 화자 포함)은 별지기와 같은 기본 스타일로 표시된다.
+// speaker 가 없으면 화자 이름 없이 대사만 표시한다(해설 대사).
 export type NarrationMessage = {
   id: string;
-  speaker: string;
+  speaker?: string;
   text: string;
   order: number;
 };
 
 // 화면 문구는 이전과 같은 "출처: …" 형식. 원본 값은 Content.source 에 그대로 남는다.
-const sourceLabel = (source?: string) => (source ? `출처: ${source}` : undefined);
+export const sourceLabel = (source?: string) => (source ? `출처: ${source}` : undefined);
 
 export function toNarrationContent(content: Content): {
   messages: NarrationMessage[];

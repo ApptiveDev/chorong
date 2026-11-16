@@ -30,6 +30,7 @@ import {
   DiscardChangesModal,
   InsufficientStardustModal,
   PurchaseConfirmModal,
+  SaveFailedModal,
 } from './HousingConfirmModals';
 import { housingVisibility, useHousingVisibility } from '../housingVisibility';
 import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
@@ -131,6 +132,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
+  const [saveFailedOpen, setSaveFailedOpen] = useState(false);
   const [shortfall, setShortfall] = useState(0);
   const [notice, setNotice] = useState('');
   const [showEditHint, setShowEditHint] = useState(false);
@@ -263,15 +265,24 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const stardustOptions = (item: ShopItem) =>
     item.options.filter((option) => option.currency === 'STARDUST');
   // 색상 필터가 있으면 그 색 옵션을, 없으면 첫 별가루 옵션을 고른다.
+  // 색상 필터에 맞는 옵션이 잠겨 있으면(ShopOption.unlocked=false) 그 옵션을 잠긴 채로 보여 준다.
+  // 필터가 없으면 살 수 있는 첫 옵션을 고른다.
   const shopChoice = (item: ShopItem) => {
     const options = stardustOptions(item);
     return (
       (colorFilter && options.find((option) => colorMatches(option.option, colorFilter))) ||
+      options.find((option) => option.unlocked !== false) ||
       options[0]
     );
   };
+  // 별자리 완성 보너스로 여는 색상 옵션은 해금 전 살 수 없다(0.4.1).
+  const lockedOptionNotice = (option: { unlockHint?: string | null }) =>
+    option.unlockHint ?? '아직 잠긴 색상이에요.';
+  // 바닥(FLOOR)·벽지(WALL)는 방에 놓는 가구가 아니다. 적용 방식은 하우징 꾸미기 명세가 정해지면 붙인다.
+  const placeable = (item: { itemType: string }) =>
+    item.itemType !== 'FLOOR' && item.itemType !== 'WALL';
   const visibleOwned = inventory.filter(
-    (item) => filter === 'ALL' || furnitureKind(item.name) === filter,
+    (item) => placeable(item) && (filter === 'ALL' || furnitureKind(item.name) === filter),
   );
   // 같은 아이템·옵션 사본을 한 칸으로 묶어 '배치 수/보유 수'로 보여준다.
   const ownedGroups = visibleOwned.reduce<OwnedGroup[]>((groups, item) => {
@@ -288,6 +299,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   }, []);
   const visibleShop = shopItems.filter(
     (item) =>
+      placeable(item) &&
       (filter === 'ALL' || furnitureKind(item.name) === filter) &&
       stardustOptions(item).some(
         (option) => !colorFilter || colorMatches(option.option, colorFilter),
@@ -370,6 +382,10 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     if (!item.unlocked || !item.options.length) return;
     const choice = shopChoice(item);
     if (!choice) return;
+    if (choice.unlocked === false) {
+      setNotice(lockedOptionNotice(choice));
+      return;
+    }
     const alreadyPending = pending.find((entry) => entry.optionId === choice.optionId);
     if (alreadyPending) {
       setSelectedKey(alreadyPending.key);
@@ -464,6 +480,10 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       (item) => item.optionId === optionId && item.currency === 'STARDUST',
     );
     if (!choice) return;
+    if (choice.unlocked === false) {
+      setNotice(lockedOptionNotice(choice));
+      return;
+    }
     const duplicate = pending.find(
       (item) => item.optionId === optionId && item.key !== selectedKey,
     );
@@ -513,7 +533,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   // 웹 새로고침·직접 진입처럼 뒤로 갈 기록이 없으면 내 우주선 탭으로 보낸다.
   const exit = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/');
+    else router.replace('/housing');
   };
   const leave = () => {
     if (task.busy) return;
@@ -561,59 +581,67 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   };
   const save = () => {
     setCheckoutOpen(false);
+    setSaveFailedOpen(false);
     void task.run(async () => {
-      let placements = draft;
-      if (pending.length) {
-        setPurchaseRetryOnly(true);
-        let result: Awaited<ReturnType<typeof api.room.purchase>>;
-        try {
-          result = await api.room.purchase(
-            pending.map((item) => ({ itemId: item.itemId, optionId: item.optionId })),
-            purchaseKey.current ?? (purchaseKey.current = randomUuid()),
-          );
-        } catch (error) {
-          if (!(error instanceof IntegrationError && error.code === 'INSUFFICIENT_BALANCE'))
-            throw error;
-          // 서버가 구매 전체를 거절했다(결제 없음). 키를 버리고 배치·구매 예정은 그대로 둔다.
+      try {
+        let placements = draft;
+        if (pending.length) {
+          setPurchaseRetryOnly(true);
+          let result: Awaited<ReturnType<typeof api.room.purchase>>;
+          try {
+            result = await api.room.purchase(
+              pending.map((item) => ({ itemId: item.itemId, optionId: item.optionId })),
+              purchaseKey.current ?? (purchaseKey.current = randomUuid()),
+            );
+          } catch (error) {
+            if (!(error instanceof IntegrationError && error.code === 'INSUFFICIENT_BALANCE'))
+              throw error;
+            // 서버가 구매 전체를 거절했다(결제 없음). 키를 버리고 배치·구매 예정은 그대로 둔다.
+            purchaseKey.current = null;
+            setPurchaseRetryOnly(false);
+            showInsufficient(await latestStardust());
+            return;
+          }
           purchaseKey.current = null;
           setPurchaseRetryOnly(false);
-          showInsufficient(await latestStardust());
-          return;
+          setWallet(result.wallet);
+          setInventory((items) => [...items, ...result.inventoryItems]);
+          const available = [...result.inventoryItems];
+          const purchased = pending.flatMap((item) => {
+            const index = available.findIndex(
+              (owned) => owned.itemId === item.itemId && owned.optionId === item.optionId,
+            );
+            if (index < 0) return [];
+            const [owned] = available.splice(index, 1);
+            return [
+              {
+                inventoryId: owned.inventoryId,
+                area: 'INTERIOR' as const,
+                transform: item.transform,
+              },
+            ];
+          });
+          placements = [...draft, ...purchased];
+          setDraft(placements);
+          setPending([]);
+          setSelectedKey(null);
+          if (purchased.length !== pending.length) {
+            setNotice('일부 아이템을 구매하지 못했습니다. 배치를 확인하세요.');
+            return result;
+          }
         }
-        purchaseKey.current = null;
-        setPurchaseRetryOnly(false);
-        setWallet(result.wallet);
-        setInventory((items) => [...items, ...result.inventoryItems]);
-        const available = [...result.inventoryItems];
-        const purchased = pending.flatMap((item) => {
-          const index = available.findIndex(
-            (owned) => owned.itemId === item.itemId && owned.optionId === item.optionId,
-          );
-          if (index < 0) return [];
-          const [owned] = available.splice(index, 1);
-          return [
-            {
-              inventoryId: owned.inventoryId,
-              area: 'INTERIOR' as const,
-              transform: item.transform,
-            },
-          ];
-        });
-        placements = [...draft, ...purchased];
-        setDraft(placements);
-        setPending([]);
-        setSelectedKey(null);
-        if (purchased.length !== pending.length) {
-          setNotice('일부 아이템을 구매하지 못했습니다. 배치를 확인하세요.');
-          return result;
-        }
+        const saved = await api.room.save(placements);
+        setRoom((current) => current && { ...current, placements: saved.placements });
+        setNotice('배치를 저장했습니다.');
+        leaveAllowed.current = true;
+        exit();
+        return saved;
+      } catch {
+        // M02_13: 별가루 부족 외 실패. 구매 키(purchaseKey)·구매 예정·배치를 그대로 두어
+        // '다시 시도'가 같은 키로 구매(API-903)를 다시 보내거나 배치(API-702)만 다시 저장한다.
+        setSaveFailedOpen(true);
+        return undefined;
       }
-      const saved = await api.room.save(placements);
-      setRoom((current) => current && { ...current, placements: saved.placements });
-      setNotice('배치를 저장했습니다.');
-      leaveAllowed.current = true;
-      exit();
-      return saved;
     });
   };
 
@@ -642,12 +670,13 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       >
         <View style={[s.shipColumn, { width: shipWidth }]}>
           <View style={s.shipBar}>
-            <StardustCount value={wallet?.stardust ?? null} />
+            {/* 재화는 학습 홈처럼 오른쪽, 내 우주선 상태 버튼은 왼쪽 */}
             <VisibilityBadge
               isPublic={isPublic}
               disabled={!room}
               onPress={() => setInfoOpen(true)}
             />
+            <StardustCount value={wallet?.stardust ?? null} />
           </View>
           <View style={s.roomBox}>
             <View style={s.sceneFit}>
@@ -786,23 +815,25 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
               })
             : visibleShop.map((item) => {
                 const choice = shopChoice(item);
+                // 아이템 전체 잠금(ShopItem.unlocked)과 고른 색상 옵션 잠금(ShopOption.unlocked)을 같이 본다.
+                const lockHint = !item.unlocked
+                  ? (item.unlockHint ?? '잠김')
+                  : choice?.unlocked === false
+                    ? (choice.unlockHint ?? '잠김')
+                    : null;
                 return (
                   <Product
                     key={item.itemId}
                     width={cardWidth}
                     name={item.name}
                     color={optionColor(choice?.option ?? {})}
-                    price={item.unlocked ? choice?.price : undefined}
-                    caption={
-                      item.unlocked ? (choice?.owned ? '보유' : '') : (item.unlockHint ?? '잠김')
-                    }
+                    price={lockHint === null ? choice?.price : undefined}
+                    caption={lockHint ?? (choice?.owned ? '보유' : '')}
                     accessibilityCaption={
-                      item.unlocked
-                        ? `별가루 ${choice?.price ?? 0}${choice?.owned ? ', 보유' : ''}`
-                        : (item.unlockHint ?? '잠김')
+                      lockHint ?? `별가루 ${choice?.price ?? 0}${choice?.owned ? ', 보유' : ''}`
                     }
                     disabled={
-                      !item.unlocked || !item.options.length || purchaseRetryOnly || task.busy
+                      lockHint !== null || !item.options.length || purchaseRetryOnly || task.busy
                     }
                     onPress={() => addShop(item)}
                   />
@@ -849,7 +880,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
                   {pending.length ? (
                     <View style={s.primaryPrice}>
                       <StarIcon fill={tone} />
-                      <Text style={[s.primaryText, { color: tone }]}>x {totalStardust}</Text>
+                      <Text style={[s.primaryText, { color: tone }]}>{totalStardust}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -878,6 +909,12 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         visible={insufficientOpen}
         amount={shortfall}
         onClose={() => setInsufficientOpen(false)}
+      />
+      <SaveFailedModal
+        visible={saveFailedOpen}
+        busy={task.busy}
+        onClose={() => setSaveFailedOpen(false)}
+        onRetry={save}
       />
       <DiscardChangesModal
         visible={exitOpen}
@@ -931,10 +968,14 @@ function Product({
       </View>
       <View style={s.productCaption}>
         {price !== undefined ? (
-          <Text style={s.productCaptionText} numberOfLines={1}>
-            x {price}
-            {caption ? ` · ${caption}` : ''}
-          </Text>
+          // 가격: 별가루 아이콘 + 숫자(우주선 잔액 표시와 같은 아이콘).
+          <View style={s.productPrice}>
+            <StarIcon fill={color.yellow} />
+            <Text style={s.productCaptionText} numberOfLines={1}>
+              {price}
+              {caption ? ` · ${caption}` : ''}
+            </Text>
+          </View>
         ) : (
           <Text style={s.productCaptionText} numberOfLines={1}>
             {caption}
@@ -1064,6 +1105,7 @@ const s = StyleSheet.create({
   productImage: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center' },
   productCaption: { width: '100%', paddingHorizontal: 8 },
   productCaptionText: { color: '#000000', fontFamily: 'PretendardRegular', fontSize: 12 },
+  productPrice: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   empty: {
     width: '100%',
     color: color.tertiary,

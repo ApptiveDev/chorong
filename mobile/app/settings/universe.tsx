@@ -14,7 +14,7 @@ import { integrationApi as api } from '../../src/integration/runtime';
 import { SessionConfirmModal } from '../../src/integration/user/SessionConfirmModal';
 import {
   PrivateConfirmModal,
-  PublicConfirmModal,
+  PublishConsentModal,
 } from '../../src/integration/user/VisibilityConfirmModals';
 
 // Figma S03_1 · 우주선 관리 (497:454)
@@ -175,7 +175,8 @@ export default function UniverseSettings() {
         {task.error && !unblockUser ? <Text style={s.error}>{task.error}</Text> : null}
       </ScrollView>
 
-      <PublicConfirmModal
+      {/* 켜기는 M02_10 공개 동의, 끄기는 M02_17 공개 해제. 확인하면 API-703 으로 바꾸고 이 화면에 남는다. */}
+      <PublishConsentModal
         visible={dialogVisible && confirmPublic}
         error={visibilityRequested ? task.error : null}
         busy={task.busy}
@@ -234,7 +235,7 @@ const s = StyleSheet.create({
   blocked: { marginTop: 24, gap: 12 },
   blockedTitle: {
     paddingLeft: 8,
-    color: figma.base,
+    color: figma.fale,
     fontFamily: 'PretendardMedium',
     fontSize: 16,
   },
@@ -267,6 +268,6 @@ const s = StyleSheet.create({
   unblock: { width: 28, height: 14, justifyContent: 'center' },
   empty: { paddingVertical: 12, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
   more: { paddingTop: 12, color: figma.base, fontFamily: 'PretendardMedium', fontSize: 14 },
-  notice: { marginTop: 16, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
-  error: { marginTop: 16, color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 14 },
+  notice: { marginTop: 16, color: figma.lght, fontFamily: 'PretendardRegular', fontSize: 14 },
+  error: { marginTop: 16, color: '#f92669', fontFamily: 'PretendardRegular', fontSize: 14 },
 });

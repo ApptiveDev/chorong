@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { useIntegration, useTask } from '../hooks';
 import { integrationApi as api, useMockApi } from '../runtime';
-import { firstStudyLesson } from './welcomeFlow';
+import { firstStudyRoute } from './welcomeFlow';
 
 export function WelcomeCat({ size = 120 }: { size?: number }) {
   return (
@@ -64,35 +64,14 @@ export default function WelcomeScreen() {
   const start = () => {
     if (!session.ready || task.busy) return;
     if (session.authenticated && session.user?.status !== 'GUEST') {
-      router.replace('/quiz');
+      router.replace('/');
       return;
     }
     if (!session.authenticated && !platform && !useMockApi) return;
     void task.run(async () => {
       if (!session.authenticated) await api.account.guest(platform ?? 'ANDROID');
-      try {
-        const { courses } = await api.learning.courses();
-        const firstCourse = courses[0];
-        if (firstCourse) {
-          const detail = await api.learning.course(firstCourse.courseId);
-          const firstStudy = firstStudyLesson(detail.lessons);
-          if (firstStudy) {
-            router.replace({
-              pathname: '/learn/study/[lessonId]',
-              params: {
-                lessonId: String(firstStudy.lesson.lessonId),
-                title: firstStudy.lesson.title,
-                fromWelcome: 'true',
-                replay: firstStudy.replay ? 'true' : 'false',
-              },
-            });
-            return;
-          }
-        }
-      } catch {
-        // 게스트 계정은 유지하고 학습 홈에서 다시 불러온다.
-      }
-      router.replace('/quiz');
+      // 레슨을 못 불러오면 게스트 계정은 유지하고 학습 홈에서 다시 불러온다.
+      router.replace((await firstStudyRoute(api.learning)) ?? '/');
     });
   };
 
@@ -232,11 +211,12 @@ export default function WelcomeScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/account')}
+              // entry=existing: 로그인 결과가 새 계정이면 SocialLoginScreen 이 M01_3 을 띄운다.
+              onPress={() => router.push({ pathname: '/account', params: { entry: 'existing' } })}
               style={s.secondary}
             >
               <Text allowFontScaling={false} numberOfLines={1} style={s.secondaryText}>
-                로그인 / 회원가입
+                기존 계정으로 로그인
               </Text>
             </Pressable>
           </View>

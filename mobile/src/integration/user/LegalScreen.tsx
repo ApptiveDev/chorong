@@ -23,7 +23,8 @@ export function LegalScreen({ title, message }: { title: string; message?: strin
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#e4e4e4' },
+  // 다른 탭과 같은 검정 바탕. 본문 상자는 밝은 색 그대로 둔다.
+  safe: { flex: 1, backgroundColor: '#161616' },
   body: { flex: 1, minHeight: 0, paddingHorizontal: 27 },
   document: {
     flex: 1,

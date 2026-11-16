@@ -3,7 +3,22 @@ import * as m from './models';
 import * as contract from './contract';
 import { array, nullable, num, object, optional, str } from './schema';
 
+type OAuthProvider = Exclude<m.Provider, 'email'>;
+type OAuthRequest = m.OAuthCredential & { switchToExisting?: boolean };
+
 export function createIntegrationApi(client: IntegrationClient) {
+  const oauthLogin = async (provider: OAuthProvider, credentials: OAuthRequest) => {
+    let isNew = false;
+    await client.authenticate(async () => {
+      const data = await client.request('API-105', m.authResponse, {
+        path: { provider },
+        body: { ...credentials, deviceUuid: await client.deviceUuid() },
+      });
+      isNew = data.isNew;
+      return data;
+    });
+    return { isNew };
+  };
   const account = {
     guest: (platform: m.Platform) =>
       client.authenticate(async () =>
@@ -25,13 +40,13 @@ export function createIntegrationApi(client: IntegrationClient) {
           body: { email, password, deviceUuid: await client.deviceUuid() },
         }),
       ),
-    oauth: (provider: Exclude<m.Provider, 'email'>, credentials: m.OAuthCredential) =>
-      client.authenticate(async () =>
-        client.request('API-105', m.authResponse, {
-          path: { provider },
-          body: { ...credentials, deviceUuid: await client.deviceUuid() },
-        }),
-      ),
+    // switchToExisting(명세 0.4.1): 게스트 토큰으로 호출할 때 기존 회원 계정으로 로그인한다.
+    // 게스트 기록은 합치지 않는다. 서버는 아직 이 필드를 읽지 않아 ERR-14 를 그대로 돌려준다.
+    oauth: async (provider: OAuthProvider, credentials: OAuthRequest) => {
+      await oauthLogin(provider, credentials);
+    },
+    // oauth 와 같고 isNew 를 돌려준다. 기존 계정으로 들어오려다 새 회원이 만들어졌는지(M01_3) 본다.
+    oauthLogin,
     refresh: client.refresh,
     logout: (all: boolean) =>
       client.endSession(() => client.request('API-107', null, { body: { all } })),
@@ -59,18 +74,23 @@ export function createIntegrationApi(client: IntegrationClient) {
       client.request('API-302', null, { path: { deviceUuid: await client.deviceUuid() } }),
   };
   const learning = {
-    courses: (category?: string, topic?: string) =>
-      client.request('API-401', object({ courses: array(m.courseSummary) }), {
-        query:
-          category || topic
-            ? { ...(category ? { category } : {}), ...(topic ? { topic } : {}) }
-            : undefined,
-      }),
+    // 0.4.0 부터 분야·주제 필터가 없다. 서버는 별자리 order 순으로 돌려준다.
+    courses: () => client.request('API-401', object({ courses: array(m.courseSummary) })),
     course: (courseId: number) => client.request('API-402', m.courseDetail, { path: { courseId } }),
     lesson: (lessonId: number) =>
       client.request('API-403', contract.lesson, { path: { lessonId } }),
-    start: (lessonId: number, replay: boolean) =>
-      client.request('API-404', contract.lessonStart, { path: { lessonId }, body: { replay } }),
+    // restart=true: 이어하기 확인에서 '처음부터'를 고른 경우. 서버의 저장 위치와 입력(draft)을 지운다.
+    start: (lessonId: number, replay: boolean, restart = false) =>
+      client.request('API-404', contract.lessonStart, {
+        path: { lessonId },
+        body: restart ? { replay, restart } : { replay },
+      }),
+    // API-409 도중 나가기 저장. 보고 있던 콘텐츠와 아직 제출하지 않은 입력(4KB 이하)을 저장한다.
+    saveProgress: (lessonId: number, contentId: number, draft?: m.LessonDraft | null) =>
+      client.request('API-409', object({ progress: m.progress }), {
+        path: { lessonId },
+        body: draft ? { contentId, draft } : { contentId },
+      }),
     completeContent: (contentId: number) =>
       client.request('API-405', m.contentComplete, { path: { contentId } }),
     answer: (quizId: number, answer: m.QuizAnswer, replay = false) =>
@@ -86,8 +106,10 @@ export function createIntegrationApi(client: IntegrationClient) {
     progress: () => client.request('API-408', m.overallProgress),
   };
   const review = {
-    next: (lessonId?: number) =>
-      client.request('API-501', contract.reviewSet, { query: lessonId ? { lessonId } : undefined }),
+    // API-504 복습 가능 여부와 오늘 보상 상태. 회차를 만들지 않는다(복습 안내 화면용).
+    status: () => client.request('API-504', m.reviewStatus),
+    // API-501 은 부를 때마다 새 회차를 만들고 끝나지 않은 이전 회차를 종료한다. 복습 시작에서 한 번만 부른다.
+    next: () => client.request('API-501', contract.reviewSet),
     answer: (reviewItemId: number, answer: m.QuizAnswer) =>
       client.request(
         'API-502',
@@ -106,8 +128,11 @@ export function createIntegrationApi(client: IntegrationClient) {
           body: { answer: contract.encodeReviewAnswer(reviewItemId, answer) },
         },
       ),
-    complete: (reviewItemIds: number[], sessionKey: string) =>
-      client.request('API-503', m.rewards, { body: { reviewItemIds }, key: sessionKey }),
+    complete: (reviewSessionId: number, sessionKey: string) =>
+      client.request('API-503', m.reviewComplete, { body: { reviewSessionId }, key: sessionKey }),
+    // API-505 복습 도중 나가기. 회차를 종료하며 완료 기록·보상을 남기지 않는다(이미 종료됐으면 그대로 204).
+    abandon: (reviewSessionId: number) =>
+      client.request('API-505', null, { body: { reviewSessionId } }),
   };
   const onboarding = {
     load: () => client.request('API-601', contract.onboarding),

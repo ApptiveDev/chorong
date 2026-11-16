@@ -13,6 +13,7 @@ import { InlineWordQuiz } from './InlineWordQuiz';
 import { TileRevealQuiz } from './TileRevealQuiz';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
+import { type ChosungDraftInput, chosungDraftInput, chosungDraftText } from './chosungInput';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
 
 // SINGLE 표시 방식별 전용 화면. 표시 방식이 없으면 일반 SINGLE 화면으로 보인다.
@@ -67,8 +68,17 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
     chosung,
     slider,
     mockRange,
-    // CHOSUNG 은 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
-    selfAdvancing: fillBlank || matching || singleChoice || !!presented || multiChoice || chosung,
+    // 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
+    // 목업 range(HtmlLessonQuiz)만 부모 화면의 전체 터치 영역으로 넘어간다.
+    selfAdvancing:
+      ox ||
+      fillBlank ||
+      matching ||
+      singleChoice ||
+      !!presented ||
+      multiChoice ||
+      chosung ||
+      slider,
   };
 }
 
@@ -79,12 +89,8 @@ export function quizScrollContentStyle(kind: QuizStageKind, scale: number) {
   if (kind.multiChoice) return s.multiChoiceScrollContent;
   if (kind.slider || kind.mockRange) return s.sliderScrollContent;
   if (kind.chosung) return s.chosungScrollContent;
-  return [
-    s.quizScrollContent,
-    { paddingHorizontal: 36 * scale },
-    kind.ox && s.oxScrollContent,
-    kind.ox && { paddingTop: 200 * scale },
-  ];
+  if (kind.ox) return s.oxScrollContent;
+  return [s.quizScrollContent, { paddingHorizontal: 36 * scale }];
 }
 
 export function QuizStageQuiz({
@@ -95,6 +101,8 @@ export function QuizStageQuiz({
   submit,
   onGraded,
   onAdvance,
+  draftInput,
+  onDraftInput,
 }: {
   quiz: Quiz;
   // 학습은 contentId, 복습은 reviewItemId
@@ -106,6 +114,10 @@ export function QuizStageQuiz({
   // justGraded: 방금 채점한 문항에서 바로 넘어가는지(학습 화면 advance 와 같은 뜻).
   // 이동하지 못하면 예외를 던진다. 문항 컴포넌트가 오류를 보여 주고 다시 누를 수 있게 한다.
   onAdvance: (justGraded: boolean) => Promise<void>;
+  // 학습 도중 나가기(API-409)의 미제출 입력. 지금은 초성 퀴즈만 저장·복원한다(chosungInput.ts).
+  // 복습은 넘기지 않는다.
+  draftInput?: unknown;
+  onDraftInput?: (input: ChosungDraftInput | null) => void;
 }) {
   const kind = quizStageKind(quiz);
   const typedKey = `${itemKey}:${quiz.quizId}`;
@@ -130,6 +142,10 @@ export function QuizStageQuiz({
         submit={submit}
         onGraded={onGraded}
         onAdvance={() => onAdvance(true)}
+        initialText={chosungDraftText(draftInput, quiz.quizId)}
+        onTextChange={
+          onDraftInput ? (text) => onDraftInput(chosungDraftInput(quiz.quizId, text)) : undefined
+        }
       />
     );
   if (kind.fillBlank)
@@ -142,7 +158,7 @@ export function QuizStageQuiz({
         submitChoiceIndex={useMockApi && quiz.options?.mockHtmlType === 'blank'}
         submit={submit}
         onGraded={onGraded}
-        onAdvance={() => onAdvance(false)}
+        onAdvance={() => onAdvance(true)}
       />
     );
   if (kind.matching)
@@ -211,11 +227,13 @@ export function QuizStageQuiz({
   if (!kind.ox) return <Text style={s.unsupported}>지원하지 않는 퀴즈 형식입니다.</Text>;
   return (
     <QuizCard
-      key={itemKey}
+      key={typedKey}
       quiz={quiz}
+      scale={scale}
       disabled={disabled}
       submit={submit}
       onGraded={onGraded}
+      onAdvance={() => onAdvance(true)}
       stage
     />
   );
@@ -229,7 +247,8 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
   },
   fillBlankScrollContent: { flexGrow: 1 },
-  matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
+  // 좌우 여백은 해설 시트가 폭 전체를 쓰도록 MatchingQuiz 본문이 정한다.
+  matchingScrollContent: { flexGrow: 1 },
   singleChoiceScrollContent: { flexGrow: 1 },
   multiChoiceScrollContent: { flexGrow: 1 },
   sliderScrollContent: { flexGrow: 1 },
@@ -241,5 +260,6 @@ const s = StyleSheet.create({
   },
   // 해설 시트가 화면 폭 전체를 쓰도록 안쪽 여백은 ChosungQuiz 가 정한다.
   chosungScrollContent: { flexGrow: 1 },
-  oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
+  // OX 도 해설 시트가 폭 전체를 쓰도록 위·좌우 여백을 QuizCard(StageOxQuiz)가 정한다.
+  oxScrollContent: { flexGrow: 1 },
 });

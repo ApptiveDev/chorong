@@ -3,22 +3,21 @@ import {
   Animated,
   Easing,
   Image,
-  type ImageSourcePropType,
   Platform,
   Pressable,
+  type StyleProp,
   StyleSheet,
   Text,
   type TextStyle,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Path, Rect } from 'react-native-svg';
+import { GlowFilter, useSvgId } from './constellationArt';
 
-const completionArcSource = require('../../../assets/completion-arc.png');
 const completionDustSource = require('../../../assets/completion-dust.png');
-// Figma 656:3634 Frame 70(164×164, 고리 없는 별). 기존 completion-star.png 는 고리가 있는 L06_1~3 용이다.
-export const completionOrbSource = require('../../../assets/completion-orb.png');
 
 // Figma 656:2109 에너지 아이콘(Group 25, 8×14). 학습 홈 칩(757:3122)은 몸통 #F1F1F1,
 // 팝오버(669:1384)는 같은 모양을 9.14×16 으로 키우고 몸통 #161616 · 칸 #F1F1F1 로 쓴다.
@@ -45,23 +44,26 @@ export function EnergyIcon({
   );
 }
 
-// 완료 화면 별 이미지. 이미지가 로드되면 0.7초 동안 나타난다.
-export function CompletionStar({ source, size }: { source: ImageSourcePropType; size: number }) {
+// 완료 화면 별. 마운트되면 0.7초 동안 나타난다.
+// 예전에는 Figma 1배 PNG 를 써서 고밀도 화면에서 가는 선이 계단처럼 보였다. 같은 크기·위치에 SVG 로 그린다.
+// - ring: L06_1~3(342:448 Frame 70) 고리(반지름 81.6, 선 0.8) + 가운데 원(반지름 14). 212×212 칸.
+// - orb: L06_4~7(656:3634 Frame 70) 고리 없는 원(반지름 14). 164×164 칸.
+// 빛 번짐은 Figma 와 같은 blur 12 두 겹(묶음 전체 + 가운데 원)이다. Figma 의 crispEdges 는 쓰지 않는다.
+export function CompletionStar({ variant, size }: { variant: 'ring' | 'orb'; size: number }) {
   const progress = useRef(new Animated.Value(0)).current;
-  const started = useRef(false);
+  const outerId = useSvgId('completionStarOuter');
+  const innerId = useSvgId('completionStarInner');
   useEffect(() => {
-    return () => progress.stopAnimation();
-  }, [progress]);
-  const reveal = () => {
-    if (started.current) return;
-    started.current = true;
     Animated.timing(progress, {
       toValue: 1,
       duration: 700,
       easing: Easing.bezier(0.25, 0.1, 0.25, 1),
       useNativeDriver: Platform.OS !== 'web',
     }).start();
-  };
+    return () => progress.stopAnimation();
+  }, [progress]);
+  const box = variant === 'ring' ? 212 : 164;
+  const center = box / 2;
   return (
     <Animated.View
       pointerEvents="none"
@@ -73,15 +75,46 @@ export function CompletionStar({ source, size }: { source: ImageSourcePropType; 
         ],
       }}
     >
-      <Image
-        source={source}
-        onLoad={reveal}
-        style={{ width: size, height: size }}
-        resizeMode="contain"
-      />
+      <Svg width={size} height={size} viewBox={`0 0 ${box} ${box}`} fill="none">
+        <Defs>
+          <GlowFilter id={outerId} blur={12} width={box} height={box} />
+          <GlowFilter id={innerId} blur={12} width={box} height={box} />
+        </Defs>
+        <G filter={`url(#${outerId})`}>
+          {variant === 'ring' ? (
+            <Circle cx={center} cy={center} r={81.6} stroke={glowColor} strokeWidth={0.8} />
+          ) : null}
+          <Circle cx={center} cy={center} r={14} fill={glowColor} filter={`url(#${innerId})`} />
+        </G>
+      </Svg>
     </Animated.View>
   );
 }
+
+// 완료 화면 아래 호(Figma Ellipse 6, 342:462·342:677). 반지름 414, 선 0.8, 빛 번짐 blur 12.
+// 예전 PNG(402×463)와 같은 칸에 같은 비율로 늘려 그려 화면 위치를 바꾸지 않는다.
+// 호 중심은 칸 가운데 위(201, 23.6)다(PNG 에서 잰 값과 Figma 좌표가 일치한다).
+export function CompletionArc({ style }: { style: StyleProp<ViewStyle> }) {
+  const glowId = useSvgId('completionArc');
+  return (
+    <View pointerEvents="none" style={style}>
+      <Svg width="100%" height="100%" viewBox="0 0 402 463" preserveAspectRatio="none" fill="none">
+        <Defs>
+          <GlowFilter id={glowId} blur={12} width={402} height={463} />
+        </Defs>
+        <Path
+          d="M615 23.6A414 414 0 0 1 -213 23.6"
+          stroke={glowColor}
+          strokeWidth={0.8}
+          vectorEffect="non-scaling-stroke"
+          filter={`url(#${glowId})`}
+        />
+      </Svg>
+    </View>
+  );
+}
+
+const glowColor = '#f1f1f1';
 
 // Figma 402×874 좌표를 화면에 맞춘다. StudyScreen 기존 완료 화면(L06_1~3)과 같은 계산이다.
 export function useCompletionLayout() {
@@ -121,13 +154,9 @@ export function CompletionResult({
   return (
     <View style={s.root}>
       {/* Ellipse 6: 기존 완료 화면과 같은 호 */}
-      <Image
-        source={completionArcSource}
-        resizeMode="stretch"
-        style={[s.arc, { top: top(209), height: 463 * scale }]}
-      />
+      <CompletionArc style={[s.arc, { top: top(209), height: 463 * scale }]} />
       <View style={[s.orbWrap, { top: top(148) }]}>
-        <CompletionStar source={completionOrbSource} size={164 * scale} />
+        <CompletionStar variant="orb" size={164 * scale} />
       </View>
       <Text style={[s.title, { top: top(400) }]}>{title}</Text>
       {lessonTitle ? (

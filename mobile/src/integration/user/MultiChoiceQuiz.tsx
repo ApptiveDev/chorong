@@ -1,3 +1,5 @@
+// MULTI(여러 개 고르기) 퀴즈. 보기를 누를 때마다 정답·오답 색을 보이고,
+// 오답을 고르거나 정답을 모두 고르면 제출한다. 채점 뒤 해설은 하단 시트(QuizFeedbackSheet)로 보인다.
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -10,11 +12,13 @@ import {
   View,
 } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import { QuizFeedbackSheet } from './QuizFeedbackSheet';
 import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
+import { gradedAnnouncement, isUngraded } from './quizGrading';
 
 type Choice = { index: number; label: string };
 type MultipleChoices = { choices: Choice[]; answers: Set<number> };
-type Phase = 'UNANSWERED' | 'SELECTING' | 'FEEDBACK' | 'FAILED' | 'ANSWERED' | 'TRANSITIONING';
+type Phase = 'UNANSWERED' | 'SELECTING' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
 
 function multipleChoicesFor(quiz: Quiz): MultipleChoices | null {
   if (quiz.type !== 'MULTIPLE_CHOICE' || quiz.options?.mockHtmlType !== 'multi') return null;
@@ -70,6 +74,8 @@ export function MultiChoiceQuiz({
   onAdvance: () => Promise<void> | void;
 }) {
   const data = multipleChoicesFor(quiz);
+  // 채점하지 않는 문항은 고를 때 색을 보이지 않고, 정답 개수만큼 고르면 제출한다.
+  const ungradedQuiz = isUngraded(quiz);
   const [phase, setPhase] = useState<Phase>('UNANSWERED');
   const phaseRef = useRef<Phase>('UNANSWERED');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -77,19 +83,17 @@ export function MultiChoiceQuiz({
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [error, setError] = useState('');
   const tintProgress = useRef<Record<number, Animated.Value>>({}).current;
-  const feedbackProgress = useRef(new Animated.Value(0)).current;
+  const sheetProgress = useRef(new Animated.Value(0)).current;
   const active = useRef(true);
-  const submitting = useRef(false);
-  const advancing = useRef(false);
 
   useEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
-      feedbackProgress.stopAnimation();
+      sheetProgress.stopAnimation();
       Object.values(tintProgress).forEach((value) => value.stopAnimation());
     };
-  }, [feedbackProgress, tintProgress]);
+  }, [sheetProgress, tintProgress]);
 
   const moveTo = (next: Phase) => {
     phaseRef.current = next;
@@ -105,38 +109,35 @@ export function MultiChoiceQuiz({
     }).start();
   };
   const grade = async (indices: Set<number>) => {
-    if (submitting.current) return;
-    submitting.current = true;
-    moveTo('FEEDBACK');
+    if (phaseRef.current !== 'UNANSWERED' && phaseRef.current !== 'SELECTING') return;
+    moveTo('GRADING');
     setError('');
     try {
       const graded = await submit({ texts: [...indices].map(String) });
       if (!active.current) return;
       setResult(graded);
       onGraded(graded);
-      feedbackProgress.setValue(0);
+      moveTo('GRADED');
+      AccessibilityInfo.announceForAccessibility(gradedAnnouncement(quiz, graded));
+      sheetProgress.setValue(0);
       const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
       if (!active.current) return;
-      if (reduceMotion) {
-        feedbackProgress.setValue(1);
-        moveTo('ANSWERED');
-      } else {
-        Animated.timing(feedbackProgress, {
+      if (reduceMotion) sheetProgress.setValue(1);
+      else
+        Animated.timing(sheetProgress, {
           toValue: 1,
           duration: 300,
-          delay: 150,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: Platform.OS !== 'web',
-        }).start(({ finished }) => {
-          if (finished && active.current) moveTo('ANSWERED');
-        });
-      }
+        }).start();
     } catch (cause) {
       if (!active.current) return;
-      setError(cause instanceof Error ? cause.message : '정답을 확인하지 못했습니다.');
-      moveTo('FAILED');
-    } finally {
-      submitting.current = false;
+      // 고른 보기와 색을 지우고 처음부터 다시 고르게 한다.
+      selectedRef.current = new Set();
+      setSelected(new Set());
+      Object.values(tintProgress).forEach((value) => value.setValue(0));
+      moveTo('UNANSWERED');
+      setError(cause instanceof Error ? cause.message : '답안을 확인하지 못했습니다.');
     }
   };
   const choose = (index: number) => {
@@ -150,6 +151,12 @@ export function MultiChoiceQuiz({
     const next = new Set(selectedRef.current).add(index);
     selectedRef.current = next;
     setSelected(next);
+    setError('');
+    if (ungradedQuiz) {
+      if (next.size >= data.answers.size) void grade(next);
+      else moveTo('SELECTING');
+      return;
+    }
     revealTint(index);
     if (!data.answers.has(index)) {
       data.answers.forEach(revealTint);
@@ -161,60 +168,69 @@ export function MultiChoiceQuiz({
     }
   };
   const advance = () => {
-    if (phaseRef.current !== 'ANSWERED' || advancing.current) return;
-    advancing.current = true;
+    if (phaseRef.current !== 'GRADED') return;
     moveTo('TRANSITIONING');
     void Promise.resolve()
       .then(onAdvance)
       .catch((cause) => {
         if (!active.current) return;
         setError(cause instanceof Error ? cause.message : '다음 콘텐츠로 이동하지 못했습니다.');
-        advancing.current = false;
-        moveTo('ANSWERED');
+        moveTo('GRADED');
       });
   };
 
   if (!data) return <Text style={s.error}>선택지를 불러오지 못했습니다.</Text>;
   const question = quiz.question.replace(/\s*\n\s*/g, ' ');
+  const graded = phase === 'GRADED' || phase === 'TRANSITIONING';
+  const locked = disabled || (phase !== 'UNANSWERED' && phase !== 'SELECTING');
+  const ungraded = ungradedQuiz || isUngraded(quiz, result);
   const wrongIndex = [...selected].find((index) => !data.answers.has(index));
   const showCorrectAnswers = wrongIndex !== undefined;
-  const mayAdvance = phase === 'ANSWERED';
+  // 오답이면 정답 보기를 해설 시트 첫 줄에 붙인다.
+  const answerLine =
+    result && !ungraded && result.isCorrect === false
+      ? `정답: ${data.choices
+          .filter((choice) => data.answers.has(choice.index))
+          .map((choice) => choice.label)
+          .join(', ')}`
+      : null;
+  const sheetResult =
+    result && answerLine
+      ? { ...result, explanation: [answerLine, result.explanation].filter(Boolean).join('\n') }
+      : result;
 
   return (
     <View style={s.stage}>
-      <Pressable disabled={!mayAdvance} onPress={advance} style={{ height: 200 * scale }} />
-      <View style={s.groupRow}>
-        <Pressable disabled={!mayAdvance} onPress={advance} style={s.sideSpace} />
-        <View style={[s.group, { width: 330 * scale, maxWidth: '100%' }]}>
+      {/* 채점 뒤 여백 터치로 다음 콘텐츠로 간다(PresentedChoiceQuiz 와 같다). */}
+      <Pressable
+        accessible={graded}
+        accessibilityRole={graded ? 'button' : undefined}
+        accessibilityLabel={graded ? '다음 학습 콘텐츠로 이동' : undefined}
+        disabled={!graded}
+        onPress={advance}
+        style={StyleSheet.absoluteFill}
+      />
+      <View
+        pointerEvents="box-none"
+        style={[s.body, { paddingTop: 200 * scale, paddingHorizontal: 36 * scale }]}
+      >
+        <View pointerEvents="box-none" style={[s.group, { gap: 40 * scale }]}>
           <Text style={[s.question, { maxWidth: 303 * scale }]}>{question}</Text>
-          <Pressable
-            disabled={!mayAdvance}
-            onPress={advance}
-            style={{ height: 40 * scale, width: '100%' }}
-          />
-          <View style={[s.options, { width: 320 * scale, maxWidth: '100%' }]}>
+          <View style={[s.options, { width: 320 * scale }]}>
             {data.choices.map((choice) => {
-              const isCorrect = data.answers.has(choice.index);
-              const correct = isCorrect && (selected.has(choice.index) || showCorrectAnswers);
-              const wrong = !isCorrect && selected.has(choice.index);
+              const picked = selected.has(choice.index);
+              const isAnswer = data.answers.has(choice.index);
+              // 채점하지 않는 문항은 정답·오답 색 대신 고른 표시만 한다.
+              const correct = !ungraded && isAnswer && (picked || showCorrectAnswers);
+              const wrong = !ungraded && !isAnswer && picked;
               return (
                 <Pressable
                   key={choice.index}
                   accessibilityRole="button"
-                  accessibilityState={{
-                    selected: selected.has(choice.index),
-                    disabled:
-                      disabled ||
-                      (phase !== 'UNANSWERED' && phase !== 'SELECTING') ||
-                      selected.has(choice.index),
-                  }}
-                  disabled={
-                    disabled ||
-                    (phase !== 'UNANSWERED' && phase !== 'SELECTING') ||
-                    selected.has(choice.index)
-                  }
+                  accessibilityState={{ selected: picked, disabled: locked || picked }}
+                  disabled={locked || picked}
                   onPress={() => choose(choice.index)}
-                  style={s.option}
+                  style={[s.option, ungraded && picked && s.pickedOption]}
                 >
                   {(correct || wrong) && (
                     <Animated.View
@@ -226,82 +242,44 @@ export function MultiChoiceQuiz({
                       ]}
                     />
                   )}
-                  <Text style={[s.optionText, correct && s.correctText, wrong && s.wrongText]}>
+                  <Text
+                    style={[
+                      s.optionText,
+                      ungraded && picked && s.pickedText,
+                      correct && s.correctText,
+                      wrong && s.wrongText,
+                    ]}
+                  >
                     {choice.label}
                   </Text>
                 </Pressable>
               );
             })}
           </View>
-          <Pressable
-            disabled={!mayAdvance}
-            onPress={advance}
-            style={{ height: 24, width: '100%' }}
-          />
-          <View style={[s.feedbackSlot, { width: 320 * scale, maxWidth: '100%' }]}>
-            {result ? (
-              <Animated.View
-                style={[
-                  s.feedback,
-                  {
-                    opacity: feedbackProgress,
-                    transform: [
-                      {
-                        translateY: feedbackProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [8, 0],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <Text style={[s.feedbackTitle, result.isCorrect ? s.correctText : s.wrongText]}>
-                  {result.isCorrect ? '맞았어요!' : '오답입니다.'}
-                </Text>
-                {!result.isCorrect ? (
-                  <Text style={s.feedbackText}>
-                    정답:{' '}
-                    {data.choices
-                      .filter((choice) => data.answers.has(choice.index))
-                      .map((choice) => choice.label)
-                      .join(', ')}
-                  </Text>
-                ) : null}
-                {result.explanation?.trim() ? (
-                  <Text style={s.feedbackText}>{result.explanation}</Text>
-                ) : null}
-              </Animated.View>
-            ) : null}
-            {error ? (
-              <View style={s.errorRow}>
-                <Text accessibilityRole="alert" style={s.error}>
-                  {error}
-                </Text>
-                {phase === 'FAILED' ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => void grade(selectedRef.current)}
-                  >
-                    <Text style={s.retry}>다시 시도</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
+          {error ? (
+            <Text accessibilityRole="alert" style={s.error}>
+              {error}
+            </Text>
+          ) : null}
         </View>
-        <Pressable disabled={!mayAdvance} onPress={advance} style={s.sideSpace} />
       </View>
-      <Pressable disabled={!mayAdvance} onPress={advance} style={s.lowerSpace} />
+      {sheetResult ? (
+        <QuizFeedbackSheet
+          result={sheetResult}
+          progress={sheetProgress}
+          nextDisabled={phase !== 'GRADED'}
+          onNext={advance}
+          ungraded={ungraded}
+        />
+      ) : null}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   stage: { flexGrow: 1, width: '100%' },
-  groupRow: { flexDirection: 'row', width: '100%' },
-  sideSpace: { flex: 1 },
-  group: { alignItems: 'flex-start' },
+  body: { alignItems: 'center' },
+  group: { width: '100%', maxWidth: 330, alignItems: 'flex-start' },
   question: {
     color: '#161616',
     fontFamily: 'PretendardBold',
@@ -309,7 +287,7 @@ const s = StyleSheet.create({
     lineHeight: 26,
     includeFontPadding: false,
   },
-  options: { alignItems: 'stretch' },
+  options: { maxWidth: '100%', alignItems: 'stretch' },
   option: {
     justifyContent: 'center',
     minHeight: 52,
@@ -324,6 +302,8 @@ const s = StyleSheet.create({
   // Figma button_선택지 고르기: 회색 상하 경계선은 그대로 두고 배경·글자색만 바꾼다.
   correctTint: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
   wrongTint: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
+  // 채점하지 않는 문항에서 고른 보기. 정답·오답 색이 아닌 회색으로 표시한다.
+  pickedOption: { backgroundColor: 'rgba(170,170,170,0.18)' },
   optionText: {
     color: '#747474',
     fontFamily: 'PretendardSemiBold',
@@ -331,14 +311,8 @@ const s = StyleSheet.create({
     lineHeight: 20,
     includeFontPadding: false,
   },
+  pickedText: { color: '#161616' },
   correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
   wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
-  feedbackSlot: { minHeight: 132 },
-  feedback: { paddingHorizontal: 12, paddingVertical: 12, gap: 5 },
-  feedbackTitle: { fontFamily: 'PretendardBold', fontSize: 14 },
-  feedbackText: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 13, lineHeight: 20 },
-  errorRow: { paddingHorizontal: 12, gap: 8 },
   error: { color: '#b56060', fontFamily: 'PretendardMedium', fontSize: 12, lineHeight: 18 },
-  retry: { color: '#161616', fontFamily: 'PretendardSemiBold', fontSize: 13 },
-  lowerSpace: { flexGrow: 1, minHeight: 80 },
 });

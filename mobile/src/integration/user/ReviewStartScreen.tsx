@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient, Stop } from 'react-native-svg';
 import { integrationApi as api } from '../runtime';
-import { useIntegration, useTask } from '../hooks';
-import { storage } from '../storage';
-import { positiveId } from '../ui';
+import { useTask } from '../hooks';
+import type { ReviewStatus } from '../models';
 import { UserScreen, UserStatus } from './Screen';
 import { ReviewEmptyModal } from './ReviewEmptyModal';
-import { checkReviewStart, reviewRewardNotice, reviewRewardedToday } from './reviewStart';
+import { checkReviewStart, reviewRewardNotice } from './reviewStart';
 
 const orbitStars = [
   { x: 301, y: 538, radius: 23, glow: 24 },
@@ -46,7 +45,6 @@ function ReviewOrbits() {
 }
 
 export default function ReviewStartScreen() {
-  const { lessonId } = useLocalSearchParams<{ lessonId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [canvas, setCanvas] = useState({ width: 402, height: 874 });
@@ -58,37 +56,19 @@ export default function ReviewStartScreen() {
   const top = (value: number) => value * scale - insets.top;
   const goBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/quiz');
+    else router.replace('/');
   };
   const task = useTask();
-  // 오늘 보상 세션이 남았는지(API-501 rewardEligible). null 은 아직 모름.
-  const [rewardEligible, setRewardEligible] = useState<boolean | null>(null);
+  // 복습 상태(API-504). null 은 아직 모름. 이 화면은 회차(API-501)를 만들지 않는다.
+  const [status, setStatus] = useState<ReviewStatus | null>(null);
   const [emptyOpen, setEmptyOpen] = useState(false);
-  // 이 사용자가 오늘(KST) 복습 완료(API-503)에 성공했는지. null 은 아직 읽는 중.
-  const userId = useIntegration().user?.userId;
-  const [rewardedToday, setRewardedToday] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!userId) return;
-    let active = true;
-    reviewRewardedToday(storage, userId)
-      .then((value) => {
-        if (active) setRewardedToday(value);
-      })
-      .catch(() => {
-        // 기록을 읽지 못하면 기록이 없는 것으로 보고 서버 rewardEligible 만 따른다.
-        if (active) setRewardedToday(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [userId]);
-  const loadReviewSet = async () => api.review.next(lessonId ? positiveId(lessonId) : undefined);
   useEffect(() => {
     let active = true;
     // 진입할 때마다 서버 값을 읽어 날짜가 바뀐 뒤 재진입해도 그날 기준으로 표시한다.
-    loadReviewSet()
-      .then((set) => {
-        if (active) setRewardEligible(set.rewardEligible);
+    api.review
+      .status()
+      .then((value) => {
+        if (active) setStatus(value);
       })
       .catch(() => {
         // 안내 문구는 선택 정보다. 실패하면 셋째 줄을 비워 두고, 시작 버튼에서 다시 확인한다.
@@ -96,22 +76,21 @@ export default function ReviewStartScreen() {
     return () => {
       active = false;
     };
-  }, [lessonId]);
-  const navigateToReview = () => {
-    if (lessonId) router.replace({ pathname: '/review', params: { lessonId } });
-    else router.replace('/review');
-  };
+  }, []);
   const startReview = () => {
     if (task.busy || emptyOpen) return;
     void task.run(
-      () => checkReviewStart(loadReviewSet, (set) => setRewardEligible(set.rewardEligible)),
+      () => checkReviewStart(() => api.review.status(), setStatus),
       (action) => {
         if (action.kind === 'empty') setEmptyOpen(true);
-        else navigateToReview();
+        else router.replace('/review');
       },
     );
   };
-  const rewardNotice = reviewRewardNotice({ rewardEligible, rewardedToday });
+  const rewardNotice = reviewRewardNotice({
+    rewardEligible: status?.rewardEligible ?? null,
+    rewardAmount: status?.rewardAmount,
+  });
 
   return (
     <UserScreen title="복습하기" showTitle={false} scroll={false} dark>
@@ -206,7 +185,7 @@ export default function ReviewStartScreen() {
         onClose={() => setEmptyOpen(false)}
         onGoHome={() => {
           setEmptyOpen(false);
-          router.replace('/quiz');
+          router.replace('/');
         }}
       />
     </UserScreen>

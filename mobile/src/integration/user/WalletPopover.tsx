@@ -48,7 +48,7 @@ export function WalletPopover({
             </View>
             <Text style={s.copy}>
               우주선 가구를 구매할 때 사용할 수 있어요. 에너지가 있을 때 아직 보상을 받지 않은
-              학습을 완료하거나, 오늘 첫 복습을 마치면 얻을 수 있어요.
+              학습을 마치거나, 오늘 첫 복습을 마치면 얻을 수 있어요.
             </Text>
           </View>
           <View style={s.section}>
@@ -57,8 +57,8 @@ export function WalletPopover({
               <EnergyIcon width={9.142857} height={16} body="#161616" cell="#f1f1f1" />
             </View>
             <Text style={s.copy}>
-              에너지가 있으면 아직 보상을 받지 않은 학습을 완료할 때 별가루를 얻어요. 에너지는 매일
-              00:00 (한국시간)에 최대치까지 충전돼요
+              에너지가 있을 때 아직 별가루를 받지 않은 학습을 마치면 보상을 받을 수 있어요. 에너지는
+              매일 00:00(한국 시간)에 최대치까지 충전돼요.
             </Text>
           </View>
         </View>

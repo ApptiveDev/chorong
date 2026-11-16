@@ -23,7 +23,8 @@ import { AppButton } from '../../components/AppButton';
 import { client, integrationApi as api, useMockApi } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Me } from '../models';
-import { nicknameValidationError } from './profileNickname';
+import { IntegrationError } from '../client';
+import { NICKNAME_RULE, NICKNAME_TAKEN, nicknameValidationError } from './profileNickname';
 import { SessionConfirmModal } from './SessionConfirmModal';
 
 const providerLabels: Record<string, string> = {
@@ -95,7 +96,12 @@ export default function ProfileScreen() {
     setAction('save');
     setEditError('');
     void task.run(async () => {
-      const result = await api.account.update({ nickname: next });
+      // 서버가 중복 닉네임(ERR-16 NICKNAME_TAKEN)을 알려 주면 M04_1 중복 안내 문구를 보여 준다.
+      const result = await api.account.update({ nickname: next }).catch((error: unknown) => {
+        if (error instanceof IntegrationError && error.code === 'NICKNAME_TAKEN')
+          throw new Error(NICKNAME_TAKEN);
+        throw error;
+      });
       setMe(result);
       setDraft(result.nickname);
       setNicknameOpen(false);
@@ -193,7 +199,7 @@ export default function ProfileScreen() {
               onPress={() => router.replace('/more')}
               style={s.back}
             >
-              <BackArrow />
+              <BackArrow color="#f1f1f1" />
             </Pressable>
             <Text style={s.title}>프로필과 계정</Text>
           </View>
@@ -224,7 +230,7 @@ export default function ProfileScreen() {
               <View style={s.nicknameBlock}>
                 <View style={s.nicknameHeading}>
                   <Text style={s.nicknameTitle}>닉네임 변경</Text>
-                  <Text style={s.nicknameHint}>한글·영문·숫자 2~12자</Text>
+                  <Text style={s.nicknameHint}>2~12자</Text>
                 </View>
                 <View style={s.inputBox}>
                   <Text numberOfLines={1} style={s.inputValue}>
@@ -313,7 +319,7 @@ export default function ProfileScreen() {
                 (editError || (action === 'save' && taskError)) && s.nicknameModalError,
               ]}
             >
-              {editError || (action === 'save' && taskError) || '한글·영문·숫자 2~12자'}
+              {editError || (action === 'save' && taskError) || NICKNAME_RULE}
             </Text>
             <View style={s.nicknameModalActions}>
               <Pressable
@@ -340,8 +346,8 @@ export default function ProfileScreen() {
       </Modal>
       <SessionConfirmModal
         visible={logoutOpen}
-        title="로그아웃 할까요 ?"
-        notice="로그아웃하면 일부 기능을 이용할 수 없어요."
+        title="로그아웃할까요?"
+        notice="로그아웃 하면 일부 기능을 이용할 수 없어요."
         confirmLabel="로그아웃"
         error={action === 'logout' ? taskError : null}
         busy={task.busy}
@@ -350,11 +356,11 @@ export default function ProfileScreen() {
       />
       <SessionConfirmModal
         visible={withdrawOpen}
-        title="회원 탈퇴"
+        title="회원탈퇴를 할까요?"
         notice={
-          '탈퇴하면 학습 기록, 별가루, 꾸민 우주선은 다시 이용할 수 없어요.\n탈퇴는 되돌릴 수 없어요.'
+          '탈퇴하면 학습 기록, 별가루, 꾸민 우주선을 다시 이용할 수 없어요.\n탈퇴는 되돌릴 수 없어요.'
         }
-        confirmLabel="탈퇴 요청"
+        confirmLabel="탈퇴하기"
         error={action === 'withdraw' ? taskError : null}
         busy={task.busy}
         onCancel={closeWithdraw}
@@ -366,12 +372,13 @@ export default function ProfileScreen() {
 
 const s = StyleSheet.create({
   flex: { flex: 1 },
-  safe: { flex: 1, backgroundColor: '#e4e4e4' },
+  // 다른 탭과 같은 검정 바탕. 카드·입력 상자·버튼·모달은 밝은 색 그대로 둔다.
+  safe: { flex: 1, backgroundColor: '#161616' },
   loading: { flex: 1 },
   content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 32 },
   header: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 12 },
   back: { width: 14, height: 29, justifyContent: 'center', alignItems: 'center' },
-  title: { color: '#161616', fontFamily: 'PretendardBold', fontSize: 24, lineHeight: 29 },
+  title: { color: '#f1f1f1', fontFamily: 'PretendardBold', fontSize: 24, lineHeight: 29 },
   center: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -433,15 +440,17 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  nicknameTitle: { color: '#161616', fontFamily: 'PretendardMedium', fontSize: 14, lineHeight: 17 },
-  nicknameHint: { color: '#4f4f4f', fontFamily: 'PretendardRegular', fontSize: 12, lineHeight: 15 },
+  nicknameTitle: { color: '#f1f1f1', fontFamily: 'PretendardMedium', fontSize: 14, lineHeight: 17 },
+  nicknameHint: { color: '#aaaaaa', fontFamily: 'PretendardRegular', fontSize: 12, lineHeight: 15 },
   inputBox: {
     height: 40,
     marginTop: 11,
     flexDirection: 'row',
     alignItems: 'center',
+    // 검정 바탕에서 보이도록 설정 상자(ControlSettingRow)처럼 밝은 바탕·회색 테두리.
+    backgroundColor: '#f1f1f1',
     borderWidth: 1,
-    borderColor: '#161616',
+    borderColor: '#aaaaaa',
     borderRadius: 4,
   },
   inputValue: {
@@ -517,7 +526,7 @@ const s = StyleSheet.create({
   },
   nicknameModalSaveText: { color: '#f1f1f1', fontFamily: 'PretendardRegular', fontSize: 16 },
   error: {
-    color: '#b42342',
+    color: '#f92669',
     fontFamily: 'PretendardRegular',
     fontSize: 12,
     lineHeight: 17,

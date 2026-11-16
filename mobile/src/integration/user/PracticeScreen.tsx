@@ -1,85 +1,122 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { integrationApi as api, client } from '../runtime';
 import { useTask } from '../hooks';
-import { reviewCompletion, reviewScore, type ReviewCompletion } from '../completionResult';
-import { storage } from '../storage';
-import { markReviewRewardedToday } from './reviewStart';
-import type { AnswerResult, Lesson, ReviewSet } from '../models';
-import { Button, Card, positiveId, styles } from '../ui';
+import { reviewCompletion, reviewScore } from '../completionResult';
+import { isReviewSessionClosed } from './reviewStart';
+import type {
+  AnswerResult,
+  Lesson,
+  QuizAnswer,
+  ReviewCompleteResponse,
+  ReviewSet,
+} from '../models';
+import { Button, Card, styles } from '../ui';
 import { QuizCard } from './QuizCard';
 import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
 import { UserScreen, UserStatus } from './Screen';
 import { CompletionResult } from './CompletionResult';
+import { SessionConfirmModal } from './SessionConfirmModal';
 
 export function ReviewScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const quizScale = Math.min(windowWidth / 402, windowHeight / 874, 1);
-  const { lessonId } = useLocalSearchParams<{ lessonId?: string }>(),
-    router = useRouter(),
+  const router = useRouter(),
     task = useTask();
   const [set, setSet] = useState<ReviewSet | null>(null),
     [done, setDone] = useState<number[]>([]),
-    // 복습 세션 완료(API-503) 응답으로 고른 완료 화면. null 이면 아직 완료 전이다.
-    [notice, setNotice] = useState<ReviewCompletion | null>(null),
-    // 문항별 첫 채점 결과(API-502 isCorrect). 완료 화면의 정답 수에 쓴다.
+    // 복습 회차 완료(API-503) 응답. null 이면 아직 완료 전이다.
+    [completed, setCompleted] = useState<ReviewCompleteResponse | null>(null),
+    // 문항별 첫 채점 결과(API-502 isCorrect). 완료 응답에 정답 수가 없을 때만 완료 화면에 쓴다.
     [graded, setGraded] = useState<Record<number, boolean>>({}),
     [position, setPosition] = useState(0);
   const [sessionKey, setSessionKey] = useState('');
   const [exitOpen, setExitOpen] = useState(false);
-  const loadedFor = useRef<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  // ERR-22 REVIEW_SESSION_CLOSED: 이 회차가 서버에서 이미 끝났다(다른 화면·기기에서 새 복습을 시작했거나 종료됨).
+  const [closedOpen, setClosedOpen] = useState(false);
+  const loaded = useRef(false);
   const quizTapLocked = useRef(false);
+  // API-501 은 부를 때마다 새 회차를 만들고 끝나지 않은 이전 회차를 닫는다. 화면 진입·다시 시작에서만 부른다.
   const load = () =>
     task.run(async () => {
-      const result = await api.review.next(lessonId ? positiveId(lessonId) : undefined);
+      const result = await api.review.next();
       setSet(result);
       setDone([]);
       setGraded({});
       setPosition(0);
-      setSessionKey(client.idempotencyKey(`review:${Date.now()}`));
+      setCompleted(null);
+      setClosedOpen(false);
+      setSessionKey(client.idempotencyKey(`review:${result.reviewSessionId ?? Date.now()}`));
     });
+  const sessionId = set?.reviewSessionId ?? null;
   const complete = () =>
     task.run(async () => {
-      const reward = await api.review.complete(done, sessionKey);
-      // 복습하기 화면 안내 문구용 기록. 저장에 실패해도 완료 결과는 그대로 보여 준다.
-      const userId = client.getSnapshot().user?.userId;
-      if (userId) await markReviewRewardedToday(storage, userId).catch(() => {});
-      setNotice(reviewCompletion(reward.rewards));
-      return true;
+      if (!sessionId) throw new Error('복습 회차 정보가 없습니다. 복습을 다시 시작해 주세요.');
+      try {
+        setCompleted(await api.review.complete(sessionId, sessionKey));
+        return true;
+      } catch (error) {
+        if (!isReviewSessionClosed(error)) throw error;
+        setClosedOpen(true);
+        return false;
+      }
     });
+  const submitAnswer = (reviewItemId: number) => async (answer: QuizAnswer) => {
+    try {
+      return await api.review.answer(reviewItemId, answer);
+    } catch (error) {
+      if (isReviewSessionClosed(error)) setClosedOpen(true);
+      throw error;
+    }
+  };
+  // M03_2 '나가기'. 열린 회차가 있으면 API-505 로 닫고 나간다.
+  // 종료 요청이 실패해도 나간다. 서버는 다음 API-501 호출에서 열린 회차를 닫으므로 기록이 남지 않는다.
+  const leave = async () => {
+    if (leaving) return;
+    setLeaving(true);
+    if (sessionId && !completed && !closedOpen) {
+      try {
+        await api.review.abandon(sessionId);
+      } catch {
+        // 위 설명대로 실패를 무시하고 나간다.
+      }
+    }
+    setExitOpen(false);
+    setLeaving(false);
+    router.replace('/');
+  };
   const onGraded = (reviewItemId: number) => (result: AnswerResult | undefined) => {
     setDone((old) => [...old, reviewItemId]);
     if (result)
       setGraded((old) =>
-        old[reviewItemId] === undefined ? { ...old, [reviewItemId]: result.isCorrect } : old,
+        old[reviewItemId] === undefined
+          ? { ...old, [reviewItemId]: result.isCorrect === true }
+          : old,
       );
   };
   useEffect(() => {
-    const key = lessonId ?? '';
-    if (loadedFor.current === key) return;
-    loadedFor.current = key;
+    if (loaded.current) return;
+    loaded.current = true;
     void load();
-  }, [lessonId]);
+  }, []);
   const items = set?.reviewItems ?? [];
   const current = items[position];
-  const score = reviewScore(
-    graded,
-    items.map((item) => item.reviewItemId),
-  );
+  const notice = completed
+    ? reviewCompletion(
+        completed,
+        reviewScore(
+          graded,
+          items.map((item) => item.reviewItemId),
+        ),
+      )
+    : null;
   // 학습 화면과 같은 퀴즈 화면(QuizStage)을 쓴다. 문항이 보이는 동안은 모든 유형이 퀴즈 배경·머리말을 쓴다.
   const quizStage = !notice && !!current;
   const quizKind = current ? quizStageKind(current.quiz) : null;
@@ -156,12 +193,12 @@ export function ReviewScreen() {
         // Figma L06_6 복습 완료 / 오늘 첫 보상(740:1879) · L06_7 오늘 보상 이미 받음(740:1903)
         <CompletionResult
           title="복습을 마쳤어요"
-          score={score ? `정답 ${score.correct}/${score.total}` : undefined}
+          score={notice.score ? `정답 ${notice.score.correct}/${notice.score.total}` : undefined}
           stardust={notice.kind === 'reviewRewarded' ? notice.stardust : 0}
           notice={
             notice.kind === 'reviewAlreadyRewarded' ? '오늘의 복습 보상은 이미 받았어요' : undefined
           }
-          action={{ label: '완료', onPress: () => router.replace('/quiz') }}
+          action={{ label: '완료', onPress: () => router.replace('/') }}
         />
       ) : null}
       {set?.message && !notice ? <Text style={styles.text}>{set.message}</Text> : null}
@@ -179,7 +216,7 @@ export function ReviewScreen() {
                 itemKey={current.reviewItemId}
                 scale={quizScale}
                 disabled={done.includes(current.reviewItemId)}
-                submit={(answer) => api.review.answer(current.reviewItemId, answer)}
+                submit={submitAnswer(current.reviewItemId)}
                 onGraded={onGraded(current.reviewItemId)}
                 onAdvance={advanceFromQuiz}
               />
@@ -202,40 +239,38 @@ export function ReviewScreen() {
       {set?.reviewItems.length === 0 && !set.message ? (
         <Text style={styles.text}>복습할 문제가 없습니다.</Text>
       ) : null}
-      <Modal
+      {/* 복습은 이어 하기가 없다. 나가면 이번 회차를 닫고(API-505) 다음에 처음부터 다시 시작한다.
+          M03_2 복습 도중 나가기. 학습의 '잠시 멈출까요?'(Figma 알림창_선택지 2개_세로 462:718)와 같은 모달이다. */}
+      <SessionConfirmModal
         visible={exitOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setExitOpen(false)}
-      >
-        <View style={reviewStyles.modalOverlay}>
-          <View style={reviewStyles.modalPanel}>
-            <Text style={reviewStyles.modalTitle}>복습을 나갈까요?</Text>
-            <Text style={reviewStyles.modalCopy}>
-              이번 복습의 맞힌 문제는 오늘 다시 나오지 않아요.
-            </Text>
-            <View style={reviewStyles.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={reviewStyles.modalSecondary}
-                onPress={() => setExitOpen(false)}
-              >
-                <Text style={reviewStyles.modalSecondaryText}>계속 풀기</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={reviewStyles.modalPrimary}
-                onPress={() => {
-                  setExitOpen(false);
-                  router.replace('/quiz');
-                }}
-              >
-                <Text style={reviewStyles.modalPrimaryText}>나가기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="복습을 그만할까요?"
+        notice="지금 나가면 이번 복습은 끝나요. 다시 시작하면 첫 문제부터 풀어요."
+        arrowBullet
+        centerNotice
+        stacked
+        confirmLabel="계속 복습하기"
+        cancelLabel="나가기"
+        busy={leaving}
+        onConfirm={() => setExitOpen(false)}
+        onCancel={() => void leave()}
+        onDismiss={() => setExitOpen(false)}
+      />
+      {/* ERR-22 이미 끝난 회차. Figma 프레임이 없어 문구는 앱이 정했다. 틀은 M03_2 와 같은 두 버튼 모달이다.
+          '다시 시작'은 새 회차(API-501)를 받고, 닫기(뒤로 가기)는 학습 홈으로 간다. */}
+      <SessionConfirmModal
+        visible={closedOpen}
+        title="이번 복습이 끝났어요."
+        notice="복습을 처음부터 다시 시작해 주세요."
+        arrowBullet
+        centerNotice
+        stacked
+        confirmLabel="다시 시작"
+        cancelLabel="학습 홈으로"
+        busy={task.busy}
+        onConfirm={() => void load()}
+        onCancel={() => router.replace('/')}
+        onDismiss={() => router.replace('/')}
+      />
     </UserScreen>
   );
 }
@@ -256,43 +291,6 @@ const reviewStyles = StyleSheet.create({
   quizCaption: { color: '#747474', textAlign: 'right', fontFamily: 'PretendardRegular' },
   advanceOverlay: { ...StyleSheet.absoluteFill, zIndex: 5 },
   stage: { flex: 1, minHeight: 0 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalPanel: {
-    width: '100%',
-    maxWidth: 354,
-    borderRadius: 23,
-    backgroundColor: '#fff',
-    padding: 25,
-  },
-  modalTitle: { color: '#282636', fontSize: 20, fontWeight: '700', lineHeight: 30 },
-  modalCopy: { color: '#807188', fontSize: 13, lineHeight: 23, marginTop: 12 },
-  modalActions: { flexDirection: 'row', gap: 9, marginTop: 22 },
-  modalSecondary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  modalSecondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  modalPrimary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#302b38',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  modalPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 });
 
 export function OnboardingScreen() {

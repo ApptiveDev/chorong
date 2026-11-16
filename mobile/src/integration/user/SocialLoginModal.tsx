@@ -1,13 +1,21 @@
-// Figma M05_1 모달 · 소셜 로그인 (656:4175). 비회원이 온보딩 첫 학습 완료 화면에서 '완료'를 누르면 띄운다.
+// Figma M05_1 모달 · 소셜 로그인. 비회원에게 소셜 로그인을 권하는 모달이며 쓰는 곳마다 제목·안내만 다르다.
+// - 656:4175 온보딩 첫 학습 완료 화면의 '완료'(FirstStudyLoginModal)
+// - 656:4211 제어실 '로그인'(SaveRecordLoginModal)
+// - 비회원이 우주선(하우징)에 들어가려 할 때(HousingLoginModal). 문구는 디자인 시안 스크린샷을 따른다.
+// '나중에 하기'는 비회원 세션을 그대로 두고 닫는다.
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useIntegration, useTask } from '../hooks';
-import { continueWithSocial, type SocialProvider } from './SocialLoginScreen';
+import { type SocialProvider, useSocialLogin } from './SocialLoginScreen';
 
+// 애플·구글은 영어로 표기한다(Apple로·Google로 계속하기). 구글 글자 색은 Figma 구글 버튼 순서를 따른다.
 const googleLetters = [
-  ['구', '#0038df'],
-  ['글', '#ca1310'],
+  ['G', '#0038df'],
+  ['o', '#ca1310'],
+  ['o', '#f0a90e'],
+  ['g', '#0038df'],
+  ['l', '#009838'],
+  ['e', '#ca1310'],
   ['로', '#f0a90e'],
   [' ', '#000000'],
   ['계', '#0038df'],
@@ -16,34 +24,84 @@ const googleLetters = [
   ['기', '#f0a90e'],
 ] as const;
 
-export function FirstStudyLoginModal({
+type LoginModalProps = {
+  visible: boolean;
+  // '나중에 하기'. 비회원으로 남는다.
+  onLater: () => void;
+  // 약관 화면으로 이동하기 전에 모달을 닫는다. 돌아오면 다시 열 수 있다.
+  onDismiss: () => void;
+  // 로그인에 성공한 뒤 할 일.
+  onSignedIn: () => void;
+};
+
+// 656:4175. 온보딩 첫 학습 완료 화면에서 '완료'를 누르면 띄운다.
+export function FirstStudyLoginModal(props: LoginModalProps) {
+  return (
+    <SocialLoginModal
+      {...props}
+      title="첫 학습을 기록할까요?"
+      lines={['가입하면 처음 밝힌 별과', '첫 학습 기록을 저장할 수 있어요.']}
+    />
+  );
+}
+
+// 656:4211. 비회원 제어실에서 '로그인'을 누르면 띄운다.
+export function SaveRecordLoginModal(props: LoginModalProps) {
+  return (
+    <SocialLoginModal
+      {...props}
+      title="학습 기록을 저장할까요?"
+      lines={['가입하면 지금까지 밝힌 별과', '학습 기록을 이어갈 수 있어요.']}
+    />
+  );
+}
+
+// 비회원이 우주선 탭·꾸미기 화면에 들어가려 하면 띄운다. 비회원은 하우징에 들어갈 수 없다.
+export function HousingLoginModal(props: LoginModalProps) {
+  return (
+    <SocialLoginModal
+      {...props}
+      title="로그인하고 내 우주선을 꾸며보세요"
+      lines={['로그인하면 내 우주선을 꾸밀 수 있고,', '지금까지의 학습 기록도 계정에 저장돼요.']}
+      bodyWidth={244}
+      // 시안은 제목이 한 줄이다. 24 로는 290 폭에서 줄바꿈되어 18 로 줄인다.
+      titleSize={18}
+    />
+  );
+}
+
+function SocialLoginModal({
   visible,
+  title,
+  lines,
+  // 안내 문구 폭. Figma 656:4175·656:4211 은 201 이다. 긴 문구는 내용 폭(300) 안에서 넓힌다.
+  bodyWidth = 201,
+  titleSize = 24,
   onLater,
   onDismiss,
-}: {
-  visible: boolean;
-  // '나중에 하기': 기존 비회원 첫 학습 완료 동작(학습 홈 이동)을 그대로 쓴다.
-  onLater: () => void;
-  // 약관 화면으로 이동하기 전에 모달을 닫는다. 돌아오면 '완료'로 다시 열 수 있다.
-  onDismiss: () => void;
+  onSignedIn,
+}: LoginModalProps & {
+  title: string;
+  lines: readonly [string, string];
+  bodyWidth?: number;
+  titleSize?: number;
 }) {
   const router = useRouter();
-  const session = useIntegration();
-  const task = useTask();
   const leaving = useRef(false);
+  // 실패는 결과 모달(M02_7·M02_8·M02_9)로 띄운다. 이 모달은 비회원만 열어 M01_3 은 나오지 않는다.
+  const task = useSocialLogin({
+    onSignedIn: () => {
+      leaving.current = true;
+      onSignedIn();
+    },
+  });
 
   const signIn = (provider: SocialProvider) => {
     if (task.busy || leaving.current) return;
-    void task.run(async () => {
-      if (!(await continueWithSocial(provider, session.authenticated))) return;
-      leaving.current = true;
-      // 로그인 후 이동은 기존 로그인 화면과 같은 기본 경로(학습 홈)를 따른다.
-      router.replace('/quiz');
-    });
+    task.signIn(provider);
   };
   const later = () => {
     if (task.busy || leaving.current) return;
-    leaving.current = true;
     onLater();
   };
   const openLegal = (path: '/settings/terms' | '/settings/privacy') => {
@@ -58,14 +116,14 @@ export function FirstStudyLoginModal({
         <View style={s.modal} accessibilityViewIsModal>
           <View style={s.copy}>
             <View style={s.titleWrap}>
-              <Text style={s.title}>첫 학습을 기록할까요?</Text>
+              <Text style={[s.title, { fontSize: titleSize }]}>{title}</Text>
             </View>
             <View style={s.bodyRow}>
               <Text style={s.bullet}>{'>'}</Text>
-              <View style={s.body}>
-                <Text style={[s.bodyText, s.bodyFirstLine]}>가입하면 처음 밝힌 별과</Text>
+              <View style={[s.body, { width: bodyWidth }]}>
+                <Text style={[s.bodyText, s.bodyFirstLine]}>{lines[0]}</Text>
                 <Text style={s.bodyText} numberOfLines={1} adjustsFontSizeToFit>
-                  첫 학습 기록을 저장할 수 있어요.
+                  {lines[1]}
                 </Text>
               </View>
             </View>
@@ -74,16 +132,16 @@ export function FirstStudyLoginModal({
             <View style={s.buttons}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="애플로 계속하기"
+                accessibilityLabel="Apple로 계속하기"
                 disabled={task.busy}
                 onPress={() => signIn('apple')}
                 style={[s.button, s.apple, task.busy && s.disabled]}
               >
-                <Text style={[s.buttonText, s.appleText]}>애플로 계속하기</Text>
+                <Text style={[s.buttonText, s.appleText]}>Apple로 계속하기</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="구글로 계속하기"
+                accessibilityLabel="Google로 계속하기"
                 disabled={task.busy}
                 onPress={() => signIn('google')}
                 style={[s.button, s.google, task.busy && s.disabled]}
@@ -121,13 +179,10 @@ export function FirstStudyLoginModal({
             {task.busy ? (
               <ActivityIndicator accessibilityLabel="로그인 중" color="#161616" />
             ) : null}
-            {task.error ? (
-              <Text accessibilityRole="alert" style={s.error}>
-                {task.error}
-              </Text>
-            ) : null}
           </View>
         </View>
+        {/* 결과 모달은 iOS 에서 겹쳐 띄울 수 있게 이 Modal 안에 둔다. */}
+        {task.modal}
       </View>
     </Modal>
   );
@@ -199,5 +254,4 @@ const s = StyleSheet.create({
   later: { color: '#747474', fontFamily: 'PretendardRegular', fontSize: 16, textAlign: 'center' },
   legal: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   legalText: { color: '#747474', fontFamily: 'PretendardLight', fontSize: 14 },
-  error: { color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 13, textAlign: 'center' },
 });

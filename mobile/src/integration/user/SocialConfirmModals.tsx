@@ -61,10 +61,19 @@ function Frame({
   );
 }
 
-function Heading({ title, rightPadding }: { title: string; rightPadding: number }) {
+function Heading({
+  title,
+  rightPadding,
+  size = 32,
+}: {
+  title: string;
+  rightPadding: number;
+  // 질문형 긴 제목(M02_11 차단)은 32 로는 넘쳐 다른 M02 모달과 같은 24 를 쓴다.
+  size?: number;
+}) {
   return (
     <View style={[s.heading, { paddingRight: rightPadding }]}>
-      <Text style={s.title}>{title}</Text>
+      <Text style={[s.title, { fontSize: size }]}>{title}</Text>
     </View>
   );
 }
@@ -116,7 +125,8 @@ function Actions({
   );
 }
 
-// 신고: 사유를 적어야 '신고 접수'가 활성화된다. API-805 reason 은 자유 입력이라 OTHER 로 보낸다.
+// M05_1 사용자 신고. 사유를 적어야 '신고 접수'가 활성화된다. API-805 reason 은 자유 입력이라 OTHER 로 보낸다.
+// 접수에 실패하면 서버 메시지 대신 기획 오류 문구를 보여 준다.
 export function ReportModal({
   visible,
   busy,
@@ -139,16 +149,13 @@ export function ReportModal({
     <Frame visible={visible} busy={busy} triangleTop={-34} onRequestClose={onCancel}>
       <View style={s.message}>
         <Heading title="신고하기" rightPadding={10} />
-        <Prompt text="신고 이유를 입력해주세요_" gap={8} />
+        <Prompt text="신고 이유를 입력해 주세요." gap={8} />
       </View>
       <View style={s.reportBody}>
-        <Text style={s.caption14} numberOfLines={1} adjustsFontSizeToFit>
-          이 사용자의 우주선을 구경 목록에서 볼 수 없어요_
-        </Text>
         <View style={s.group}>
           <TextInput
-            accessibilityLabel="신고 사유"
-            placeholder="신고 사유를 적어주세요."
+            accessibilityLabel="신고 이유"
+            placeholder="신고 이유를 적어 주세요."
             placeholderTextColor={color.tertiary}
             value={detail}
             onChangeText={setDetail}
@@ -159,7 +166,7 @@ export function ReportModal({
           />
           {error ? (
             <Text accessibilityRole="alert" style={s.error}>
-              {error}
+              신고를 접수하지 못했어요. 다시 시도해 주세요.
             </Text>
           ) : null}
           <Actions
@@ -175,6 +182,7 @@ export function ReportModal({
   );
 }
 
+// M02_11 차단. 실패하면 서버 메시지 대신 기획 오류 문구를 보여 준다.
 export function BlockModal({
   visible,
   busy,
@@ -191,14 +199,13 @@ export function BlockModal({
   return (
     <Frame visible={visible} busy={busy} triangleTop={-29} onRequestClose={onCancel}>
       <View style={s.message}>
-        <Heading title="차단" rightPadding={12} />
-        <Prompt text="이 사용자를 차단할까요?" gap={7} medium />
+        <Heading title="이 사용자를 차단할까요?" rightPadding={12} size={24} />
+        <Prompt text="이 사용자의 우주선은 구경 목록에서 볼 수 없어요." gap={7} />
       </View>
       <View style={s.group}>
-        <Text style={s.caption13}>이 사용자의 우주선을 구경 목록에서 볼 수 없어요_</Text>
         {error ? (
           <Text accessibilityRole="alert" style={s.error}>
-            {error}
+            사용자를 차단하지 못했어요. 다시 시도해 주세요.
           </Text>
         ) : null}
         <Actions
@@ -271,15 +278,6 @@ const s = StyleSheet.create({
   promptMedium: { fontFamily: 'PretendardMedium' },
   reportBody: { gap: 8 },
   group: { gap: 24 },
-  caption14: {
-    width: '100%',
-    color: color.tertiary,
-    fontFamily: 'PretendardRegular',
-    fontSize: 14,
-    lineHeight: 17,
-    includeFontPadding: false,
-  },
-  caption13: { color: color.tertiary, fontFamily: 'PretendardRegular', fontSize: 13 },
   // Figma 293:7139 입력_01: 최소 높이 64, 안쪽 12, 테두리 #AAAAAA, 모서리 8
   input: {
     minHeight: 64,

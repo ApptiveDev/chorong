@@ -11,7 +11,7 @@ import { WelcomeCat } from './WelcomeScreen';
 export default function AccountScreen() {
   const router = useRouter();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const afterLogin = returnTo === '/social' ? '/social' : '/quiz';
+  const afterLogin = returnTo === '/social' ? '/social' : '/';
   const session = useIntegration();
   const task = useTask();
   const [email, setEmail] = useState('');

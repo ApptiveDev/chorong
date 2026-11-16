@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -15,8 +16,10 @@ import { styles } from '../ui';
 import { UserStatus } from './Screen';
 import { AnimatedReveal } from './AnimatedReveal';
 import { QuizQuestionRule } from './QuizBackdrop';
+import { QuizFeedbackSheet } from './QuizFeedbackSheet';
 import { useQuizFooter, type RegisterQuizFooter } from './quizFooter';
 import { QUIZ_FEEDBACK_COLORS, quizFeedbackSurface } from './quizFeedbackColors';
+import { gradedAnnouncement, isUngraded } from './quizGrading';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -32,21 +35,190 @@ function choicesFromServer(raw: unknown): Choice[] | null {
   }
   return result;
 }
-export function QuizCard({
-  quiz,
-  submit,
-  onGraded,
-  disabled = false,
-  stage = false,
-  registerFooter,
-}: {
+type QuizCardProps = {
   quiz: Quiz;
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
   onGraded: (result: AnswerResult) => void;
   disabled?: boolean;
   stage?: boolean;
   registerFooter?: RegisterQuizFooter;
+  // 퀴즈 무대 OX 전용. 디자인 폭 기준 배율.
+  scale?: number;
+  // 퀴즈 무대 OX 전용. 있으면 해설 시트의 [다음]·여백 터치로 직접 다음 콘텐츠로 간다.
+  onAdvance?: () => Promise<void> | void;
+};
+
+export function QuizCard(props: QuizCardProps) {
+  const { quiz, stage, onAdvance } = props;
+  if (stage && quiz.type === 'OX' && onAdvance)
+    return (
+      <StageOxQuiz
+        quiz={quiz}
+        scale={props.scale ?? 1}
+        disabled={props.disabled ?? false}
+        submit={props.submit}
+        onGraded={props.onGraded}
+        onAdvance={onAdvance}
+      />
+    );
+  return <BaseQuizCard {...props} />;
+}
+
+type OxPhase = 'UNANSWERED' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
+
+// 퀴즈 무대 OX. O·X 를 누르면 바로 제출하고, 채점 뒤 해설은 하단 시트(QuizFeedbackSheet)로 보인다.
+// 흐름은 PresentedChoiceQuiz 와 같다(UNANSWERED → GRADING → GRADED → TRANSITIONING).
+function StageOxQuiz({
+  quiz,
+  scale,
+  disabled,
+  submit,
+  onGraded,
+  onAdvance,
+}: {
+  quiz: Quiz;
+  scale: number;
+  disabled: boolean;
+  submit: (answer: QuizAnswer) => Promise<AnswerResult>;
+  onGraded: (result: AnswerResult) => void;
+  onAdvance: () => Promise<void> | void;
 }) {
+  const [phase, setPhase] = useState<OxPhase>('UNANSWERED');
+  const phaseRef = useRef<OxPhase>('UNANSWERED');
+  const [ox, setOx] = useState<'O' | 'X' | ''>('');
+  const [result, setResult] = useState<AnswerResult | null>(null);
+  const [error, setError] = useState('');
+  const sheetProgress = useRef(new Animated.Value(0)).current;
+  const active = useRef(true);
+
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      sheetProgress.stopAnimation();
+    };
+  }, [sheetProgress]);
+
+  const moveTo = (next: OxPhase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  };
+  const choose = async (value: 'O' | 'X') => {
+    if (disabled || phaseRef.current !== 'UNANSWERED') return;
+    moveTo('GRADING');
+    setOx(value);
+    setError('');
+    try {
+      const graded = await submit({ value: value === 'O' });
+      if (!active.current) return;
+      setResult(graded);
+      onGraded(graded);
+      moveTo('GRADED');
+      AccessibilityInfo.announceForAccessibility(gradedAnnouncement(quiz, graded));
+      sheetProgress.setValue(0);
+      const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
+      if (!active.current) return;
+      if (reduceMotion) sheetProgress.setValue(1);
+      else
+        Animated.timing(sheetProgress, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: Platform.OS !== 'web',
+        }).start();
+    } catch (cause) {
+      if (!active.current) return;
+      setOx('');
+      moveTo('UNANSWERED');
+      setError(cause instanceof Error ? cause.message : '답안을 확인하지 못했습니다.');
+    }
+  };
+  const advance = () => {
+    if (phaseRef.current !== 'GRADED') return;
+    moveTo('TRANSITIONING');
+    void Promise.resolve()
+      .then(onAdvance)
+      .catch((cause) => {
+        if (!active.current) return;
+        setError(cause instanceof Error ? cause.message : '다음 콘텐츠로 이동하지 못했습니다.');
+        moveTo('GRADED');
+      });
+  };
+
+  const graded = phase === 'GRADED' || phase === 'TRANSITIONING';
+  const locked = disabled || phase !== 'UNANSWERED';
+  const ungraded = isUngraded(quiz, result);
+  // 고른 버튼만 정답·오답으로 칠한다. 오답을 골랐을 때만 남은 버튼(실제 정답)을 연하게 표시한다.
+  // 채점하지 않는 문항은 고른 표시만 남기고 색을 바꾸지 않는다.
+  const gradedFor = (value: 'O' | 'X') => {
+    if (!result || ungraded) return undefined;
+    if (ox === value) return result.isCorrect ? 'correct' : 'wrong';
+    return result.isCorrect ? undefined : 'answer';
+  };
+
+  return (
+    <View style={quizStyles.oxStage}>
+      {/* 채점 뒤 여백 터치로 다음 콘텐츠로 간다(PresentedChoiceQuiz 와 같다). */}
+      <Pressable
+        accessible={graded}
+        accessibilityRole={graded ? 'button' : undefined}
+        accessibilityLabel={graded ? '다음 학습 콘텐츠로 이동' : undefined}
+        disabled={!graded}
+        onPress={advance}
+        style={StyleSheet.absoluteFill}
+      />
+      <View
+        pointerEvents="box-none"
+        style={{ paddingTop: 200 * scale, paddingHorizontal: 36 * scale }}
+      >
+        <View pointerEvents="none" style={quizStyles.oxPrompt}>
+          <Text style={quizStyles.oxQuestion}>{quiz.question}</Text>
+          <View style={quizStyles.questionRule}>
+            <QuizQuestionRule />
+          </View>
+        </View>
+        <View pointerEvents="box-none" style={quizStyles.row}>
+          {(['O', 'X'] as const).map((value) => (
+            <QuizAction
+              key={value}
+              label={value}
+              secondary
+              selected={ox === value}
+              graded={gradedFor(value)}
+              ox
+              wireframe
+              disabled={locked}
+              onPress={() => void choose(value)}
+            />
+          ))}
+        </View>
+        {error ? (
+          <Text accessibilityRole="alert" style={quizStyles.oxError}>
+            {error}
+          </Text>
+        ) : null}
+      </View>
+      {result ? (
+        <QuizFeedbackSheet
+          result={result}
+          progress={sheetProgress}
+          nextDisabled={phase !== 'GRADED'}
+          onNext={advance}
+          ungraded={ungraded}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function BaseQuizCard({
+  quiz,
+  submit,
+  onGraded,
+  disabled = false,
+  stage = false,
+  registerFooter,
+}: QuizCardProps) {
   const task = useTask();
   const submitted = useRef(false);
   const [selected, setSelected] = useState<number | null>(null),
@@ -57,6 +229,11 @@ export function QuizCard({
   const isWireframeQuiz =
     quiz.type === 'MULTIPLE_CHOICE' || quiz.type === 'OX' || quiz.type === 'FILL_BLANK';
   const items = choicesFromServer(quiz.options?.items);
+  // 정답·오답 색과 문구를 보일 결과. 채점하지 않는 문항(isCorrect=null 등)이면 null 이다.
+  const gradedResult =
+    task.result && !isUngraded(quiz, task.result as AnswerResult)
+      ? (task.result as AnswerResult)
+      : null;
   const order = ordered.length ? ordered : (items?.map((x) => x.index) ?? []);
   const move = (from: number, by: number) => {
     const target = from + by;
@@ -138,8 +315,8 @@ export function QuizCard({
             label={c.label}
             selected={selected === c.index}
             graded={
-              task.result
-                ? (task.result as AnswerResult).isCorrect
+              gradedResult
+                ? gradedResult.isCorrect
                   ? selected === c.index
                     ? 'correct'
                     : undefined
@@ -178,12 +355,12 @@ export function QuizCard({
               selected={ox === value}
               // 고른 버튼만 정답·오답으로 칠한다. 오답을 골랐을 때만 남은 버튼(실제 정답)을 연하게 표시한다.
               graded={
-                task.result
+                gradedResult
                   ? ox === value
-                    ? (task.result as AnswerResult).isCorrect
+                    ? gradedResult.isCorrect
                       ? 'correct'
                       : 'wrong'
-                    : (task.result as AnswerResult).isCorrect
+                    : gradedResult.isCorrect
                       ? undefined
                       : 'answer'
                   : undefined
@@ -247,9 +424,11 @@ export function QuizCard({
               ? quizStyles.oxFeedback
               : isWireframeQuiz
                 ? [
-                    (task.result as AnswerResult).isCorrect
-                      ? quizStyles.goodFeedback
-                      : quizStyles.feedback,
+                    !gradedResult
+                      ? quizStyles.neutralFeedback
+                      : gradedResult.isCorrect
+                        ? quizStyles.goodFeedback
+                        : quizStyles.feedback,
                     stage && quizStyles.stageFeedback,
                   ]
                 : styles.card
@@ -257,22 +436,19 @@ export function QuizCard({
           duration={280}
           offsetY={8}
         >
-          {quiz.type !== 'OX' ? (
+          {quiz.type !== 'OX' && gradedResult ? (
             <Text
               style={
                 isWireframeQuiz
-                  ? [
-                      quizStyles.feedbackTitle,
-                      !(task.result as AnswerResult).isCorrect && quizStyles.wrongText,
-                    ]
+                  ? [quizStyles.feedbackTitle, !gradedResult.isCorrect && quizStyles.wrongText]
                   : styles.subtitle
               }
             >
               {isWireframeQuiz
-                ? (task.result as AnswerResult).isCorrect
+                ? gradedResult.isCorrect
                   ? '맞았어요!'
                   : '함께 확인해 볼까요?'
-                : (task.result as AnswerResult).isCorrect
+                : gradedResult.isCorrect
                   ? '정답'
                   : '오답'}
             </Text>
@@ -393,6 +569,16 @@ const quizStyles = StyleSheet.create({
   layout: { gap: 12 },
   stage: { flexGrow: 1, paddingTop: 6 },
   oxLayout: { flexGrow: 0, paddingTop: 0, paddingBottom: 0, gap: 0 },
+  // 퀴즈 무대 OX. 해설 시트가 화면 아래·폭 전체에 붙도록 화면을 채운다.
+  oxStage: { flexGrow: 1, width: '100%' },
+  oxError: {
+    marginTop: 16,
+    color: '#b56060',
+    fontFamily: 'PretendardMedium',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   oxPrompt: { alignSelf: 'center', alignItems: 'center', maxWidth: '100%' },
   questionRule: { marginTop: 10 },
   checkArea: { marginTop: 'auto', paddingTop: 18 },
@@ -493,6 +679,8 @@ const quizStyles = StyleSheet.create({
     padding: 17,
     gap: 5,
   },
+  // 채점하지 않는 문항의 해설. 정답·오답 색을 쓰지 않는다.
+  neutralFeedback: { backgroundColor: '#f1f1f1', borderRadius: 14, padding: 17, gap: 5 },
   stageFeedback: { marginTop: 'auto' },
   disabled: { opacity: 0.45 },
 });

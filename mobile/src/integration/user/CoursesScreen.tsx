@@ -7,7 +7,9 @@ import type { Course, CourseDetail } from '../models';
 import { UserScreen } from './Screen';
 import { LearningHome } from './LearningHome';
 import { useLessonStart } from './lessonStart';
+import { SessionConfirmModal } from './SessionConfirmModal';
 import {
+  allConstellations,
   completedConstellations,
   constellationImage,
   litStars,
@@ -127,6 +129,22 @@ function Courses() {
   const openLesson = () => {
     if (nextLesson) void lessonStart.start(nextLesson);
   };
+  // 별자리의 밝힌 별을 누르면 별자리 상세와 같은 확인 모달 뒤 다시 학습(replay)으로 들어간다.
+  const [replayTarget, setReplayTarget] = useState<CourseDetail['lessons'][number] | null>(null);
+  const pressStar = (star: { lessonId: number; state: string }) => {
+    if (star.state === 'next') return openLesson();
+    const lesson = courseLessons.find((item) => item.lessonId === star.lessonId);
+    if (star.state === 'done' && lesson?.status === 'COMPLETED') setReplayTarget(lesson);
+  };
+  const startReplay = () => {
+    if (!replayTarget) return;
+    const lesson = replayTarget;
+    setReplayTarget(null);
+    router.push({
+      pathname: '/learn/study/[lessonId]',
+      params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
+    });
+  };
   const currentConstellation = currentCourse
     ? constellations?.find((item) => item.courseId === currentCourse.courseId)
     : undefined;
@@ -196,7 +214,11 @@ function Courses() {
       <>
         <ConstellationRecordView
           mode={mapTab}
-          items={completedConstellations(courses, constellations, recordDates)}
+          items={
+            mapTab === 'map'
+              ? allConstellations(courses, constellations, recordDates)
+              : completedConstellations(courses, constellations, recordDates)
+          }
           task={task}
           onToggleMode={() => setMapTab((value) => (value === 'map' ? 'record' : 'map'))}
           onHome={() => setSection('home')}
@@ -234,16 +256,31 @@ function Courses() {
                 ? '모든 레슨을 마쳤어요'
                 : '다음 레슨이 아직 열리지 않았어요')
           }
+          nextResume={nextLesson?.status === 'IN_PROGRESS'}
           nextDisabled={!nextLesson}
           onOpenRecord={() => {
             setMapTab('record');
             setSection('map');
           }}
           onNext={openLesson}
+          onStar={pressStar}
           onReview={() => router.push('/review-start')}
           onRetry={() => void load()}
         />
         {lessonStart.modal}
+        {/* Figma 알림창_선택지 2개_가로(656:4299). 별자리 상세(CourseScreen)와 같은 모달이다. */}
+        <SessionConfirmModal
+          visible={!!replayTarget}
+          title="다시 학습할까요?"
+          notice="완료한 내용을 한 번 더 볼 수 있어요."
+          arrowBullet
+          cancelLabel="취소"
+          confirmLabel="다시 학습하기"
+          busy={false}
+          onCancel={() => setReplayTarget(null)}
+          onConfirm={startReplay}
+          onDismiss={() => setReplayTarget(null)}
+        />
         {joinModal}
       </>
     );

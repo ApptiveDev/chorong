@@ -35,6 +35,7 @@ export function SliderQuizView({
   onAdvance,
   error,
   children,
+  sheet,
 }: {
   question: string;
   hint: string;
@@ -51,6 +52,8 @@ export function SliderQuizView({
   error?: string;
   // 해설 등 값 문구 아래에 놓을 내용.
   children?: ReactNode;
+  // 화면 아래에 붙는 해설 시트(QuizFeedbackSheet). 화면 폭 전체를 쓰도록 좌우 여백 밖에 둔다.
+  sheet?: ReactNode;
 }) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const scale = Math.min(windowWidth / 402, windowHeight / 874, 1);
@@ -88,78 +91,81 @@ export function SliderQuizView({
   );
 
   return (
-    <View style={[s.stage, { paddingHorizontal: 28 * scale }]}>
-      {advanceArea({ height: 200 * scale })}
-      {advanceArea(
-        [s.questionBox, { width: 320 * scale }],
-        <Text style={s.question}>{question}</Text>,
-      )}
-      {advanceArea({ height: 64 * scale })}
-      <Text style={s.hint}>{hint}</Text>
-      <View style={s.card}>
-        <View
-          style={s.sliderTouch}
-          hitSlop={{ left: 20, right: 20 }}
-          accessibilityRole="adjustable"
-          accessibilityLabel="답 위치 조절"
-          accessibilityValue={{ min: 0, max: 100, now: Math.round(position * 100) }}
-          onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
-          onStartShouldSetResponder={() => !locked}
-          onMoveShouldSetResponder={() => !locked}
-          onResponderTerminationRequest={() => false}
-          onResponderGrant={grant}
-          onResponderMove={move}
-          onResponderRelease={release}
-        >
-          <View pointerEvents="none" style={s.slider}>
-            <View style={s.track} />
-            {ticks.map((tick, index) => (
-              <View
-                key={`${index}:${tick.label}`}
-                style={[s.tickMark, { left: tick.position * width - 0.7 }]}
-              />
-            ))}
-            <View style={[s.fill, { width: position * width }]} />
-            {answerAt !== null ? (
-              <View style={[s.answerMark, { left: answerAt * width - 1 }]} />
-            ) : null}
-            <View style={[s.thumb, { left: position * width - 2 }]} />
+    <View style={s.stage}>
+      <View style={[s.content, { paddingHorizontal: 28 * scale }]}>
+        {advanceArea({ height: 200 * scale })}
+        {advanceArea(
+          [s.questionBox, { width: 320 * scale }],
+          <Text style={s.question}>{question}</Text>,
+        )}
+        {advanceArea({ height: 64 * scale })}
+        <Text style={s.hint}>{hint}</Text>
+        <View style={s.card}>
+          <View
+            style={s.sliderTouch}
+            hitSlop={{ left: 20, right: 20 }}
+            accessibilityRole="adjustable"
+            accessibilityLabel="답 위치 조절"
+            accessibilityValue={{ min: 0, max: 100, now: Math.round(position * 100) }}
+            onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
+            onStartShouldSetResponder={() => !locked}
+            onMoveShouldSetResponder={() => !locked}
+            onResponderTerminationRequest={() => false}
+            onResponderGrant={grant}
+            onResponderMove={move}
+            onResponderRelease={release}
+          >
+            <View pointerEvents="none" style={s.slider}>
+              <View style={s.track} />
+              {ticks.map((tick, index) => (
+                <View
+                  key={`${index}:${tick.label}`}
+                  style={[s.tickMark, { left: tick.position * width - 0.7 }]}
+                />
+              ))}
+              <View style={[s.fill, { width: position * width }]} />
+              {answerAt !== null ? (
+                <View style={[s.answerMark, { left: answerAt * width - 1 }]} />
+              ) : null}
+              <View style={[s.thumb, { left: position * width - 2 }]} />
+            </View>
+          </View>
+          <View style={s.labels}>
+            {ticks.map((tick, index) => {
+              const first = index === 0;
+              const last = index === ticks.length - 1;
+              // 눈금 사이 중간점까지를 라벨 칸으로 쓴다. 양 끝은 반 칸이라 겹치지 않는다.
+              return (
+                <Text
+                  key={`${index}:${tick.label}`}
+                  numberOfLines={2}
+                  style={[
+                    s.label,
+                    first ? s.labelStart : last ? s.labelEnd : s.labelMiddle,
+                    { flex: first || last ? 1 : 2 },
+                  ]}
+                >
+                  {tick.label}
+                </Text>
+              );
+            })}
           </View>
         </View>
-        <View style={s.labels}>
-          {ticks.map((tick, index) => {
-            const first = index === 0;
-            const last = index === ticks.length - 1;
-            // 눈금 사이 중간점까지를 라벨 칸으로 쓴다. 양 끝은 반 칸이라 겹치지 않는다.
-            return (
-              <Text
-                key={`${index}:${tick.label}`}
-                numberOfLines={2}
-                style={[
-                  s.label,
-                  first ? s.labelStart : last ? s.labelEnd : s.labelMiddle,
-                  { flex: first || last ? 1 : 2 },
-                ]}
-              >
-                {tick.label}
-              </Text>
-            );
-          })}
-        </View>
+        <Text style={s.value}>{valueLabel}</Text>
+        {children}
+        {error ? (
+          <Text accessibilityRole="alert" style={s.error}>
+            {error}
+          </Text>
+        ) : null}
+        {advanceArea(s.lowerSpace)}
       </View>
-      <Text style={s.value}>{valueLabel}</Text>
-      {children}
-      {error ? (
-        <Text accessibilityRole="alert" style={s.error}>
-          {error}
-        </Text>
-      ) : null}
-      {advanceArea(s.lowerSpace)}
+      {sheet}
     </View>
   );
 }
 
-// 정오답·해설. 색상·글꼴은 SingleChoiceQuiz 와 같다.
+// 목업 range(HtmlLessonQuiz)의 정오답·해설. SLIDER(SliderQuiz)는 해설 시트(sheet)를 쓴다.
 export function SliderFeedback({
   correct,
   title,
@@ -196,6 +202,7 @@ export function SliderFeedback({
 // 수치는 Figma 300:712 값.
 const s = StyleSheet.create({
   stage: { flexGrow: 1, width: '100%' },
+  content: { flexGrow: 1 },
   questionBox: { alignSelf: 'center', maxWidth: '100%' },
   question: {
     color: '#161616',

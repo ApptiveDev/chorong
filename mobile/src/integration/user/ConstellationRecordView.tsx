@@ -17,7 +17,7 @@ import { UserStatus } from './Screen';
 export type RecordMode = 'record' | 'map';
 
 // Figma L02_2 별자리 기록 / 목록(443:1972) · L02_1 지도(749:1717) · L02_3 빈 상태(749:1801).
-// 두 모드는 같은 목록(items)을 쓰고 표현만 다르다. 전환해도 다시 불러오지 않는다.
+// 기록은 완성한 별자리만, 지도는 완성하지 않은 별자리까지 모두 받는다(items). 전환해도 다시 불러오지 않는다.
 export function ConstellationRecordView({
   mode,
   items,
@@ -65,7 +65,10 @@ export function ConstellationRecordView({
         </Pressable>
       ) : empty ? (
         task.busy ? null : (
-          <EmptyRecord width={width} />
+          <EmptyRecord
+            width={width}
+            emptyText={mode === 'map' ? '표시할 별자리가 없어요.' : '아직 완성한 별자리가 없어요.'}
+          />
         )
       ) : mode === 'record' ? (
         <RecordGrid width={width} items={items} onOpen={onOpen} />
@@ -157,9 +160,9 @@ function RecordMap({
               <Pressable
                 key={item.courseId}
                 accessibilityRole="button"
-                accessibilityLabel={item.name}
+                accessibilityLabel={item.completed ? item.name : `${item.name}, 미완성`}
                 onPress={() => onOpen(item.courseId)}
-                style={s.mapItem}
+                style={[s.mapItem, !item.completed && s.mapItemIncomplete]}
               >
                 <ConstellationFigure
                   points={item.points}
@@ -181,7 +184,7 @@ function RecordMap({
 }
 
 // 749:1801: HUD 틀 가운데에 안내 문구. 틀 폭 324, 높이는 남은 화면을 채운다.
-function EmptyRecord({ width }: { width: number }) {
+function EmptyRecord({ width, emptyText }: { width: number; emptyText: string }) {
   const [height, setHeight] = useState(0);
   const frameWidth = Math.min(324, width - 78);
   return (
@@ -192,7 +195,7 @@ function EmptyRecord({ width }: { width: number }) {
       <View style={{ width: frameWidth, height }}>
         {height ? <HudFrame width={frameWidth} height={height} /> : null}
         <View style={s.emptyMessage}>
-          <Text style={s.emptyText}>아직 완성한 별자리가 없어요.</Text>
+          <Text style={s.emptyText}>{emptyText}</Text>
         </View>
       </View>
     </View>
@@ -246,6 +249,8 @@ const s = StyleSheet.create({
   mapColumn: { gap: 60 },
   mapColumnOffset: { paddingTop: 60 },
   mapItem: { width: 100, height: 80 },
+  // 완성하지 않은 별자리는 흐리게 보인다(지도 전용, Figma 미정).
+  mapItemIncomplete: { opacity: 0.35 },
   empty: { flex: 1, alignItems: 'center', paddingBottom: 10, paddingTop: 8 },
   emptyMessage: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   emptyText: {

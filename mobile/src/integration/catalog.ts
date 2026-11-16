@@ -21,9 +21,12 @@ export const catalog = {
   'API-406': ['POST', '/quizzes/{quizId}/answer', '퀴즈 답안 제출', 'guest'],
   'API-407': ['POST', '/lessons/{lessonId}/complete', '레슨 완료', 'guest'],
   'API-408': ['GET', '/users/me/progress', '전체 학습 진행도', 'guest'],
+  'API-409': ['PUT', '/lessons/{lessonId}/progress', '레슨 진행 저장', 'guest'],
   'API-501': ['GET', '/reviews/next', '복습 조회', 'guest'],
   'API-502': ['POST', '/reviews/{reviewItemId}/answer', '복습 답안 제출', 'guest'],
   'API-503': ['POST', '/reviews/complete', '복습 완료', 'guest'],
+  'API-504': ['GET', '/reviews/status', '복습 상태', 'guest'],
+  'API-505': ['POST', '/reviews/abandon', '복습 회차 종료', 'guest'],
   'API-601': ['GET', '/onboarding', '온보딩 조회', 'guest'],
   'API-602': ['POST', '/onboarding/complete', '온보딩 완료·건너뛰기', 'guest'],
   'API-701': ['GET', '/housings/me', '내 우주 조회', 'guest'],
@@ -45,7 +48,6 @@ export const catalog = {
   'API-905': ['GET', '/users/me/rewards', '보상 내역 조회', 'guest'],
   'API-906': ['GET', '/constellations', '별자리 조회', 'guest'],
   'API-907': ['GET', '/users/me/inventory', '인벤토리', 'guest'],
-  'API-908': ['GET', '/users/me/artworks', '그림 목록 조회', 'guest'],
 } as const;
 export type ApiId = keyof typeof catalog;
 export type EnabledApiId = {

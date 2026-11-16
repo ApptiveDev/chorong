@@ -1,10 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
 import { artColor as color, ConstellationFigure } from './constellationArt';
 import type { ConstellationImage, StarPoint } from './constellationLayouts';
-import { useCompletionLayout } from './CompletionResult';
-
-const completionArcSource = require('../../../assets/completion-arc.png');
+import { CompletionArc, useCompletionLayout } from './CompletionResult';
 
 // Figma L04_1 별자리 완성(342:650). 별자리 소속 레슨을 모두 마친 순간 학습 완료 화면 다음에 보여 준다.
 // 이름·날짜·보너스·별 배치는 모두 호출하는 쪽이 서버 응답과 설정에서 읽어 넘긴다.
@@ -20,8 +18,8 @@ export function ConstellationComplete({
   name: string;
   // 'YYYY. MM. DD'
   completedOn: string;
-  // 완성 보너스 별가루. 0 이면 보너스 줄을 그리지 않는다.
-  bonus: number;
+  // 완성 보너스 줄(completionResult.constellationBonusLines). 비어 있으면 보너스 줄을 그리지 않는다.
+  bonus: readonly string[];
   points: StarPoint[];
   image: ConstellationImage | null;
   onRecord: () => void;
@@ -31,11 +29,7 @@ export function ConstellationComplete({
   return (
     <View style={s.root}>
       {/* Ellipse 6(342:677): 다른 완료 화면과 같은 호. Figma 위치 214 - 그림자 24 */}
-      <Image
-        source={completionArcSource}
-        resizeMode="stretch"
-        style={[s.arc, { top: top(190), height: 463 * scale }]}
-      />
+      <CompletionArc style={[s.arc, { top: top(190), height: 463 * scale }]} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="학습 홈으로"
@@ -65,10 +59,15 @@ export function ConstellationComplete({
       <View style={[s.dateLine, { top: top(479) }]}>
         <Text style={s.date}>{completedOn} 완성</Text>
       </View>
-      {bonus > 0 ? (
+      {bonus.length ? (
         <>
           <Text style={[s.bonusLabel, { top: top(529) }]}>완성 보너스</Text>
-          <Text style={[s.bonusAmount, { top: top(555) }]}>별가루 +{bonus}</Text>
+          {/* Figma 는 별가루 한 줄(555). 보너스가 여러 개면 24 간격으로 잇는다. */}
+          {bonus.map((line, index) => (
+            <Text key={index} style={[s.bonusAmount, { top: top(555 + index * 24) }]}>
+              {line}
+            </Text>
+          ))}
         </>
       ) : null}
       <View style={[s.actions, { bottom }]}>

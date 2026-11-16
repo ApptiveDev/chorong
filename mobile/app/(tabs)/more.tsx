@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import {
   Image,
@@ -18,6 +18,7 @@ import {
   MemberLicenceSignatureTwo,
   MemberLicenceStar,
 } from '../../src/components/MemberLicenceArt';
+import { SaveRecordLoginModal } from '../../src/integration/user/SocialLoginModal';
 const providerNames: Record<string, string> = {
   EMAIL: 'Email',
   GOOGLE: 'Google',
@@ -37,10 +38,20 @@ export default function More() {
 
 function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; returnTo?: '/social' }) {
   const router = useRouter();
-  const openSocial = () =>
-    returnTo ? router.push({ pathname: '/account', params: { returnTo } }) : go('/account');
+  // Figma 656:4211. 로그인 화면으로 가지 않고 소셜 로그인 모달을 띄운다.
+  // 로그인하면 이 화면이 회원 제어실로 바뀐다. 소셜 화면에서 왔으면 그 화면으로 돌아간다.
+  const [loginOpen, setLoginOpen] = useState(false);
   return (
     <SafeAreaView style={s.guestSafe} edges={['top', 'left', 'right']}>
+      <SaveRecordLoginModal
+        visible={loginOpen}
+        onLater={() => setLoginOpen(false)}
+        onDismiss={() => setLoginOpen(false)}
+        onSignedIn={() => {
+          setLoginOpen(false);
+          if (returnTo) router.replace(returnTo);
+        }}
+      />
       <ScrollView
         style={s.guestScroll}
         contentContainerStyle={[s.guestContent, { paddingTop: HEADER_TOP }]}
@@ -75,7 +86,7 @@ function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; return
           </View>
           <View style={s.guestMenu}>
             {/* Figma S01_1 제어실/비회원: 로그인(강조) · 알림 두 개만 둔다. */}
-            <GuestMenuButton title="로그인" onPress={openSocial} highlight />
+            <GuestMenuButton title="로그인" onPress={() => setLoginOpen(true)} highlight />
             <GuestMenuButton title="알림" onPress={() => go('/settings/notifications')} />
           </View>
         </View>
@@ -123,6 +134,8 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
     user && 'providers' in user ? user.providers.find((item) => item !== 'GUEST') : null;
   const loginMethod = provider ? (providerNames[provider] ?? provider) : '—';
   const nickname = user?.nickname?.trim() || '—';
+  // 계정 고유번호(userCode, 42 로 시작하는 8자리). 서버가 아직 보내지 않으면 — 로 둔다.
+  const userCode = user?.userCode?.trim() || null;
   const cardScale = Math.min(1, Math.max(0, (width - 64) / 332));
 
   return (
@@ -146,8 +159,13 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
               <View style={s.memberCard}>
                 <View style={[s.guestCardHeader, s.memberCardHeader]}>
                   <Text style={s.licenceTitle}>Astronaut Licence</Text>
-                  <Text style={s.licenceNumber} accessibilityLabel="회원증 번호 정보 없음">
-                    No. —
+                  <Text
+                    style={s.licenceNumber}
+                    accessibilityLabel={
+                      userCode ? `회원증 번호 ${userCode}` : '회원증 번호 정보 없음'
+                    }
+                  >
+                    No. {userCode ?? '—'}
                   </Text>
                 </View>
                 <Image
@@ -202,12 +220,13 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
 const HEADER_TOP = 32;
 
 const s = StyleSheet.create({
-  guestSafe: { flex: 1, backgroundColor: '#e4e4e4' },
+  // 다른 탭과 같은 검정 바탕. 카드·메뉴 버튼은 밝은 색 그대로 둔다.
+  guestSafe: { flex: 1, backgroundColor: '#161616' },
   guestScroll: { flex: 1 },
   guestContent: { flexGrow: 1, alignItems: 'center', paddingBottom: 32 },
   guestHeader: { width: '100%', paddingHorizontal: 32, marginBottom: 60 },
   guestHeaderTitle: {
-    color: '#161616',
+    color: '#f1f1f1',
     fontFamily: 'PretendardBold',
     fontSize: 24,
     lineHeight: 29,
@@ -222,6 +241,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderBottomWidth: 4,
     borderColor: '#161616',
+    // 아래 4px 그림자. 검정 바탕에서 보이도록 회색으로 둔다.
+    borderBottomColor: '#424242',
     borderRadius: 8,
     overflow: 'hidden',
   },
@@ -284,7 +305,8 @@ const s = StyleSheet.create({
     top: 4,
     width: 332,
     height: 164,
-    backgroundColor: '#161616',
+    // 검정 바탕에서 보이도록 회색 그림자(비회원 카드와 같다).
+    backgroundColor: '#424242',
     borderRadius: 8,
   },
   memberCard: {
@@ -327,5 +349,5 @@ const s = StyleSheet.create({
   memberSignatureOne: { position: 'absolute', left: 139, top: 112, width: 89, height: 23 },
   memberSignatureTwo: { position: 'absolute', left: 170, top: 129, width: 129, height: 23 },
   memberBarcode: { position: 'absolute', right: 0, top: 44, width: 13, height: 106 },
-  memberError: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
+  memberError: { color: '#f1f1f1', fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
 });

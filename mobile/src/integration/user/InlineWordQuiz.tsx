@@ -3,6 +3,8 @@
 // options 는 문장 속 낱말 순서이고, 낱말을 누르면 그 순번을 답안으로 낸다.
 // 고른 낱말은 Figma 처럼 회색 취소선으로 지운다. 오답이면 실제로 틀린 낱말을 정답색 취소선으로 보여 준다
 // (오답 상태는 Figma 에 없어 해설 시트의 정답색만 빌린다).
+// 채점 뒤에는 틀린 낱말(정답 순번) 바로 아래에 서버가 알려 준 바른 낱말(AnswerResult.correctWord)을
+// 정답색으로 가운데 맞춰 띄운다. 낱말 폭은 그대로 두고 그 줄 높이만 늘려 다른 낱말이 옆으로 밀리지 않게 한다.
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PresentedChoiceQuiz, type PresentedChoiceProps } from './PresentedChoiceQuiz';
 import { FEEDBACK_SHEET_COLORS } from './QuizFeedbackSheet';
@@ -14,34 +16,62 @@ export function InlineWordQuiz(props: PresentedChoiceProps) {
       {...props}
       topSpace={200}
       gap={40}
-      renderChoices={({ choices, selected, correctIndex, result, locked, choose }) => (
-        <View style={[s.sentence, { columnGap: 12 * scale, rowGap: 20 * scale }]}>
-          {choices.map((choice) => {
-            const picked = selected === choice.index;
-            const missed = !!result && !result.isCorrect && correctIndex === choice.index;
-            return (
-              <Pressable
-                key={choice.index}
-                accessibilityRole="button"
-                accessibilityLabel={`${choice.label}${picked ? ', 고름' : ''}`}
-                accessibilityState={{ selected: picked, disabled: locked }}
-                disabled={locked}
-                hitSlop={{ top: 10, bottom: 10, left: 6 * scale, right: 6 * scale }}
-                onPress={() => choose(choice.index)}
-              >
-                <Text style={[s.word, picked && s.picked, missed && s.missed]}>{choice.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
+      renderChoices={({ choices, selected, correctIndex, result, ungraded, locked, choose }) => {
+        // 틀린 낱말 자리. 맞혔으면 고른 낱말, 틀렸으면 서버가 알려 준 정답 순번이다.
+        const wrongWordIndex =
+          !result || ungraded ? null : result.isCorrect ? selected : correctIndex;
+        const correctWord = result?.correctWord?.trim();
+        return (
+          <View style={[s.sentence, { columnGap: 12 * scale, rowGap: 20 * scale }]}>
+            {choices.map((choice) => {
+              const picked = selected === choice.index;
+              const missed =
+                !!result && !ungraded && !result.isCorrect && correctIndex === choice.index;
+              return (
+                <View
+                  key={choice.index}
+                  style={correctWord && wrongWordIndex === choice.index ? s.withCorrectWord : null}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${choice.label}${picked ? ', 고름' : ''}`}
+                    accessibilityState={{ selected: picked, disabled: locked }}
+                    disabled={locked}
+                    hitSlop={{ top: 10, bottom: 10, left: 6 * scale, right: 6 * scale }}
+                    onPress={() => choose(choice.index)}
+                  >
+                    <Text style={[s.word, picked && s.picked, missed && s.missed]}>
+                      {choice.label}
+                    </Text>
+                  </Pressable>
+                  {correctWord && wrongWordIndex === choice.index ? (
+                    // 웹은 Text 에 left·right 를 함께 주면 right 를 무시하므로 가운데 맞춤은 View 가 맡는다.
+                    <View pointerEvents="none" style={s.correctWordSlot}>
+                      <Text
+                        accessibilityLabel={`바른 낱말 ${correctWord}`}
+                        numberOfLines={1}
+                        style={s.correctWord}
+                      >
+                        {correctWord}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        );
+      }}
     />
   );
 }
 
 // Figma button_틀린단어맞추기(739:1182): Pretendard Medium 18, #424242. 고른 낱말은 #AAA 취소선(739:1187).
 const s = StyleSheet.create({
-  sentence: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  // 바른 낱말이 붙은 줄만 높아지므로 위쪽 기준으로 맞춰 같은 줄 낱말이 아래로 밀리지 않게 한다.
+  sentence: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start' },
+  // 낱말 아래 바른 낱말 자리(높이 22 + 간격 4).
+  withCorrectWord: { paddingBottom: 26 },
   word: {
     color: '#424242',
     fontFamily: 'PretendardMedium',
@@ -51,4 +81,14 @@ const s = StyleSheet.create({
   },
   picked: { color: FEEDBACK_SHEET_COLORS.handle, textDecorationLine: 'line-through' },
   missed: { color: FEEDBACK_SHEET_COLORS.correct, textDecorationLine: 'line-through' },
+  // 낱말 폭과 상관없이 가운데에 놓도록 좌우로 넉넉한 칸에 둔다.
+  correctWordSlot: { position: 'absolute', top: 26, left: -60, right: -60, alignItems: 'center' },
+  correctWord: {
+    textAlign: 'center',
+    color: FEEDBACK_SHEET_COLORS.correct,
+    fontFamily: 'PretendardBold',
+    fontSize: 18,
+    lineHeight: 22,
+    includeFontPadding: false,
+  },
 });

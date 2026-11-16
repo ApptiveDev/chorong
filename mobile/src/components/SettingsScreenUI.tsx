@@ -14,7 +14,7 @@ export function SettingsHeader({ title, onBack }: { title: string; onBack?: () =
         style={s.back}
         hitSlop={8}
       >
-        <BackArrow />
+        <BackArrow color="#f1f1f1" />
       </Pressable>
       <Text style={s.title}>{title}</Text>
     </View>
@@ -40,8 +40,9 @@ const s = StyleSheet.create({
     marginBottom: 60,
   },
   back: { width: 14, height: 29, justifyContent: 'center', alignItems: 'center' },
+  // 검정 바탕 화면(약관 등)의 헤더 글자.
   title: {
-    color: '#161616',
+    color: '#f1f1f1',
     fontFamily: 'PretendardBold',
     fontSize: 24,
     lineHeight: 29,
