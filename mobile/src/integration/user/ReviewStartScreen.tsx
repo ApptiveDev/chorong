@@ -58,7 +58,7 @@ export default function ReviewStartScreen() {
   const top = (value: number) => value * scale - insets.top;
   const goBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/quiz');
+    else router.replace('/');
   };
   const task = useTask();
   // 오늘 보상 세션이 남았는지(API-501 rewardEligible). null 은 아직 모름.
@@ -206,7 +206,7 @@ export default function ReviewStartScreen() {
         onClose={() => setEmptyOpen(false)}
         onGoHome={() => {
           setEmptyOpen(false);
-          router.replace('/quiz');
+          router.replace('/');
         }}
       />
     </UserScreen>

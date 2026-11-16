@@ -531,7 +531,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   // 웹 새로고침·직접 진입처럼 뒤로 갈 기록이 없으면 내 우주선 탭으로 보낸다.
   const exit = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/');
+    else router.replace('/housing');
   };
   const leave = () => {
     if (task.busy) return;

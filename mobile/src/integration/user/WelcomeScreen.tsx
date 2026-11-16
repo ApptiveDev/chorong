@@ -64,7 +64,7 @@ export default function WelcomeScreen() {
   const start = () => {
     if (!session.ready || task.busy) return;
     if (session.authenticated && session.user?.status !== 'GUEST') {
-      router.replace('/quiz');
+      router.replace('/');
       return;
     }
     if (!session.authenticated && !platform && !useMockApi) return;
@@ -92,7 +92,7 @@ export default function WelcomeScreen() {
       } catch {
         // 게스트 계정은 유지하고 학습 홈에서 다시 불러온다.
       }
-      router.replace('/quiz');
+      router.replace('/');
     });
   };
 

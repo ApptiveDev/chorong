@@ -94,7 +94,7 @@ function Study() {
     [wallet, setWallet] = useState<{ stardust: number } | null>(null);
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
-  const leaveStudy = () => router.replace('/quiz');
+  const leaveStudy = () => router.replace('/');
   useEffect(() => {
     let active = true;
     void task.run(async () => {
@@ -441,7 +441,7 @@ function Study() {
                   constellationFigure?.constellationId,
                   constellationFigure?.imageUrl,
                 )}
-                onRecord={() => router.replace({ pathname: '/quiz', params: { view: 'record' } })}
+                onRecord={() => router.replace({ pathname: '/', params: { view: 'record' } })}
                 onHome={leaveStudy}
               />
             ) : lessonDone && replay ? (

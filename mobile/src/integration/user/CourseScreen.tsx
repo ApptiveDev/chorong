@@ -67,7 +67,7 @@ export default function CourseScreen() {
   );
   const goBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/quiz');
+    else router.replace('/');
   };
   // 완료한 레슨은 확인 모달을 거쳐 기존 다시 학습하기(replay)로 들어간다. 진행 중 레슨의 이어서 모달은 학습 화면이 띄운다.
   const [replayTarget, setReplayTarget] = useState<Lesson | null>(null);

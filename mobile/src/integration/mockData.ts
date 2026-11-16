@@ -565,7 +565,7 @@ const sharpenMockContent = {
       presentation: {
         type: 'SHARPEN',
         mediaUrl: 'mock-study-fusion',
-        stages: [24, 12, 4, 0],
+        stages: [32, 16, 8, 4, 2, 0],
       },
     },
   },
@@ -613,7 +613,6 @@ const inlineWordMockContent = {
         '넷이',
         '합쳐져',
         '산소',
-        '헬륨',
         '하나가',
         '돼요',
       ],

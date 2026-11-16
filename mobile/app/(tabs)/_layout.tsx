@@ -9,8 +9,9 @@ import {
 import { useIntegration } from '../../src/integration/hooks';
 
 const dockItems = [
-  { name: 'quiz', label: '학습' },
-  { name: 'index', label: '우주선' },
+  // 메인(/)은 학습이다. 우주선은 /housing.
+  { name: 'index', label: '학습' },
+  { name: 'housing', label: '우주선' },
   { name: 'more', label: '제어실' },
 ];
 

@@ -108,13 +108,13 @@ export default function SocialScreen() {
       setShowOwn(!value);
     });
   };
-  const leave = () => (fromBrowseTab ? router.navigate('/') : router.back());
+  const leave = () => (fromBrowseTab ? router.navigate('/housing') : router.back());
 
   if (browsing)
     return (
       <BrowseView
         shopItems={shopItems}
-        onMyShip={() => (fromBrowseTab ? router.navigate('/') : setShowOwn(true))}
+        onMyShip={() => (fromBrowseTab ? router.navigate('/housing') : setShowOwn(true))}
       />
     );
 

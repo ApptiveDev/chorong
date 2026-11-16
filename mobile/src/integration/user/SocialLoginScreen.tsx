@@ -61,7 +61,7 @@ export default function SocialLoginScreen() {
   const contentHeight = height - insets.top - insets.bottom - topSpacing;
   const headerToButtons = Math.max(24, Math.min(280, contentHeight - 29 - 227 - 24));
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const afterLogin = returnTo === '/social' ? '/social' : '/quiz';
+  const afterLogin = returnTo === '/social' ? '/social' : '/';
   const session = useIntegration();
   const task = useTask();
 

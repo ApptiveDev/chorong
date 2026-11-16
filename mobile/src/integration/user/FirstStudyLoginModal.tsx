@@ -38,7 +38,7 @@ export function FirstStudyLoginModal({
       if (!(await continueWithSocial(provider, session.authenticated))) return;
       leaving.current = true;
       // 로그인 후 이동은 기존 로그인 화면과 같은 기본 경로(학습 홈)를 따른다.
-      router.replace('/quiz');
+      router.replace('/');
     });
   };
   const later = () => {

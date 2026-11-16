@@ -1,1 +1,1 @@
-export { default } from '../../src/integration/user/HomeScreen';
+export { default } from '../../src/integration/user/CoursesScreen';

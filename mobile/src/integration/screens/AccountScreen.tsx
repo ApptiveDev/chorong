@@ -44,7 +44,7 @@ function AccountForm() {
     task.run(async () => {
       try {
         await action();
-        router.replace('/quiz');
+        router.replace('/');
         return { status: '로그인 완료' };
       } finally {
         clearCredentials();

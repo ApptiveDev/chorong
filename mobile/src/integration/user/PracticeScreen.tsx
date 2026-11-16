@@ -163,7 +163,7 @@ export function ReviewScreen() {
           notice={
             notice.kind === 'reviewAlreadyRewarded' ? '오늘의 복습 보상은 이미 받았어요' : undefined
           }
-          action={{ label: '완료', onPress: () => router.replace('/quiz') }}
+          action={{ label: '완료', onPress: () => router.replace('/') }}
         />
       ) : null}
       {set?.message && !notice ? <Text style={styles.text}>{set.message}</Text> : null}
@@ -229,7 +229,7 @@ export function ReviewScreen() {
                 style={reviewStyles.modalPrimary}
                 onPress={() => {
                   setExitOpen(false);
-                  router.replace('/quiz');
+                  router.replace('/');
                 }}
               >
                 <Text style={reviewStyles.modalPrimaryText}>나가기</Text>
