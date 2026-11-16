@@ -674,7 +674,6 @@ class LearningApiTest {
             mvc
                 .get("/api/v1/reviews/next") {
                     header(HttpHeaders.AUTHORIZATION, auth)
-                    param("lessonId", lessonId.toString())
                 }.andExpect {
                     status { isOk() }
                     jsonPath("$.data.reviewItems.length()") { value(5) }
@@ -693,12 +692,13 @@ class LearningApiTest {
             mvc
                 .get("/api/v1/reviews/next") {
                     header(HttpHeaders.AUTHORIZATION, auth)
-                    param("lessonId", lessonId.toString())
                 }.andExpect { status { isOk() } }
                 .andReturn()
                 .response.contentAsString
         assertEquals(firstItemIds, mapper.readTree(second)["data"]["reviewItems"].map { it["reviewItemId"].asLong() })
 
+        // 열린 회차를 지우면 남은 후보 4개로는 새 회차를 만들지 않는다.
+        jdbc.update("DELETE FROM review_session WHERE user_id=?", userId)
         jdbc.update(
             "UPDATE quiz_review_pool SET available_on=? WHERE user_id=? AND quiz_id=?",
             today.toLocalDate().plusDays(1),
@@ -980,6 +980,44 @@ class LearningApiTest {
         jdbc.update("UPDATE lesson_progress SET status='COMPLETED', completed_at=now() WHERE user_id=? AND lesson_id=?", userId, b1)
         assertEquals(null, lessonProgress.getProgress(userId).current)
         assertEquals(3, learning.listCourses(userId).sumOf { it.completedLessons })
+    }
+
+    @Test
+    fun `review candidates never block starting or finishing a lesson`() {
+        val (_, reviewLessonId) = createUnlockedLesson("복습 후보")
+        val today = java.sql.Date.valueOf(java.time.LocalDate.ofInstant(clock.instant(), java.time.ZoneId.of("Asia/Seoul")))
+        supportedQuizFixtures().mapIndexed { index, item -> seedFixture(item, reviewLessonId, index) }.forEach { quizId ->
+            jdbc.update(
+                "INSERT INTO quiz_review_pool(user_id,quiz_id,status,available_on,last_submitted_at) VALUES (?,?,'WRONG',?,now())",
+                userId,
+                quizId,
+                today,
+            )
+        }
+        val (_, lessonId) = createUnlockedLesson("복습 없이 진행")
+        val contentId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,1,'TEXT','본문') RETURNING content_id",
+                    Long::class.java,
+                    lessonId,
+                ),
+            )
+
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.reviewRequired") { value(false) }
+            jsonPath("$.data.review") { doesNotExist() }
+            jsonPath("$.data.progress.status") { value("IN_PROGRESS") }
+        }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.lessonCompleted") { value(true) }
+        }
+        assertEquals(
+            "COMPLETED",
+            jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId),
+        )
     }
 
     @Test

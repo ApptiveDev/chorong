@@ -118,8 +118,8 @@ data class LessonProgressState(
 )
 
 data class LessonStartResponse(
-    val reviewRequired: Boolean,
-    val review: ReviewSetResponse? = null,
+    // 레슨 전 필수 복습이 없어져 항상 false다. 앱 응답 검사가 이 칸을 요구해서 남긴다.
+    val reviewRequired: Boolean = false,
     val progress: LessonProgressState,
     val contents: List<LearningContent>,
     val segments: List<LessonSegment>,
@@ -228,8 +228,7 @@ class LearningController(
     @Operation(operationId = "API-501", summary = "Get next review set")
     fun nextReviewSet(
         @CurrentUserId userId: Long,
-        @RequestParam(required = false) lessonId: Long?,
-    ): ApiResponse<ReviewSetResponse> = ApiResponse(reviewSets.next(userId, lessonId))
+    ): ApiResponse<ReviewSetResponse> = ApiResponse(reviewSets.next(userId))
 
     @PostMapping("/reviews/{reviewItemId}/answer")
     @Operation(operationId = "API-502", summary = "Submit a review answer")
