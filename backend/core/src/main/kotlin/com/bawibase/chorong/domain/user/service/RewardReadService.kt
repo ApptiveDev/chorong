@@ -30,6 +30,9 @@ data class RewardRecordResponse(
     val currency: String? = null,
     val amount: Long? = null,
     val itemId: Long? = null,
+    val optionId: Long? = null,
+    val storyId: Long? = null,
+    val convertedEnergy: Int? = null,
     val badge: LearningRewardBadge? = null,
     val source: RewardSource = RewardSource(),
     val grantedAt: Instant,
@@ -261,7 +264,8 @@ class RewardReadService(
                     val placed = copies.count { it.placed }
                     InventoryItemResponse(
                         first.itemId,
-                        if (first.itemType == FURNITURE) FURNITURE else OBJECT,
+                        // 상점 구매분은 FLOOR·WALL 을 그대로 낸다. 예전 방식 지급품은 가구가 아니면 OBJECT 다.
+                        if (first.optionId != null || first.itemType == FURNITURE) first.itemType else OBJECT,
                         first.name,
                         first.optionId,
                         first.option,
@@ -356,10 +360,11 @@ class RewardReadService(
         private const val MAX_CURSOR_LENGTH = 128
         private const val FURNITURE = "FURNITURE"
         private const val OBJECT = "OBJECT"
-        private val INVENTORY_TYPES = setOf(FURNITURE, OBJECT)
+        private val INVENTORY_TYPES = setOf(FURNITURE, OBJECT, "FLOOR", "WALL")
 
         private const val REWARD_SELECT =
             """SELECT r.reward_ledger_id, r.created_at, r.reward_type, r.currency, r.amount, r.item_id,
+                      r.option_id, r.story_id, r.converted_energy,
                       r.constellation_id, r.badge_type, l.lesson_id, l.title AS lesson_title, c.course_id, c.title AS course_title,
                       CASE WHEN r.reward_type='CONSTELLATION' THEN r.constellation_id END AS badge_constellation_id
                FROM reward_ledger r
@@ -392,6 +397,9 @@ class RewardReadService(
                             currency = rs.getString("currency"),
                             amount = rs.getLong("amount").let { if (rs.wasNull()) null else it },
                             itemId = rs.getLong("item_id").let { if (rs.wasNull()) null else it },
+                            optionId = rs.getLong("option_id").let { if (rs.wasNull()) null else it },
+                            storyId = rs.getLong("story_id").let { if (rs.wasNull()) null else it },
+                            convertedEnergy = rs.getInt("converted_energy").let { if (rs.wasNull()) null else it },
                             badge =
                                 constellationId?.let {
                                     LearningRewardBadge(

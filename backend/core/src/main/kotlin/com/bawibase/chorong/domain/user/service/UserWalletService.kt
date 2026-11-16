@@ -40,6 +40,20 @@ class UserWalletService(
         return true
     }
 
+    /** 에너지를 최대치까지만 채우고, 최대치를 넘어 받지 못한 개수를 돌려준다. */
+    fun addEnergy(
+        userId: Long,
+        amount: Int,
+    ): Int {
+        if (amount <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val wallet = ensureWallet(userId)
+        val energy = energy(wallet)
+        val added = minOf(amount, UserWalletEntity.MAX_ENERGY - energy).coerceAtLeast(0)
+        wallet.energy = energy + added
+        wallet.energyDate = today()
+        return amount - added
+    }
+
     fun balances(wallet: UserWalletEntity) = WalletBalancesResponse(wallet.stardust, energy(wallet), energyResetsAt())
 
     private fun today(): LocalDate = LocalDate.ofInstant(clock.instant(), kst)

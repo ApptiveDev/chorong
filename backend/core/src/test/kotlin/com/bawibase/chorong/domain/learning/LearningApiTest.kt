@@ -70,6 +70,8 @@ class LearningApiTest {
 
     @Autowired lateinit var studyStreak: StudyStreakService
 
+    @Autowired lateinit var constellationBonus: ConstellationBonusService
+
     @Autowired lateinit var entityManager: EntityManager
 
     @Autowired lateinit var mapper: ObjectMapper
@@ -998,6 +1000,169 @@ class LearningApiTest {
         jdbc.update("UPDATE lesson_progress SET status='COMPLETED', completed_at=now() WHERE user_id=? AND lesson_id=?", userId, b1)
         assertEquals(null, lessonProgress.getProgress(userId).current)
         assertEquals(3, learning.listCourses(userId).sumOf { it.completedLessons })
+    }
+
+    @Test
+    fun `completing a constellation grants its bonus once and unlocks store items`() {
+        val (courseId, lessonId) = createUnlockedLesson("완성 보너스")
+        jdbc.update("UPDATE course SET constellation_id=course_id WHERE course_id=?", courseId)
+        val contentId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문') RETURNING content_id",
+                    Long::class.java,
+                    lessonId,
+                ),
+            )
+        // 잠긴 바닥 아이템 하나, 판매 중인 아이템의 잠긴 색상 옵션 하나.
+        val floorId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type,unlocked,unlock_hint) VALUES ('별빛 바닥','FLOOR',FALSE,'완성 보너스') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val floorOption =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_option(item_id,currency,price,preview_asset) VALUES (?,'STARDUST',10,'floor') RETURNING option_id",
+                    Long::class.java,
+                    floorId,
+                ),
+            )
+        val lampId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('보너스 조명','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val goldOption =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset,requires_unlock,unlock_hint)
+                       VALUES (?, '{"color":"gold"}', 'STARDUST', 10, 'lamp-gold', TRUE, '완성 보너스') RETURNING option_id""",
+                    Long::class.java,
+                    lampId,
+                ),
+            )
+        val storyId = checkNotNull(jdbc.queryForObject("INSERT INTO world_story DEFAULT VALUES RETURNING story_id", Long::class.java))
+        jdbc.update("INSERT INTO constellation_bonus(course_id,bonus_type,energy,sort_order) VALUES (?,'ENERGY',3,1)", courseId)
+        jdbc.update("INSERT INTO constellation_bonus(course_id,bonus_type,item_id,sort_order) VALUES (?,'UNLOCK',?,2)", courseId, floorId)
+        jdbc.update(
+            "INSERT INTO constellation_bonus(course_id,bonus_type,item_id,option_id,sort_order) VALUES (?,'UNLOCK',?,?,3)",
+            courseId,
+            lampId,
+            goldOption,
+        )
+        jdbc.update("INSERT INTO constellation_bonus(course_id,bonus_type,story_id,sort_order) VALUES (?,'STORY',?,4)", courseId, storyId)
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,energy,energy_date,stardust) VALUES (?,5,?,0) ON CONFLICT (user_id) DO UPDATE SET energy=5, energy_date=?, stardust=0",
+            userId,
+            java.sql.Date.valueOf(today()),
+            java.sql.Date.valueOf(today()),
+        )
+
+        fun purchase(
+            itemId: Long,
+            optionId: Long,
+        ) = mvc.post("/api/v1/shop/purchases") {
+            header(HttpHeaders.AUTHORIZATION, auth)
+            header("Idempotency-Key", UUID.randomUUID().toString())
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":1}]}"""
+        }
+
+        mvc.get("/api/v1/shop/items/$lampId") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.item.unlocked") { value(true) }
+            jsonPath("$.data.options[0].unlocked") { value(false) }
+            jsonPath("$.data.options[0].unlockHint") { value("완성 보너스") }
+        }
+        jdbc.update("UPDATE user_wallet SET stardust=100 WHERE user_id=?", userId)
+        purchase(floorId, floorOption).andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.items[0].code") { value("ITEM_LOCKED") }
+        }
+        purchase(lampId, goldOption).andExpect {
+            status { isForbidden() }
+            jsonPath("$.error.items[0].code") { value("ITEM_LOCKED") }
+        }
+        jdbc.update("UPDATE user_wallet SET stardust=0 WHERE user_id=?", userId)
+
+        // 에너지 5에서 레슨 보상으로 1을 쓰고(4), 보너스 3개 중 1개만 채운다. 넘친 2개는 별가루 20.
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.completion.courseCompleted") { value(true) }
+            jsonPath("$.data.completion.rewards.length()") { value(8) }
+            jsonPath("$.data.completion.rewards[0].amount") { value(10) }
+            jsonPath("$.data.completion.rewards[2].badge.badgeType") { value("CONSTELLATION") }
+            jsonPath("$.data.completion.rewards[3].currency") { value("ENERGY") }
+            jsonPath("$.data.completion.rewards[3].amount") { value(1) }
+            jsonPath("$.data.completion.rewards[3].convertedEnergy") { doesNotExist() }
+            jsonPath("$.data.completion.rewards[4].currency") { value("STARDUST") }
+            jsonPath("$.data.completion.rewards[4].amount") { value(20) }
+            jsonPath("$.data.completion.rewards[4].convertedEnergy") { value(2) }
+            jsonPath("$.data.completion.rewards[5].type") { value("UNLOCK") }
+            jsonPath("$.data.completion.rewards[5].itemId") { value(floorId) }
+            jsonPath("$.data.completion.rewards[5].optionId") { doesNotExist() }
+            jsonPath("$.data.completion.rewards[6].optionId") { value(goldOption) }
+            jsonPath("$.data.completion.rewards[7].type") { value("STORY") }
+            jsonPath("$.data.completion.rewards[7].storyId") { value(storyId) }
+            jsonPath("$.data.completion.wallet.energy") { value(5) }
+            jsonPath("$.data.completion.wallet.stardust") { value(30) }
+        }
+        // 해금은 인벤토리에 넣지 않는다.
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM housing_store_owned_option WHERE user_id=?", Int::class.java, userId))
+        mvc.get("/api/v1/users/me/rewards") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.rewards[?(@.type=='STORY')].storyId") { value(storyId.toInt()) }
+            jsonPath("$.data.rewards[?(@.convertedEnergy==2)].amount") { value(20) }
+        }
+
+        // 다시 지급해도 중복되지 않는다.
+        assertEquals(emptyList(), constellationBonus.grant(userId, courseId))
+        assertEquals(
+            5,
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reward_ledger WHERE user_id=? AND source_key LIKE ?",
+                Int::class.java,
+                userId,
+                "COURSE:$courseId:BONUS:%",
+            ),
+        )
+
+        mvc.get("/api/v1/shop/items?itemType=FLOOR") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.items[?(@.itemId==$floorId)].unlocked") { value(true) }
+        }
+        purchase(floorId, floorOption).andExpect { status { isOk() } }
+        purchase(lampId, goldOption).andExpect { status { isOk() } }
+        mvc.get("/api/v1/users/me/inventory?itemType=FLOOR") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.items[0].itemType") { value("FLOOR") }
+        }
+    }
+
+    @Test
+    fun `energy bonus fills up to the maximum and converts the rest`() {
+        val (courseId, _) = createUnlockedLesson("에너지 보너스")
+        jdbc.update("INSERT INTO constellation_bonus(course_id,bonus_type,energy) VALUES (?,'ENERGY',3)", courseId)
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,energy,energy_date,stardust) VALUES (?,4,?,0) ON CONFLICT (user_id) DO UPDATE SET energy=4, energy_date=?, stardust=0",
+            userId,
+            java.sql.Date.valueOf(today()),
+            java.sql.Date.valueOf(today()),
+        )
+        val rewards = constellationBonus.grant(userId, courseId)
+        assertEquals(
+            listOf(LearningReward("WALLET", "ENERGY", 1), LearningReward("WALLET", "STARDUST", 20, convertedEnergy = 2)),
+            rewards,
+        )
+        entityManager.flush()
+        assertEquals(5, jdbc.queryForObject("SELECT energy FROM user_wallet WHERE user_id=?", Int::class.java, userId))
+        assertEquals(20L, jdbc.queryForObject("SELECT stardust FROM user_wallet WHERE user_id=?", Long::class.java, userId))
     }
 
     @Test

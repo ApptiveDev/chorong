@@ -43,7 +43,7 @@ class HousingStorePurchaseService(
         val errors = mutableListOf<ApiErrorItem>()
         val options =
             request.items.map { requested ->
-                val item = findItem(requested.itemId)
+                val item = findItem(userId, requested.itemId)
                 val option =
                     when {
                         item != null && !item.unlocked -> {
@@ -57,8 +57,21 @@ class HousingStorePurchaseService(
                         }
 
                         else -> {
-                            findOption(requested.itemId, requested.optionId).also {
-                                if (it == null) errors.add(requested.error(ApiErrorCode.OPTION_INVALID))
+                            val found = findOption(userId, requested.itemId, requested.optionId)
+                            when {
+                                found == null -> {
+                                    errors.add(requested.error(ApiErrorCode.OPTION_INVALID))
+                                    null
+                                }
+
+                                !found.unlocked -> {
+                                    errors.add(requested.error(ApiErrorCode.ITEM_LOCKED))
+                                    null
+                                }
+
+                                else -> {
+                                    found
+                                }
                             }
                         }
                     }
@@ -124,10 +137,16 @@ class HousingStorePurchaseService(
         return STORE_PREFIX + (id ?: throw ApiV1Exception(ApiErrorCode.INVENTORY_ITEM_NOT_OWNED))
     }
 
-    private fun findItem(itemId: Long): StoreItem? =
+    private fun findItem(
+        userId: Long,
+        itemId: Long,
+    ): StoreItem? =
         jdbc
             .query(
-                "SELECT item_id,name,item_type,unlocked,is_active FROM housing_store_item WHERE item_id=?",
+                """SELECT item_id,name,item_type,is_active,
+                          unlocked OR EXISTS (SELECT 1 FROM user_store_unlock u
+                                              WHERE u.user_id=? AND u.item_id=i.item_id AND u.option_id IS NULL) AS unlocked
+                   FROM housing_store_item i WHERE item_id=?""",
                 {
                     rs,
                     _,
@@ -140,16 +159,20 @@ class HousingStorePurchaseService(
                         rs.getBoolean("is_active"),
                     )
                 },
+                userId,
                 itemId,
             ).firstOrNull()
 
     private fun findOption(
+        userId: Long,
         itemId: Long,
         optionId: Long,
     ): StoreOption? =
         jdbc
             .query(
-                """SELECT o.option_id,o.item_id,i.name,i.item_type,o.option_json::text AS option_json,o.currency,o.price
+                """SELECT o.option_id,o.item_id,i.name,i.item_type,o.option_json::text AS option_json,o.currency,o.price,
+                      NOT o.requires_unlock OR EXISTS (SELECT 1 FROM user_store_unlock u
+                                                       WHERE u.user_id=? AND u.option_id=o.option_id) AS unlocked
                FROM housing_store_option o JOIN housing_store_item i ON i.item_id=o.item_id
                WHERE o.item_id=? AND o.option_id=? AND o.is_active AND o.currency='STARDUST'""",
                 { rs, _ ->
@@ -161,8 +184,10 @@ class HousingStorePurchaseService(
                         rs.getString("option_json"),
                         rs.getString("currency"),
                         rs.getLong("price"),
+                        rs.getBoolean("unlocked"),
                     )
                 },
+                userId,
                 itemId,
                 optionId,
             ).firstOrNull()
@@ -191,6 +216,7 @@ class HousingStorePurchaseService(
         val optionJson: String,
         val currency: String,
         val price: Long,
+        val unlocked: Boolean,
     )
 
     private companion object {

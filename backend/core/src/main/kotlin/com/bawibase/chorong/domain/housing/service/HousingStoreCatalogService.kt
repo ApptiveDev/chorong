@@ -86,7 +86,13 @@ class HousingStoreCatalogService(
         itemId: Long?,
     ): List<StoreOptionRow> =
         jdbc.query(
-            """SELECT i.item_id, i.name, i.item_type, i.unlocked, i.unlock_hint,
+            """SELECT x.*, x.unlocked AND (NOT x.requires_unlock OR x.option_unlocked_for_user) AS option_unlocked
+               FROM (
+               SELECT i.item_id, i.name, i.item_type, i.unlock_hint, i.sort_order AS item_sort, o.sort_order AS option_sort,
+                      i.unlocked OR EXISTS (SELECT 1 FROM user_store_unlock u
+                                            WHERE u.user_id=? AND u.item_id=i.item_id AND u.option_id IS NULL) AS unlocked,
+                      o.requires_unlock, o.unlock_hint AS option_unlock_hint,
+                      EXISTS (SELECT 1 FROM user_store_unlock u WHERE u.user_id=? AND u.option_id=o.option_id) AS option_unlocked_for_user,
                       o.option_id, o.option_json::text AS option_json, o.currency, o.price, o.preview_asset,
                       (SELECT COUNT(*) FROM housing_store_owned_option own
                               WHERE own.user_id=? AND own.option_id=o.option_id) AS owned_count
@@ -95,7 +101,8 @@ class HousingStoreCatalogService(
                WHERE i.is_active
                  AND (?::varchar IS NULL OR i.item_type=?)
                  AND (?::bigint IS NULL OR i.item_id=?)
-               ORDER BY i.sort_order, i.item_id, o.sort_order, o.option_id""",
+               ) x
+               ORDER BY x.item_sort, x.item_id, x.option_sort, x.option_id""",
             { rs, _ ->
                 StoreOptionRow(
                     itemId = rs.getLong("item_id"),
@@ -109,8 +116,12 @@ class HousingStoreCatalogService(
                     price = rs.getLong("price"),
                     previewAsset = rs.getString("preview_asset"),
                     ownedCount = rs.getLong("owned_count"),
+                    optionUnlocked = rs.getBoolean("option_unlocked"),
+                    optionUnlockHint = rs.getString("option_unlock_hint"),
                 )
             },
+            userId,
+            userId,
             userId,
             itemType,
             itemType,
@@ -131,6 +142,8 @@ class HousingStoreCatalogService(
                         price = row.price,
                         previewAsset = row.previewAsset,
                         ownedCount = row.ownedCount,
+                        unlocked = row.optionUnlocked,
+                        unlockHint = row.optionUnlockHint.takeUnless { row.optionUnlocked },
                     )
                 }
             val cheapest = options.minWith(compareBy<HousingStoreOptionResponse> { it.price }.thenBy { it.optionId })
@@ -158,9 +171,11 @@ class HousingStoreCatalogService(
         val price: Long,
         val previewAsset: String,
         val ownedCount: Long,
+        val optionUnlocked: Boolean,
+        val optionUnlockHint: String?,
     )
 
     private companion object {
-        val ITEM_TYPES = setOf("FURNITURE", "OBJECT")
+        val ITEM_TYPES = setOf("FURNITURE", "OBJECT", "FLOOR", "WALL")
     }
 }

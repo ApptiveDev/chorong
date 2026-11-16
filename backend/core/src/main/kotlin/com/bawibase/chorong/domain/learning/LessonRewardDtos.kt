@@ -1,6 +1,7 @@
 package com.bawibase.chorong.domain.learning
 
 import com.bawibase.chorong.domain.user.controller.WalletBalancesResponse
+import com.fasterxml.jackson.annotation.JsonInclude
 
 data class LearningRewardBadge(
     val badgeType: String,
@@ -14,6 +15,10 @@ data class LearningReward(
     val amount: Long? = null,
     val itemId: Long? = null,
     val badge: LearningRewardBadge? = null,
+    // 별자리 완성 보너스에만 쓰는 필드. 없으면 응답에서 뺀다.
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val optionId: Long? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val storyId: Long? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val convertedEnergy: Int? = null,
 )
 
 /** GRANTED 별가루 지급·에너지 1 사용, NO_ENERGY 에너지가 없어 보상 미수령 유지, ALREADY_GRANTED 이미 받은 레슨. */
