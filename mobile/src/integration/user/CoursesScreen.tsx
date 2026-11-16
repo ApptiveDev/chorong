@@ -239,6 +239,7 @@ function Courses() {
                 ? '모든 레슨을 마쳤어요'
                 : '다음 레슨이 아직 열리지 않았어요')
           }
+          nextResume={nextLesson?.status === 'IN_PROGRESS'}
           nextDisabled={!nextLesson}
           onOpenRecord={() => {
             setMapTab('record');

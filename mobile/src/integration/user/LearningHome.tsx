@@ -49,6 +49,8 @@ export type LearningHomeProps = {
   } | null;
   wallet: { energy?: number; stardust: number } | null;
   nextTitle: string;
+  // 시작했지만 다 마치지 않은 레슨(IN_PROGRESS)이면 '이어하기', 아니면 '다음 학습'.
+  nextResume: boolean;
   nextDisabled: boolean;
   onOpenRecord: () => void;
   onNext: () => void;
@@ -62,6 +64,7 @@ export function LearningHome({
   constellation,
   wallet,
   nextTitle,
+  nextResume,
   nextDisabled,
   onOpenRecord,
   onNext,
@@ -124,14 +127,14 @@ export function LearningHome({
           ) : null}
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`다음 학습 ${nextTitle}`}
+            accessibilityLabel={`${nextResume ? '이어하기' : '다음 학습'} ${nextTitle}`}
             accessibilityState={{ disabled: nextDisabled }}
             disabled={nextDisabled}
             onPress={onNext}
             style={[s.nextCard, { width: panelWidth + 4 }, nextDisabled && s.disabled]}
           >
             <View style={s.nextText}>
-              <Text style={s.nextLabel}>다음 학습</Text>
+              <Text style={s.nextLabel}>{nextResume ? '이어하기' : '다음 학습'}</Text>
               <Text style={s.nextTitle} numberOfLines={1}>
                 {nextTitle}
               </Text>
