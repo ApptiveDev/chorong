@@ -1,6 +1,7 @@
 // Figma M05_1 모달 · 소셜 로그인. 비회원에게 소셜 로그인을 권하는 모달이며 쓰는 곳마다 제목·안내만 다르다.
 // - 656:4175 온보딩 첫 학습 완료 화면의 '완료'(FirstStudyLoginModal)
 // - 656:4211 제어실 '로그인'(SaveRecordLoginModal)
+// - 비회원이 우주선(하우징)에 들어가려 할 때(HousingLoginModal). 문구는 디자인 시안 스크린샷을 따른다.
 // '나중에 하기'는 비회원 세션을 그대로 두고 닫는다.
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
@@ -51,14 +52,36 @@ export function SaveRecordLoginModal(props: LoginModalProps) {
   );
 }
 
+// 비회원이 우주선 탭·꾸미기 화면에 들어가려 하면 띄운다. 비회원은 하우징에 들어갈 수 없다.
+export function HousingLoginModal(props: LoginModalProps) {
+  return (
+    <SocialLoginModal
+      {...props}
+      title="로그인하고 내 우주선을 꾸며보세요"
+      lines={['로그인하면 내 우주선을 꾸밀 수 있고,', '지금까지의 학습 기록도 계정에 저장돼요.']}
+      bodyWidth={244}
+      // 시안은 제목이 한 줄이다. 24 로는 290 폭에서 줄바꿈되어 18 로 줄인다.
+      titleSize={18}
+    />
+  );
+}
+
 function SocialLoginModal({
   visible,
   title,
   lines,
+  // 안내 문구 폭. Figma 656:4175·656:4211 은 201 이다. 긴 문구는 내용 폭(300) 안에서 넓힌다.
+  bodyWidth = 201,
+  titleSize = 24,
   onLater,
   onDismiss,
   onSignedIn,
-}: LoginModalProps & { title: string; lines: readonly [string, string] }) {
+}: LoginModalProps & {
+  title: string;
+  lines: readonly [string, string];
+  bodyWidth?: number;
+  titleSize?: number;
+}) {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
@@ -88,11 +111,11 @@ function SocialLoginModal({
         <View style={s.modal} accessibilityViewIsModal>
           <View style={s.copy}>
             <View style={s.titleWrap}>
-              <Text style={s.title}>{title}</Text>
+              <Text style={[s.title, { fontSize: titleSize }]}>{title}</Text>
             </View>
             <View style={s.bodyRow}>
               <Text style={s.bullet}>{'>'}</Text>
-              <View style={s.body}>
+              <View style={[s.body, { width: bodyWidth }]}>
                 <Text style={[s.bodyText, s.bodyFirstLine]}>{lines[0]}</Text>
                 <Text style={s.bodyText} numberOfLines={1} adjustsFontSizeToFit>
                   {lines[1]}

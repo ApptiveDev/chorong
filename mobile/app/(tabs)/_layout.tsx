@@ -1,5 +1,5 @@
-import { Redirect, Tabs } from 'expo-router';
-import type { ComponentProps } from 'react';
+import { Redirect, Tabs, useGlobalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState, type ComponentProps } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -7,6 +7,8 @@ import {
   useHouseEditing,
 } from '../../src/components/house/HouseEditingContext';
 import { useIntegration } from '../../src/integration/hooks';
+import { HOUSING_LOGIN_PARAM } from '../../src/integration/user/housingGate';
+import { HousingLoginModal } from '../../src/integration/user/SocialLoginModal';
 
 const dockItems = [
   // 메인(/)은 학습이다. 우주선은 /housing.
@@ -17,9 +19,11 @@ const dockItems = [
 
 type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0] & {
   bottom: number;
+  // 비회원이 우주선 탭을 누르면 이동하지 않고 로그인 유도 모달을 띄운다.
+  onGuestHousing?: () => void;
 };
 
-function DockBar({ state, navigation, bottom }: DockBarProps) {
+function DockBar({ state, navigation, bottom, onGuestHousing }: DockBarProps) {
   // 제어실은 회원·비회원 모두 밝은 배경이라 내비 바도 회색으로 맞춘다.
   const controlRoom = state.routes[state.index]?.name === 'more';
   return (
@@ -43,6 +47,10 @@ function DockBar({ state, navigation, bottom }: DockBarProps) {
               accessibilityLabel={item.label}
               accessibilityState={{ selected }}
               onPress={() => {
+                if (item.name === 'housing' && onGuestHousing) {
+                  onGuestHousing();
+                  return;
+                }
                 const event = navigation.emit({
                   type: 'tabPress',
                   target: route.key,
@@ -86,6 +94,16 @@ function TabNavigator() {
   const { isEditing } = useHouseEditing();
   const { bottom } = useSafeAreaInsets();
   const session = useIntegration();
+  const router = useRouter();
+  const guest = session.user?.status === 'GUEST';
+  const [housingLoginOpen, setHousingLoginOpen] = useState(false);
+  // 비회원이 우주선 주소로 들어오면 GuestHousingGuard 가 학습 홈(?login=housing)으로 돌려보낸다.
+  const { login } = useGlobalSearchParams<{ login?: string }>();
+  useEffect(() => {
+    if (login !== HOUSING_LOGIN_PARAM) return;
+    if (guest) setHousingLoginOpen(true);
+    router.setParams({ login: undefined });
+  }, [login, guest, router]);
 
   if (!session.ready)
     return (
@@ -95,9 +113,17 @@ function TabNavigator() {
     );
   if (!session.authenticated) return <Redirect href="/welcome" />;
 
-  return (
+  const tabs = (
     <Tabs
-      tabBar={(props) => (isEditing ? null : <DockBar {...props} bottom={bottom} />)}
+      tabBar={(props) =>
+        isEditing ? null : (
+          <DockBar
+            {...props}
+            bottom={bottom}
+            onGuestHousing={guest ? () => setHousingLoginOpen(true) : undefined}
+          />
+        )
+      }
       screenOptions={{
         headerShown: false,
       }}
@@ -113,6 +139,21 @@ function TabNavigator() {
       ))}
       <Tabs.Screen name="social" options={{ href: null }} />
     </Tabs>
+  );
+
+  return (
+    <>
+      {tabs}
+      <HousingLoginModal
+        visible={housingLoginOpen && guest}
+        onLater={() => setHousingLoginOpen(false)}
+        onDismiss={() => setHousingLoginOpen(false)}
+        onSignedIn={() => {
+          setHousingLoginOpen(false);
+          router.navigate('/housing');
+        }}
+      />
+    </>
   );
 }
 
