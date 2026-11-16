@@ -23,24 +23,6 @@ ALTER TABLE reward_ledger ADD CONSTRAINT ck_reward_ledger_wallet CHECK (
 DROP TABLE learning_artwork;
 ALTER TABLE lesson DROP COLUMN artwork_image_url;
 
--- 예전 규칙으로 시작할 때 에너지를 이미 냈고 아직 별가루를 받지 않은 레슨. 완료할 때 에너지를 다시 쓰지 않는다.
-CREATE TABLE lesson_energy_prepaid (
-    user_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE CASCADE,
-    lesson_id BIGINT NOT NULL REFERENCES lesson(lesson_id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, lesson_id)
-);
-INSERT INTO lesson_energy_prepaid (user_id, lesson_id)
-SELECT spent.user_id, spent.lesson_id
-FROM (
-    SELECT user_id, lesson_id FROM lesson_progress WHERE energy_spent
-    UNION
-    SELECT user_id, lesson_id FROM lesson_replay_progress WHERE energy_spent
-) spent
-WHERE NOT EXISTS (
-    SELECT 1 FROM reward_ledger r
-    WHERE r.user_id = spent.user_id AND r.source_key = 'LESSON:' || spent.lesson_id || ':WALLET:STARDUST'
-);
-
 -- 시작 때 에너지를 썼는지 기록하던 열. 이제 보상 지급 여부(reward_ledger)로만 판단한다.
 ALTER TABLE lesson_progress DROP COLUMN energy_spent;
 ALTER TABLE lesson_replay_progress DROP COLUMN energy_spent;

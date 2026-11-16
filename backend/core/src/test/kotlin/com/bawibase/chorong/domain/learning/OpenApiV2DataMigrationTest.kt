@@ -74,52 +74,6 @@ class OpenApiV2DataMigrationTest {
     }
 
     @Test
-    fun `v49 keeps energy already paid at lesson start for unrewarded lessons`() {
-        val schema = "openapi_v2_prepaid_energy"
-
-        fun migrate(target: String) =
-            Flyway
-                .configure()
-                .dataSource(database.jdbcUrl, database.username, database.password)
-                .schemas(schema)
-                .defaultSchema(schema)
-                .target(target)
-                .load()
-                .migrate()
-        migrate("48")
-        val jdbc = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
-        jdbc.update("INSERT INTO $schema.app_user(user_id,status) VALUES (100,'ACTIVE')")
-        jdbc.update("INSERT INTO $schema.course(course_id,slug,title) VALUES (1,'c','코스')")
-        for (lessonId in 1..4) {
-            jdbc.update(
-                "INSERT INTO $schema.lesson(lesson_id,course_id,slug,title,lesson_order) VALUES (?,1,?,'레슨',?)",
-                lessonId,
-                "c/l$lessonId",
-                lessonId,
-            )
-        }
-        // 1: 시작 때 냈고 보상 전, 2: 냈지만 이미 보상 받음, 3: 내지 않음, 4: 다시 하기에서 냄
-        for ((lessonId, spent) in listOf(1 to true, 2 to true, 3 to false)) {
-            jdbc.update(
-                "INSERT INTO $schema.lesson_progress(user_id,lesson_id,course_id,status,energy_spent) VALUES (100,?,1,'IN_PROGRESS',?)",
-                lessonId,
-                spent,
-            )
-        }
-        jdbc.update(
-            """INSERT INTO $schema.reward_ledger(user_id,source_type,source_id,source_key,reward_type,currency,amount)
-               VALUES (100,'LESSON',2,'LESSON:2:WALLET:STARDUST','WALLET','STARDUST',10)""",
-        )
-        jdbc.update("INSERT INTO $schema.lesson_replay_progress(user_id,lesson_id,started_at,energy_spent) VALUES (100,4,now(),TRUE)")
-
-        migrate("49")
-        assertEquals(
-            listOf(1L, 4L),
-            jdbc.queryForList("SELECT lesson_id FROM $schema.lesson_energy_prepaid WHERE user_id=100 ORDER BY lesson_id", Long::class.java),
-        )
-    }
-
-    @Test
     fun `v56 clears lesson wrong marks left on first quizzes`() {
         val schema = "openapi_v2_first_quiz"
 
