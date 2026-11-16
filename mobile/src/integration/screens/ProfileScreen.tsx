@@ -57,10 +57,15 @@ function ProfileForm() {
             })
           }
         />
-        <Field label="닉네임 (2~12자)" value={nickname} onChange={setNickname} />
+        <Field label="닉네임 (1~10자)" value={nickname} onChange={setNickname} />
         <Button
           title="닉네임 저장"
-          disabled={task.busy || !auth.authenticated || nickname.length < 2 || nickname.length > 12}
+          disabled={
+            task.busy ||
+            !auth.authenticated ||
+            Array.from(nickname.trim()).length < 1 ||
+            Array.from(nickname.trim()).length > 10
+          }
           onPress={() => void update({ nickname })}
         />
         <Nav href="/integration/account" label="로그인 수단·계정 관리 열기" />

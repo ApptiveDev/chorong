@@ -14,7 +14,7 @@ export type ConstellationImage = number | { uri: string };
 export type ConstellationLayout = {
   // 서버 별자리 이름(API-906 name). 띄어쓰기는 비교하지 않는다.
   name: string;
-  // 코스 slug. 서버 응답에 slug 가 생기면 채우고, 이름보다 먼저 비교한다.
+  // 코스 slug(API-906 Constellation.slug, 0.4.2). 기획자 시뮬레이터 id 와 같다. 이름보다 먼저 비교한다.
   slug?: string;
   // 배열 순서 = 레슨 순서(order 오름차순).
   stars: StarPoint[];
@@ -28,6 +28,7 @@ export type ConstellationLayout = {
 export const constellationLayouts: ConstellationLayout[] = [
   {
     name: '반짝반짝 반딧불자리',
+    slug: 'firefly',
     stars: [
       { x: 0.23, y: 0.284 },
       { x: 0.454, y: 0.428 },
@@ -47,6 +48,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '50년 묵은 꿀단지자리',
+    slug: 'honeypot',
     stars: [
       { x: 0.214, y: 0.81 },
       { x: 0.291, y: 0.359 },
@@ -65,6 +67,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '냥칼진 오르골자리',
+    slug: 'musicbox',
     stars: [
       { x: 0.265, y: 0.763 },
       { x: 0.403, y: 0.86 },
@@ -83,6 +86,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '자기가 사람인 줄 아는 고양이 자리',
+    slug: 'human-cat',
     stars: [
       { x: 0.157, y: 0.394 },
       { x: 0.446, y: 0.14 },
@@ -99,6 +103,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '목욕하기 싫어하는 고양이 자리',
+    slug: 'bath-cat',
     stars: [
       { x: 0.12, y: 0.775 },
       { x: 0.238, y: 0.456 },
@@ -119,6 +124,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '하늘을 나는 종이배자리',
+    slug: 'paperboat',
     stars: [
       { x: 0.674, y: 0.441 },
       { x: 0.493, y: 0.14 },
@@ -138,6 +144,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '둥실둥실 민들레자리',
+    slug: 'dandelion',
     stars: [
       { x: 0.311, y: 0.297 },
       { x: 0.496, y: 0.264 },
@@ -156,6 +163,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '어떡할까냥 자리',
+    slug: 'choose-cat',
     stars: [
       { x: 0.301, y: 0.14 },
       { x: 0.388, y: 0.325 },
@@ -174,6 +182,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '주인만 기다리는 고양이 자리',
+    slug: 'waiting-cat',
     stars: [
       { x: 0.314, y: 0.14 },
       { x: 0.426, y: 0.461 },
@@ -194,6 +203,7 @@ export const constellationLayouts: ConstellationLayout[] = [
   },
   {
     name: '츄르는 많을수록 좋다냥 자리',
+    slug: 'churu-cat',
     stars: [
       { x: 0.237, y: 0.86 },
       { x: 0.32, y: 0.342 },

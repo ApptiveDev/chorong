@@ -230,7 +230,7 @@ export default function ProfileScreen() {
               <View style={s.nicknameBlock}>
                 <View style={s.nicknameHeading}>
                   <Text style={s.nicknameTitle}>닉네임 변경</Text>
-                  <Text style={s.nicknameHint}>2~12자</Text>
+                  <Text style={s.nicknameHint}>1~10자</Text>
                 </View>
                 <View style={s.inputBox}>
                   <Text numberOfLines={1} style={s.inputValue}>

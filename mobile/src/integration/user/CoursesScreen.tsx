@@ -151,6 +151,7 @@ function Courses() {
     : undefined;
   const constellationKey = currentCourse
     ? {
+        slug: currentConstellation?.slug,
         name:
           currentConstellation?.name ?? currentCourse.constellation?.name ?? currentCourse.title,
       }

@@ -404,6 +404,8 @@ export const blockedUser = object({ userId: num, nickname: str, blockedAt: str }
 export const constellation = object({
   constellationId: num,
   courseId: num,
+  // 코스 slug(0.4.2). 별 좌표·그림을 이 값으로 찾는다. 서버 구현 전에는 없다.
+  slug: optional(str),
   name: str,
   starCount: num,
   earnedStars: num,

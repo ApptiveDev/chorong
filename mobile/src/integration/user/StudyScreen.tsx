@@ -78,8 +78,9 @@ function Study() {
   const loadedLessonId = useRef<number | null>(null);
   const [constellationName, setConstellationName] = useState('별자리');
   const [constellationDate, setConstellationDate] = useState<string | null>(null);
-  // 별자리 완성 화면의 별 그림. API-906 의 별자리 이름·별 수·그림 주소.
+  // 별자리 완성 화면의 별 그림. API-906 의 별자리 slug·이름·별 수·그림 주소.
   const [constellationFigure, setConstellationFigure] = useState<{
+    slug?: string;
     name: string;
     starCount: number;
     imageUrl: string | null;
@@ -271,6 +272,7 @@ function Study() {
         setConstellationFigure(
           constellation
             ? {
+                slug: constellation.slug,
                 name: constellation.name,
                 starCount: constellation.starCount,
                 imageUrl: constellation.imageUrl,

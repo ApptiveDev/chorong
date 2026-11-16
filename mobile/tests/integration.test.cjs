@@ -461,11 +461,13 @@ test('failed logout keeps session; successful 204 logout clears persisted tokens
   assert.equal(entries.size, 0);
   assert.equal(c.getSnapshot().traces[0].api, 'API-107');
 });
-test('profile nickname validation follows the server 2~12 rule and rejects unsupported characters', () => {
-  assert.equal(nicknameValidationError('가'), '닉네임을 2~12자로 입력해 주세요.');
+test('profile nickname validation follows the server 1~10 rule and rejects unsupported characters', () => {
+  assert.equal(nicknameValidationError('   '), '닉네임을 1~10자로 입력해 주세요.');
+  assert.equal(nicknameValidationError('가'), null);
+  assert.equal(nicknameValidationError('가나다라마바사아자차'), null);
   assert.equal(
-    nicknameValidationError('가나다라마바사아자차카타파'),
-    '닉네임을 2~12자로 입력해 주세요.',
+    nicknameValidationError('가나다라마바사아자차카'),
+    '닉네임을 1~10자로 입력해 주세요.',
   );
   assert.equal(nicknameValidationError('  별지기7  '), null);
   assert.equal(nicknameValidationError('별 지기'), '한글, 영문, 숫자만 입력할 수 있습니다.');
@@ -2875,6 +2877,28 @@ test('Figma 별자리 10개 설정: 좌표는 0~1, 선은 있는 별끼리, 별�
     }
     assert.equal(linked.size, count, `${layout.name}: 떨어진 별이 있다`);
     assert.equal(findConstellationLayout({ name: layout.name }), layout);
+  }
+});
+
+test('별자리 10개 slug 는 기획자 시뮬레이터 id 와 같고 slug 로 찾는다', () => {
+  const expected = {
+    '반짝반짝 반딧불자리': 'firefly',
+    '50년 묵은 꿀단지자리': 'honeypot',
+    '냥칼진 오르골자리': 'musicbox',
+    '자기가 사람인 줄 아는 고양이 자리': 'human-cat',
+    '목욕하기 싫어하는 고양이 자리': 'bath-cat',
+    '하늘을 나는 종이배자리': 'paperboat',
+    '둥실둥실 민들레자리': 'dandelion',
+    '어떡할까냥 자리': 'choose-cat',
+    '주인만 기다리는 고양이 자리': 'waiting-cat',
+    '츄르는 많을수록 좋다냥 자리': 'churu-cat',
+  };
+  const figma = constellationLayouts.filter((layout) => layout.name in expected);
+  assert.equal(figma.length, 10);
+  for (const layout of figma) {
+    assert.equal(layout.slug, expected[layout.name]);
+    // 서버 이름이 달라져도 slug 가 맞으면 같은 설정을 쓴다.
+    assert.equal(findConstellationLayout({ name: '바뀐 이름', slug: layout.slug }), layout);
   }
 });
 
