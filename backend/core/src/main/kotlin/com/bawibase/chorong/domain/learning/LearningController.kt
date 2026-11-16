@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
@@ -111,12 +112,33 @@ data class LessonDetail(
 
 data class LessonStartRequest(
     val replay: Boolean = false,
+    // 이어하기 확인에서 처음부터를 고르면 true. 저장된 위치와 입력을 지운다.
+    val restart: Boolean = false,
+)
+
+/** 이어하기에서 복원할 미제출 입력. input은 앱이 정한 형식이며 서버는 해석하지 않는다. */
+data class LessonDraft(
+    val contentId: Long,
+    val input: Map<String, Any?>,
+)
+
+data class LessonProgressSaveRequest(
+    val contentId: Long?,
+    val draft: LessonDraft? = null,
+)
+
+data class LessonProgressSaveResponse(
+    val progress: LessonProgressState,
 )
 
 data class LessonProgressState(
     val status: String,
     val lastContentId: Long?,
     val resumeContentId: Long?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val draft: LessonDraft? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val contentVersion: Int? = null,
 )
 
 data class LessonStartResponse(
@@ -212,7 +234,16 @@ class LearningController(
         @CurrentUserId userId: Long,
         @PathVariable lessonId: Long,
         @RequestBody(required = false) request: LessonStartRequest?,
-    ): ApiResponse<LessonStartResponse> = ApiResponse(lessonProgress.start(userId, lessonId, request?.replay ?: false))
+    ): ApiResponse<LessonStartResponse> =
+        ApiResponse(lessonProgress.start(userId, lessonId, request?.replay ?: false, request?.restart ?: false))
+
+    @PutMapping("/lessons/{lessonId}/progress")
+    @Operation(operationId = "API-409", summary = "Save lesson progress")
+    fun saveProgress(
+        @CurrentUserId userId: Long,
+        @PathVariable lessonId: Long,
+        @RequestBody request: LessonProgressSaveRequest,
+    ): ApiResponse<LessonProgressSaveResponse> = ApiResponse(LessonProgressSaveResponse(lessonProgress.save(userId, lessonId, request)))
 
     @PostMapping("/contents/{contentId}/complete")
     @Operation(operationId = "API-405", summary = "Complete lesson content")
