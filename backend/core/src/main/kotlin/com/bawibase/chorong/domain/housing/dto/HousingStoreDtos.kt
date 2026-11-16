@@ -38,11 +38,14 @@ class PurchaseQuantityDeserializer : StdDeserializer<Int>(Int::class.java) {
 
 data class HousingStorePurchaseRequest(
     @field:Size(min = 1, max = 50) @field:Valid val items: List<HousingStorePurchaseItemRequest>,
+    // 생략하면 구매만 한다. 빈 배열은 모두 회수다.
+    @field:Size(max = 200) @field:Valid val placements: List<HousingCoordinatePlacementRequest>? = null,
 )
 
 data class HousingStorePurchaseResponse(
     val inventoryItems: List<com.bawibase.chorong.domain.user.service.InventoryItemResponse>,
     val wallet: com.bawibase.chorong.domain.user.controller.WalletBalancesResponse,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL) val placements: List<HousingCoordinatePlacementResponse>? = null,
 )
 
 data class HousingStoreItemResponse(
