@@ -897,6 +897,122 @@ class HousingApiTest {
     }
 
     @Test
+    fun `purchase with placements saves both or neither`() {
+        val email = "purchase-place-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type) VALUES ('Placed lamp','FURNITURE') RETURNING item_id",
+                    Long::class.java,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset)
+                       VALUES (?, '{"color":"red"}', 'STARDUST', 10, 'store/lamp-red.png') RETURNING option_id""",
+                    Long::class.java,
+                    itemId,
+                ),
+            )
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,star,stardust) VALUES (?,0,50) ON CONFLICT (user_id) DO UPDATE SET stardust=50",
+            userId,
+        )
+
+        fun purchase(
+            placements: String,
+            key: String = UUID.randomUUID().toString(),
+        ) = mockMvc.post("/api/v1/shop/purchases") {
+            header(header, token)
+            header("Idempotency-Key", key)
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":2}],"placements":$placements}"""
+        }
+
+        fun owned() = jdbc.queryForObject("SELECT COUNT(*) FROM housing_store_owned_option WHERE user_id=?", Int::class.java, userId)
+
+        fun stardust() = jdbc.queryForObject("SELECT stardust FROM user_wallet WHERE user_id=?", Long::class.java, userId)
+
+        fun placed() = jdbc.queryForObject("SELECT COUNT(*) FROM housing_coordinate_placement WHERE user_id=?", Int::class.java, userId)
+
+        // 가구를 실외에 두면 ERR-31. 구매도 되돌린다.
+        purchase("""[{"inventoryId":"new:0:0","area":"EXTERIOR","transform":{"x":0.1,"y":0.2}}]""").andExpect {
+            status { isBadRequest() }
+            jsonPath("$.error.code") { value("PLACEMENT_AREA_MISMATCH") }
+        }
+        // 이번 구매분 범위를 벗어난 참조와 같은 구매분 중복 배치는 ERR-30.
+        for (placements in listOf(
+            """[{"inventoryId":"new:0:2","area":"INTERIOR","transform":{"x":0.1,"y":0.2}}]""",
+            """[{"inventoryId":"new:1:0","area":"INTERIOR","transform":{"x":0.1,"y":0.2}}]""",
+            """[{"inventoryId":"new:x:0","area":"INTERIOR","transform":{"x":0.1,"y":0.2}}]""",
+            """[{"inventoryId":"new:0:0","area":"INTERIOR","transform":{"x":0.1,"y":0.2}},""" +
+                """{"inventoryId":"new:0:0","area":"INTERIOR","transform":{"x":0.3,"y":0.2}}]""",
+        )) {
+            purchase(placements).andExpect {
+                status { isBadRequest() }
+                jsonPath("$.error.code") { value("INVENTORY_ITEM_NOT_OWNED") }
+            }
+        }
+        assertEquals(0, owned())
+        assertEquals(50L, stardust())
+        assertEquals(0, placed())
+
+        val key = UUID.randomUUID().toString()
+        val body =
+            """[{"inventoryId":"new:0:1","area":"INTERIOR","transform":{"x":0.4,"y":0.5,"layer":2}}]"""
+        val first =
+            purchase(body, key)
+                .andExpect {
+                    status { isOk() }
+                    jsonPath("$.data.wallet.stardust") { value(30) }
+                    jsonPath("$.data.inventoryItems[0].ownedCount") { value(2) }
+                    jsonPath("$.data.inventoryItems[0].placedCount") { value(1) }
+                    jsonPath("$.data.placements.length()") { value(1) }
+                    jsonPath("$.data.placements[0].itemId") { value(itemId.toInt()) }
+                    jsonPath("$.data.placements[0].optionId") { value(optionId.toInt()) }
+                    jsonPath("$.data.placements[0].transform.layer") { value(2) }
+                }.andReturn()
+                .response.contentAsString
+        val inventoryId = objectMapper.readTree(first)["data"]["placements"][0]["inventoryId"].asText()
+        assertTrue(inventoryId.startsWith("store:"))
+        // 같은 키로 다시 보내면 같은 결과이고 차감·저장이 다시 일어나지 않는다.
+        val repeat =
+            purchase(body, key)
+                .andExpect { status { isOk() } }
+                .andReturn()
+                .response.contentAsString
+        assertEquals(objectMapper.readTree(first), objectMapper.readTree(repeat))
+        assertEquals(2, owned())
+        assertEquals(30L, stardust())
+        assertEquals(1, placed())
+
+        // placements 를 생략하면 기존 배치를 건드리지 않는다.
+        mockMvc
+            .post("/api/v1/shop/purchases") {
+                header(header, token)
+                header("Idempotency-Key", UUID.randomUUID().toString())
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":1}]}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.placements") { doesNotExist() }
+            }
+        assertEquals(1, placed())
+        // 이미 보유한 ID와 이번 구매분을 함께 배치한다.
+        purchase(
+            """[{"inventoryId":"$inventoryId","area":"INTERIOR","transform":{"x":0.1,"y":0.1}},""" +
+                """{"inventoryId":"new:0:0","area":"INTERIOR","transform":{"x":0.2,"y":0.2}}]""",
+        ).andExpect {
+            status { isOk() }
+            jsonPath("$.data.placements.length()") { value(2) }
+        }
+        assertEquals(2, placed())
+    }
+
+    @Test
     fun `inventory groups three copies and tracks sources and placements`() {
         val email = "inventory-group-${UUID.randomUUID()}@test.local"
         val token = login(email)
