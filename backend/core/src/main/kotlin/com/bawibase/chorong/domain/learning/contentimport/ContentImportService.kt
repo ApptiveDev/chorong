@@ -52,6 +52,8 @@ class ContentImportService(
                     course.order,
                 ),
             )
+        // 가져온 코스 하나가 별자리 하나다. 별자리 ID가 없으면 코스 ID를 쓴다.
+        jdbc.update("UPDATE course SET constellation_id = course_id WHERE course_id = ? AND constellation_id IS NULL", courseId)
         val existing =
             jdbc
                 .query(
