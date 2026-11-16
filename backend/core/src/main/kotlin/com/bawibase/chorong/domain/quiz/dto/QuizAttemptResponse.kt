@@ -26,4 +26,7 @@ data class QuizAttemptResponse(
     @param:Schema(description = "해설의 출처. 없으면 생략한다.")
     @field:JsonInclude(JsonInclude.Include.NON_NULL)
     val source: String? = null,
+    @param:Schema(description = "틀린 곳 찾기(SINGLE + INLINE_WORD)의 바른 낱말")
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val correctWord: String? = null,
 )

@@ -9,7 +9,10 @@ import com.bawibase.chorong.domain.quiz.dto.QuizPublicConfig
 import com.bawibase.chorong.domain.quiz.dto.QuizResponse
 import com.bawibase.chorong.domain.quiz.entity.QuizAttemptEntity
 import com.bawibase.chorong.domain.quiz.entity.QuizItemEntity
+import com.bawibase.chorong.domain.quiz.model.QuizDefinition
 import com.bawibase.chorong.domain.quiz.model.QuizUserResponse
+import com.bawibase.chorong.domain.quiz.model.SinglePresentationType
+import com.bawibase.chorong.domain.quiz.model.SingleQuizDefinition
 import com.bawibase.chorong.domain.quiz.repository.QuizAttemptRepository
 import com.bawibase.chorong.domain.quiz.repository.QuizItemRepository
 import com.bawibase.chorong.domain.quiz.serialization.QuizModelConverter
@@ -50,9 +53,10 @@ class QuizService(
             correct = attempt.correct,
             completed = attempt.completed,
             explanation = quiz.explanation,
-            correctAnswer = QuizPublicAnswer.correct(definition),
+            correctAnswer = if (attempt.graded) QuizPublicAnswer.correct(definition) else null,
             closeness = closeness,
             source = quiz.source,
+            correctWord = correctWord(definition),
         )
     }
 
@@ -85,7 +89,8 @@ class QuizService(
         quizId: Long,
         answer: JsonNode,
         replay: Boolean = false,
-    ): QuizAttemptResponse = submitInternal(userId, quizId, answer, replay, publicContract = true)
+        graded: Boolean = true,
+    ): QuizAttemptResponse = submitInternal(userId, quizId, answer, replay, publicContract = true, graded = graded)
 
     private fun submitInternal(
         userId: Long,
@@ -93,6 +98,7 @@ class QuizService(
         submittedAnswer: JsonNode,
         replay: Boolean,
         publicContract: Boolean,
+        graded: Boolean = true,
     ): QuizAttemptResponse {
         validateId(quizId, "quizId")
         val quiz = findQuiz(quizId)
@@ -101,8 +107,9 @@ class QuizService(
         val user = users.findById(userId).orElseThrow { ApiException(ErrorCode.UNAUTHORIZED) }
         if (!user.status.available) throw ApiException(ErrorCode.USER_WITHDRAWN)
         val checked = check(quiz, submittedAnswer)
-        val result = checked.result
-        val correctAnswer = if (publicContract && result.completed) QuizPublicAnswer.correct(definition) else null
+        // 레슨 첫 퀴즈처럼 채점하지 않는 제출은 정답 여부와 정답 표시를 남기지 않는다.
+        val result = if (graded) checked.result else checked.result.copy(graded = false, correct = null, closeness = null)
+        val correctAnswer = if (publicContract && result.completed && result.graded) QuizPublicAnswer.correct(definition) else null
         val attempt =
             attempts.save(
                 QuizAttemptEntity(
@@ -124,8 +131,16 @@ class QuizService(
             correctAnswer = correctAnswer,
             closeness = result.closeness,
             source = quiz.source,
+            correctWord = if (publicContract && result.completed) correctWord(definition) else null,
         )
     }
+
+    /** 틀린 곳 찾기(SINGLE + INLINE_WORD)의 바른 낱말. */
+    private fun correctWord(definition: QuizDefinition): String? =
+        (definition as? SingleQuizDefinition)
+            ?.takeIf { it.config.presentation?.type == SinglePresentationType.INLINE_WORD }
+            ?.answer
+            ?.correctWord
 
     private fun check(
         quiz: QuizItemEntity,
