@@ -4,7 +4,6 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.PageMeta
 import com.bawibase.chorong.common.api.PagedResponse
-import com.bawibase.chorong.domain.learning.LearningArtwork
 import com.bawibase.chorong.domain.learning.LearningRewardBadge
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.core.type.TypeReference
@@ -31,17 +30,12 @@ data class RewardRecordResponse(
     val amount: Long? = null,
     val itemId: Long? = null,
     val badge: LearningRewardBadge? = null,
-    val artwork: LearningArtwork? = null,
     val source: RewardSource = RewardSource(),
     val grantedAt: Instant,
 )
 
 data class RewardPageData(
     val rewards: List<RewardRecordResponse>,
-)
-
-data class ArtworkPageData(
-    val artworks: List<LearningArtwork>,
 )
 
 data class InventoryCopy(
@@ -87,48 +81,6 @@ class RewardReadService(
     private val jdbc: JdbcTemplate,
     private val objectMapper: ObjectMapper,
 ) {
-    @Transactional(readOnly = true)
-    fun artworks(
-        userId: Long,
-        cursor: String?,
-        size: Int?,
-    ): PagedResponse<ArtworkPageData> {
-        requireUser(userId)
-        val pageSize = size ?: DEFAULT_PAGE_SIZE
-        if (pageSize !in 1..MAX_PAGE_SIZE) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
-        val position = cursor?.let(::decodeCursor)
-        val mapper =
-            org.springframework.jdbc.core.RowMapper<LearningArtwork> { rs, _ ->
-                LearningArtwork(
-                    rs.getLong("artwork_id"),
-                    rs.getLong("lesson_id"),
-                    rs.getString("image_url"),
-                    rs.getTimestamp("completed_at").toInstant(),
-                )
-            }
-        val rows =
-            if (position == null) {
-                jdbc.query(
-                    "SELECT * FROM learning_artwork WHERE user_id=? ORDER BY completed_at DESC, artwork_id DESC LIMIT ?",
-                    mapper,
-                    userId,
-                    pageSize + 1,
-                )
-            } else {
-                jdbc.query(
-                    "SELECT * FROM learning_artwork WHERE user_id=? AND (completed_at,artwork_id) < (?,?) ORDER BY completed_at DESC,artwork_id DESC LIMIT ?",
-                    mapper,
-                    userId,
-                    position.timestamp,
-                    position.id,
-                    pageSize + 1,
-                )
-            }
-        val page = rows.take(pageSize)
-        val next = page.lastOrNull()?.takeIf { rows.size > pageSize }?.let { encodeCursor(it.completedAt, it.artworkId) }
-        return PagedResponse(ArtworkPageData(page), PageMeta(next))
-    }
-
     @Transactional(readOnly = true)
     fun rewards(
         userId: Long,
@@ -344,10 +296,8 @@ class RewardReadService(
         private const val REWARD_SELECT =
             """SELECT r.reward_ledger_id, r.created_at, r.reward_type, r.currency, r.amount, r.item_id,
                       r.constellation_id, r.badge_type, l.lesson_id, l.title AS lesson_title, c.course_id, c.title AS course_title,
-                      a.artwork_id, a.lesson_id AS artwork_lesson_id, a.image_url AS artwork_image_url, a.completed_at AS artwork_completed_at,
                       CASE WHEN r.reward_type='CONSTELLATION' THEN r.constellation_id END AS badge_constellation_id
                FROM reward_ledger r
-               LEFT JOIN learning_artwork a ON a.artwork_id=r.artwork_id AND a.user_id=r.user_id
                LEFT JOIN review_session s ON r.source_type='REVIEW' AND s.review_session_id=r.source_id
                LEFT JOIN lesson l ON l.lesson_id=CASE
                  WHEN r.source_type IN ('LESSON','ONBOARDING') THEN r.source_id
@@ -387,19 +337,6 @@ class RewardReadService(
                                                 "STAR"
                                         },
                                     )
-                                },
-                            artwork =
-                                rs.getLong("artwork_id").let { artworkId ->
-                                    if (rs.wasNull()) {
-                                        null
-                                    } else {
-                                        LearningArtwork(
-                                            artworkId,
-                                            rs.getLong("artwork_lesson_id"),
-                                            rs.getString("artwork_image_url"),
-                                            rs.getTimestamp("artwork_completed_at").toInstant(),
-                                        )
-                                    }
                                 },
                             source = source,
                             grantedAt = grantedAt,

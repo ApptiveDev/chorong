@@ -41,6 +41,8 @@ data class LessonSummary(
     // 하루 해금이 없어져 항상 null이다. 앱 응답 검사가 이 칸을 요구해서 남긴다.
     val unlocksAt: java.time.Instant? = null,
     val completedAt: java.time.Instant? = null,
+    // 레슨 별가루를 받았는지. false인 완료 레슨은 에너지가 있을 때 다시 완료하면 받는다.
+    val rewardReceived: Boolean = false,
 )
 
 data class CourseDetail(
@@ -121,6 +123,7 @@ data class LessonStartResponse(
     // 레슨 전 필수 복습이 없어져 항상 false다. 앱 응답 검사가 이 칸을 요구해서 남긴다.
     val reviewRequired: Boolean = false,
     val progress: LessonProgressState,
+    val energyNotice: Boolean = false,
     val contents: List<LearningContent>,
     val segments: List<LessonSegment>,
 )

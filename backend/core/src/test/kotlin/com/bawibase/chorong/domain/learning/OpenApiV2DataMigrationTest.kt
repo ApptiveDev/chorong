@@ -41,6 +41,39 @@ class OpenApiV2DataMigrationTest {
     }
 
     @Test
+    fun `v49 stops instead of deleting existing artwork data`() {
+        val schema = "openapi_v2_remove_artwork"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(database.jdbcUrl, database.username, database.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("48")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
+        jdbc.update("INSERT INTO $schema.course(course_id,slug,title) VALUES (1,'c','코스')")
+        jdbc.update(
+            "INSERT INTO $schema.lesson(lesson_id,course_id,slug,title,lesson_order,artwork_image_url) VALUES (1,1,'c/l','레슨',1,'https://example.com/a.png')",
+        )
+        assertFailsWith<org.flywaydb.core.api.FlywayException> { migrate("49") }
+
+        jdbc.update("UPDATE $schema.lesson SET artwork_image_url=NULL")
+        migrate("49")
+        assertEquals(
+            0,
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=? AND table_name='learning_artwork'",
+                Int::class.java,
+                schema,
+            ),
+        )
+    }
+
+    @Test
     fun `v41 backfills missing starter furniture without duplicating existing inventory`() {
         val schema = "openapi_v2_starter_furniture"
 

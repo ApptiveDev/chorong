@@ -419,12 +419,16 @@ class LearningApiTest {
             status { isOk() }
             jsonPath("$.data.lessonCompleted") { value(true) }
             jsonPath("$.data.completion.courseCompleted") { value(true) }
+            jsonPath("$.data.completion.rewardStatus") { value("GRANTED") }
+            jsonPath("$.data.completion.firstCompletion") { value(true) }
+            jsonPath("$.data.completion.firstLesson") { value(true) }
+            jsonPath("$.data.completion.quizSummary") { doesNotExist() }
             jsonPath("$.data.completion.rewards.length()") { value(3) }
-            jsonPath("$.data.completion.rewards[0].amount") { value(1) }
+            jsonPath("$.data.completion.rewards[0].amount") { value(10) }
             jsonPath("$.data.completion.rewards[1].badge.constellationId") { value(778) }
             jsonPath("$.data.completion.rewards[1].badge.badgeType") { value("STAR") }
             jsonPath("$.data.completion.rewards[2].badge.badgeType") { value("CONSTELLATION") }
-            jsonPath("$.data.completion.wallet.stardust") { value(1) }
+            jsonPath("$.data.completion.wallet.stardust") { value(10) }
         }
 
         mvc
@@ -433,9 +437,11 @@ class LearningApiTest {
                 header("Idempotency-Key", key)
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.courseCompleted") { value(true) }
+                jsonPath("$.data.courseCompleted") { value(false) }
+                jsonPath("$.data.rewardStatus") { value("ALREADY_GRANTED") }
+                jsonPath("$.data.firstCompletion") { value(false) }
                 jsonPath("$.data.rewards.length()") { value(0) }
-                jsonPath("$.data.wallet.stardust") { value(1) }
+                jsonPath("$.data.wallet.stardust") { value(10) }
             }
         mvc
             .post("/api/v1/lessons/$lessonId/complete") {
@@ -444,11 +450,11 @@ class LearningApiTest {
             }.andExpect {
                 status { isOk() }
                 jsonPath("$.data.rewards.length()") { value(0) }
-                jsonPath("$.data.wallet.stardust") { value(1) }
+                jsonPath("$.data.wallet.stardust") { value(10) }
             }
         jdbc.update(
             "UPDATE idempotency_record SET response_body=? WHERE user_id=? AND operation_id='API-407' AND idempotency_key=?",
-            """{"rewards":[{"type":"WALLET","currency":"STAR","amount":1}],"wallet":{"star":3,"stardust":1},"courseCompleted":true}""",
+            """{"rewards":[{"type":"WALLET","currency":"STAR","amount":1}],"wallet":{"star":3,"stardust":10},"courseCompleted":true}""",
             userId,
             key,
         )
@@ -460,7 +466,7 @@ class LearningApiTest {
                 status { isOk() }
                 jsonPath("$.data.rewards.length()") { value(0) }
                 jsonPath("$.data.wallet.star") { doesNotExist() }
-                jsonPath("$.data.wallet.stardust") { value(1) }
+                jsonPath("$.data.wallet.stardust") { value(10) }
             }
         jdbc.update(
             "UPDATE idempotency_record SET expires_at=now()-interval '1 second' WHERE user_id=? AND operation_id='API-407' AND idempotency_key=?",
@@ -474,7 +480,7 @@ class LearningApiTest {
             }.andExpect {
                 status { isOk() }
                 jsonPath("$.data.rewards.length()") { value(0) }
-                jsonPath("$.data.wallet.stardust") { value(1) }
+                jsonPath("$.data.wallet.stardust") { value(10) }
             }
         assertEquals(
             2,
@@ -497,121 +503,40 @@ class LearningApiTest {
     }
 
     @Test
-    fun `lesson completion stores artwork once and paginates artwork history`() {
-        val (_, lessonId) = createUnlockedLesson("artwork completion")
-        jdbc.update("INSERT INTO user_wallet(user_id,star,stardust) VALUES (?,17,0) ON CONFLICT (user_id) DO UPDATE SET star=17", userId)
-        jdbc.update(
-            "INSERT INTO reward_ledger(user_id,source_type,source_id,source_key,reward_type,currency,amount) VALUES (?,'LESSON',?,'old-star','WALLET','STAR',1)",
-            userId,
-            lessonId,
-        )
-        jdbc.update("UPDATE lesson SET artwork_image_url='https://example.com/art.png' WHERE lesson_id=?", lessonId)
-        val fixture = quizFixtures().first { it["caseId"].asText() == "single" }
-        val quizId = seedFixture(fixture, lessonId, 0)
+    fun `lesson completion response has no artwork reward or quiz summary`() {
+        val (_, lessonId) = createUnlockedLesson("no artwork")
         val contentId =
-            checkNotNull(jdbc.queryForObject("SELECT content_id FROM lesson_content WHERE lesson_id=?", Long::class.java, lessonId))
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','done') RETURNING content_id",
+                    Long::class.java,
+                    lessonId,
+                ),
+            )
         jdbc.update(
-            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=?,energy_spent=TRUE WHERE user_id=? AND lesson_id=?",
+            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=? WHERE user_id=? AND lesson_id=?",
             contentId,
             userId,
             lessonId,
         )
-        val now = clock.instant()
-        listOf(Triple(false, false, -3L), Triple(true, false, -2L), Triple(false, true, -1L)).forEach { (correct, replay, seconds) ->
-            jdbc.update(
-                """INSERT INTO quiz_attempt(quiz_id,user_id,response,graded,correct,completed,replay,submitted_at)
-                   VALUES (?,?,'{}'::jsonb,true,?,true,?,?)""",
-                quizId,
-                userId,
-                correct,
-                replay,
-                Timestamp.from(now.plusSeconds(seconds)),
-            )
-        }
-        val key = UUID.randomUUID().toString()
-        val first =
-            mvc
-                .post("/api/v1/lessons/$lessonId/complete") {
-                    header(HttpHeaders.AUTHORIZATION, auth)
-                    header("Idempotency-Key", key)
-                }.andExpect {
-                    status { isOk() }
-                    jsonPath("$.data.quizSummary.correctCount") { value(1) }
-                    jsonPath("$.data.quizSummary.totalCount") { value(1) }
-                    jsonPath("$.data.rewards[0].currency") { value("STARDUST") }
-                    jsonPath("$.data.wallet.stardust") { value(1) }
-                    jsonPath("$.data.wallet.star") { doesNotExist() }
-                    jsonPath("$.data.rewards[1].type") { value("ARTWORK") }
-                    jsonPath("$.data.rewards[1].artwork.imageUrl") { value("https://example.com/art.png") }
-                }.andReturn()
-                .response.contentAsString
-        val artworkId = mapper.readTree(first)["data"]["rewards"][1]["artwork"]["artworkId"].asLong()
         mvc
             .post("/api/v1/lessons/$lessonId/complete") {
                 header(HttpHeaders.AUTHORIZATION, auth)
                 header("Idempotency-Key", UUID.randomUUID().toString())
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.rewards.length()") { value(0) }
-                jsonPath("$.data.quizSummary.correctCount") { value(1) }
+                jsonPath("$.data.rewards.length()") { value(1) }
+                jsonPath("$.data.rewards[0].type") { value("WALLET") }
+                jsonPath("$.data.rewards[0].artwork") { doesNotExist() }
+                jsonPath("$.data.quizSummary") { doesNotExist() }
+                jsonPath("$.data.stardustSkipped") { doesNotExist() }
             }
-        assertEquals(
-            1,
-            jdbc.queryForObject("SELECT COUNT(*) FROM learning_artwork WHERE user_id=? AND lesson_id=?", Int::class.java, userId, lessonId),
-        )
-        assertEquals(17L, jdbc.queryForObject("SELECT star FROM user_wallet WHERE user_id=?", Long::class.java, userId))
-        assertEquals(
-            1,
-            jdbc.queryForObject("SELECT COUNT(*) FROM reward_ledger WHERE user_id=? AND artwork_id=?", Int::class.java, userId, artworkId),
-        )
-        mvc.get("/api/v1/users/me/rewards") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
-            status { isOk() }
-            jsonPath("$.data.rewards.length()") { value(2) }
-            jsonPath("$.data.rewards[0].artwork.artworkId") { value(artworkId.toInt()) }
-        }
-        val (_, otherLessonId) = createUnlockedLesson("another artwork")
-        jdbc.update(
-            "INSERT INTO learning_artwork(user_id,lesson_id,image_url,completed_at) VALUES (?,?,?,?)",
-            userId,
-            otherLessonId,
-            "https://example.com/other.png",
-            Timestamp.from(now),
-        )
-        val page =
-            mvc
-                .get("/api/v1/users/me/artworks") {
-                    header(HttpHeaders.AUTHORIZATION, auth)
-                    param("size", "1")
-                }.andExpect {
-                    status { isOk() }
-                    jsonPath("$.data.artworks.length()") { value(1) }
-                }.andReturn()
-                .response.contentAsString
-                .let(mapper::readTree)
-        val cursor = page["meta"]["nextCursor"].asText()
-        val next =
-            mvc
-                .get("/api/v1/users/me/artworks") {
-                    header(HttpHeaders.AUTHORIZATION, auth)
-                    param("size", "1")
-                    param("cursor", cursor)
-                }.andExpect { status { isOk() } }
-                .andReturn()
-                .response.contentAsString
-                .let(mapper::readTree)
-        assertEquals(artworkId, next["data"]["artworks"][0]["artworkId"].asLong())
-        mvc
-            .get("/api/v1/users/me/artworks") {
-                header(HttpHeaders.AUTHORIZATION, auth)
-                param("cursor", "invalid")
-            }.andExpect { status { isBadRequest() } }
     }
 
     @Test
-    fun `onboarding completion grants artwork once while skip grants none`() {
+    fun `onboarding completion grants stardust once while skip grants none`() {
         val (courseId, lessonId) = createUnlockedLesson("onboarding artwork")
         jdbc.update("UPDATE course SET is_onboarding=true WHERE course_id=?", courseId)
-        jdbc.update("UPDATE lesson SET artwork_image_url='https://example.com/onboarding.png' WHERE lesson_id=?", lessonId)
         val quizId = seedFixture(quizFixtures().first { it["caseId"].asText() == "single" }, lessonId, 0)
         jdbc.update(
             "INSERT INTO quiz_attempt(quiz_id,user_id,response,graded,correct,completed) VALUES (?,?,'{}'::jsonb,true,true,true)",
@@ -626,7 +551,8 @@ class LearningApiTest {
                 content = """{"skipped":false}"""
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.rewards[1].artwork.imageUrl") { value("https://example.com/onboarding.png") }
+                jsonPath("$.data.rewards.length()") { value(1) }
+                jsonPath("$.data.rewards[0].currency") { value("STARDUST") }
             }
         mvc
             .post("/api/v1/onboarding/complete") {
@@ -650,7 +576,6 @@ class LearningApiTest {
                 status { isOk() }
                 jsonPath("$.data.rewards.length()") { value(0) }
             }
-        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM learning_artwork WHERE user_id=?", Int::class.java, otherId))
     }
 
     @Test
@@ -1037,9 +962,8 @@ class LearningApiTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    fun `concurrent lesson completions grant one artwork`() {
+    fun `concurrent lesson completions grant stardust and spend energy once`() {
         val (courseId, lessonId) = createUnlockedLesson("concurrent artwork")
-        jdbc.update("UPDATE lesson SET artwork_image_url='https://example.com/art.png' WHERE lesson_id=?", lessonId)
         val contentId =
             checkNotNull(
                 jdbc.queryForObject(
@@ -1049,7 +973,7 @@ class LearningApiTest {
                 ),
             )
         jdbc.update(
-            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=?,energy_spent=TRUE WHERE user_id=? AND lesson_id=?",
+            "UPDATE lesson_progress SET status='IN_PROGRESS',last_content_id=? WHERE user_id=? AND lesson_id=?",
             contentId,
             userId,
             lessonId,
@@ -1061,25 +985,18 @@ class LearningApiTest {
                     .map {
                         pool.submit<LessonCompleteResponse> { lessonCompletion.completeFromProgress(userId, lessonId) }
                     }.map { it.get() }
-            assertEquals(1, results.sumOf { result -> result.rewards.count { it.type == "ARTWORK" } })
+            assertEquals(1, results.sumOf { result -> result.rewards.count { it.type == "WALLET" } })
+            assertEquals(1, results.count { it.rewardStatus == LessonRewardStatus.GRANTED })
             assertEquals(
                 1,
                 jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM learning_artwork WHERE user_id=? AND lesson_id=?",
+                    "SELECT COUNT(*) FROM reward_ledger WHERE user_id=? AND source_key=?",
                     Int::class.java,
                     userId,
-                    lessonId,
+                    "LESSON:$lessonId:WALLET:STARDUST",
                 ),
             )
-            assertEquals(
-                1,
-                jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM reward_ledger WHERE user_id=? AND source_id=? AND reward_type='ARTWORK'",
-                    Int::class.java,
-                    userId,
-                    lessonId,
-                ),
-            )
+            assertEquals(4, jdbc.queryForObject("SELECT energy FROM user_wallet WHERE user_id=?", Int::class.java, userId))
         } finally {
             pool.shutdownNow()
             jdbc.update("DELETE FROM user_refresh_token WHERE user_id=?", userId)
@@ -1220,8 +1137,7 @@ class LearningApiTest {
                 )
             }.andExpect {
                 status { isOk() }
-                jsonPath("$.data.quizSummary.totalCount") { value(1) }
-                jsonPath("$.data.quizSummary.correctCount") { value(1) }
+                jsonPath("$.data.quizSummary") { doesNotExist() }
             }
     }
 
@@ -1389,7 +1305,9 @@ class LearningApiTest {
         mvc.post("/api/v1/contents/$quizContentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.lessonCompleted") { value(true) }
-            jsonPath("$.data.completion") { doesNotExist() }
+            jsonPath("$.data.completion.rewardStatus") { value("ALREADY_GRANTED") }
+            jsonPath("$.data.completion.firstCompletion") { value(false) }
+            jsonPath("$.data.completion.rewards.length()") { value(0) }
         }
 
         assertEquals(
@@ -1408,7 +1326,7 @@ class LearningApiTest {
     }
 
     @Test
-    fun `energy gates lesson stardust and refills at KST midnight`() {
+    fun `energy is spent only when lesson stardust is granted`() {
         val now = Instant.parse("2026-03-10T05:00:00Z")
         `when`(clock.instant()).thenReturn(now)
         val tomorrow = Instant.parse("2026-03-10T15:00:00Z")
@@ -1426,12 +1344,16 @@ class LearningApiTest {
         val (_, lessonId) = createUnlockedLesson("energy lesson")
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문')", lessonId)
         val contentId = jdbc.queryForObject("SELECT content_id FROM lesson_content WHERE lesson_id=?", Long::class.java, lessonId)
-        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.energyNotice") { value(true) }
+        }
         mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.lessonCompleted") { value(true) }
             jsonPath("$.data.completion.rewards.length()") { value(0) }
-            jsonPath("$.data.completion.stardustSkipped") { value(true) }
+            jsonPath("$.data.completion.rewardStatus") { value("NO_ENERGY") }
+            jsonPath("$.data.completion.firstCompletion") { value(true) }
             jsonPath("$.data.completion.wallet.stardust") { value(0) }
             jsonPath("$.data.completion.wallet.energy") { value(0) }
         }
@@ -1443,12 +1365,16 @@ class LearningApiTest {
                 header(HttpHeaders.AUTHORIZATION, auth)
                 contentType = MediaType.APPLICATION_JSON
                 content = replay
-            }.andExpect { status { isOk() } }
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.energyNotice") { value(false) }
+            }
         mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
             jsonPath("$.data.completion.rewards[0].currency") { value("STARDUST") }
-            jsonPath("$.data.completion.stardustSkipped") { value(false) }
-            jsonPath("$.data.completion.wallet.stardust") { value(1) }
+            jsonPath("$.data.completion.rewardStatus") { value("GRANTED") }
+            jsonPath("$.data.completion.firstCompletion") { value(false) }
+            jsonPath("$.data.completion.wallet.stardust") { value(10) }
             jsonPath("$.data.completion.wallet.energy") { value(4) }
         }
 
@@ -1461,17 +1387,18 @@ class LearningApiTest {
             }.andExpect { status { isOk() } }
         mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }
-            jsonPath("$.data.completion") { doesNotExist() }
+            jsonPath("$.data.completion.rewardStatus") { value("ALREADY_GRANTED") }
+            jsonPath("$.data.completion.wallet.energy") { value(4) }
         }
 
-        // 같은 레슨을 이어서 시작하면 에너지를 다시 쓰지 않는다.
+        // 레슨을 시작할 때는 에너지를 쓰지 않는다.
         val (_, nextLessonId) = createUnlockedLesson("energy resume")
         jdbc.update("INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문')", nextLessonId)
         repeat(2) {
             mvc.post("/api/v1/lessons/$nextLessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
         }
         mvc.get("/api/v1/users/me/wallet") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
-            jsonPath("$.data.energy") { value(3) }
+            jsonPath("$.data.energy") { value(4) }
             jsonPath("$.data.energyResetsAt") { value(Instant.parse("2026-03-11T15:00:00Z").toString()) }
         }
     }

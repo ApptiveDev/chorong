@@ -87,7 +87,9 @@ class LearningService(
         val map = unlocks.map(userId)
         val lessons =
             jdbc.query(
-                """SELECT l.lesson_id, l.slug, l.title, l.keyword, l.lesson_order, lp.completed_at
+                """SELECT l.lesson_id, l.slug, l.title, l.keyword, l.lesson_order, lp.completed_at,
+                          EXISTS (SELECT 1 FROM reward_ledger r WHERE r.user_id = ? AND r.source_key = 'LESSON:' || l.lesson_id || ':WALLET:STARDUST')
+                            AS reward_received
                    FROM lesson l
                    LEFT JOIN lesson_progress lp ON lp.lesson_id = l.lesson_id AND lp.user_id = ?
                    WHERE l.course_id = ? ORDER BY l.lesson_order, l.lesson_id""",
@@ -102,8 +104,10 @@ class LearningService(
                         order = rs.getInt("lesson_order"),
                         status = status,
                         completedAt = completedAt,
+                        rewardReceived = rs.getBoolean("reward_received"),
                     )
                 },
+                userId,
                 userId,
                 courseId,
             )
