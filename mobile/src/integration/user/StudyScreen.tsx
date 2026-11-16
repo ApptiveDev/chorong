@@ -35,15 +35,8 @@ import { prefetchLessonAudio } from './quizAudio';
 import { ConstellationComplete } from './ConstellationComplete';
 import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
 import { FirstStudyLoginModal } from './SocialLoginModal';
-import {
-  CompletionResult,
-  CompletionStar,
-  EnergyIcon,
-  completionOrbSource,
-} from './CompletionResult';
+import { CompletionArc, CompletionResult, CompletionStar, EnergyIcon } from './CompletionResult';
 
-const completionStarSource = require('../../../assets/completion-star.png');
-const completionArcSource = require('../../../assets/completion-arc.png');
 const completionDustSource = require('../../../assets/completion-dust.png');
 
 export default function StudyScreen() {
@@ -155,10 +148,7 @@ function Study() {
   const preloadSources: { source: ImageSourcePropType; width: number; height: number }[] =
     start && loadedLessonId.current === lessonId
       ? [
-          { source: completionStarSource, width: 212, height: 212 },
-          { source: completionArcSource, width: 402, height: 463 },
           { source: completionDustSource, width: 18, height: 20 },
-          ...(replay ? [{ source: completionOrbSource, width: 164, height: 164 }] : []),
           ...Object.entries(localStudyImages)
             .filter(([mediaUrl]) =>
               start.contents.some(
@@ -462,9 +452,7 @@ function Study() {
               )
             ) : lessonDone ? (
               <View style={s.completion}>
-                <Image
-                  source={completionArcSource}
-                  resizeMode="stretch"
+                <CompletionArc
                   style={[
                     s.completionArc,
                     {
@@ -474,7 +462,7 @@ function Study() {
                   ]}
                 />
                 <View style={[s.completionStarWrap, { top: completionTop(124) }]}>
-                  <CompletionStar source={completionStarSource} size={212 * completionScale} />
+                  <CompletionStar variant="ring" size={212 * completionScale} />
                 </View>
                 <Text style={[s.resultTitle, { top: completionTop(400) }]}>
                   {stardustSkipped
