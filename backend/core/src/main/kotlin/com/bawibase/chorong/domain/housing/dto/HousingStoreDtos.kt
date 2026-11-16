@@ -70,4 +70,7 @@ data class HousingStoreOptionResponse(
     val price: Long,
     val previewAsset: String,
     val ownedCount: Long,
+    // 별자리 완성 보너스로 해금하는 색상 옵션은 해금 전 false
+    val unlocked: Boolean = true,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val unlockHint: String? = null,
 )

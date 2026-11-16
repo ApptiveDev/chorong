@@ -21,6 +21,7 @@ class LessonCompletionService(
     private val idempotency: IdempotencyService,
     private val studyStreak: StudyStreakService,
     private val unlocks: LessonUnlockService,
+    private val bonuses: ConstellationBonusService,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -121,6 +122,7 @@ class LessonCompletionService(
         if (courseCompleted && constellationId != null && insertBadgeReward(userId, courseId, constellationId)) {
             rewards += LearningReward(type = "CONSTELLATION", badge = LearningRewardBadge("CONSTELLATION", constellationId))
         }
+        if (courseCompleted) rewards += bonuses.grant(userId, courseId)
         log.info(
             "learning.lesson.completed userId={} lessonId={} courseId={} rewardStatus={} firstCompletion={} courseCompleted={}",
             userId,
