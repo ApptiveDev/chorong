@@ -12,14 +12,16 @@ class UserNicknamePolicyTest {
         assertEquals("민지", UserNicknamePolicy.displayName("민지", UserStatus.GUEST))
     }
 
-    @Test fun `accepts boundary lengths without changing supplied text`() {
-        for (value in listOf("초롱", "가".repeat(12), " 별 ", "𐐀".repeat(12))) {
+    @Test fun `accepts one to ten characters after trimming`() {
+        for (value in listOf("초", "가".repeat(10), "𐐀".repeat(10))) {
             assertEquals(value, UserNicknamePolicy.validate(value))
         }
+        assertEquals("별", UserNicknamePolicy.validate(" 별 "))
+        assertEquals("가".repeat(10), UserNicknamePolicy.validate("  " + "가".repeat(10) + "  "))
     }
 
     @Test fun `rejects blank too short and too long nicknames`() {
-        for (value in listOf("", "  ", "가", "가".repeat(13))) {
+        for (value in listOf("", "  ", "가".repeat(11), "𐐀".repeat(11))) {
             val error = assertFailsWith<ApiV1Exception> { UserNicknamePolicy.validate(value) }
             assertEquals(
                 "nickname",

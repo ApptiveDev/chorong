@@ -57,7 +57,7 @@ class AuthMethodApiTest {
     }
 
     private fun member(vararg providers: Pair<AuthProvider, String>): Pair<Long, String> {
-        val user = UserEntity(nickname = "member").apply { status = UserStatus.ACTIVE }
+        val user = UserEntity(nickname = "member-${System.nanoTime()}").apply { status = UserStatus.ACTIVE }
         val id = checkNotNull(users.saveAndFlush(user).id)
         providers.forEach { (provider, uid) -> auths.saveAndFlush(UserAuthEntity(id, provider, uid)) }
         return id to tokens.issue(id, UUID.randomUUID().toString()).accessToken

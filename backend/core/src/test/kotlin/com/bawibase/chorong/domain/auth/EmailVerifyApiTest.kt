@@ -85,7 +85,7 @@ class EmailVerifyApiTest {
     }
 
     private fun guest(): Pair<Long, String> {
-        val id = checkNotNull(users.saveAndFlush(UserEntity(nickname = "guest")).id)
+        val id = checkNotNull(users.saveAndFlush(UserEntity(nickname = "guest-${System.nanoTime()}")).id)
         val device = UUID.randomUUID().toString()
         auths.saveAndFlush(UserAuthEntity(id, AuthProvider.GUEST, device))
         return id to tokens.issue(id, device).accessToken

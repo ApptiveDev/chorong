@@ -6,6 +6,7 @@ import com.bawibase.chorong.domain.auth.dto.MeResponse
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.UserNicknameService
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
@@ -52,6 +53,7 @@ class AuthService(
     private val clock: Clock,
     private val guests: GuestAccountCoordinator,
     private val emails: EmailIdentityCoordinator,
+    private val nicknames: UserNicknameService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -128,10 +130,13 @@ class AuthService(
         val auth =
             if (currentUserId != null) {
                 activeUserId(currentUserId)
-                users.findById(currentUserId).orElseThrow().status = UserStatus.ACTIVE
+                users.findById(currentUserId).orElseThrow().also {
+                    it.status = UserStatus.ACTIVE
+                    nicknames.assignDefaultIfMissing(it)
+                }
                 auths.save(UserAuthEntity(userId = currentUserId, provider = identity.provider, providerUid = identity.providerUid))
             } else {
-                createUserWithAuth(identity.provider, identity.providerUid, email = identity.email, nickname = identity.displayName)
+                createUserWithAuth(identity.provider, identity.providerUid, email = identity.email)
             }
         oauths.save(UserOauthEntity(authId = checkNotNull(auth.id)).also { it.applyIdentity(identity) })
         if (currentUserId != null) {
@@ -162,8 +167,8 @@ class AuthService(
         provider: AuthProvider,
         providerUid: String,
         email: String? = null,
-        nickname: String? = null,
     ): UserAuthEntity {
+        val nickname = if (provider == AuthProvider.GUEST) null else nicknames.newDefault()
         val user =
             users.save(
                 UserEntity(nickname = nickname, email = email).apply {

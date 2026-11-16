@@ -102,7 +102,7 @@ class GoogleOAuthApiTest {
     }
 
     private fun guest(): Pair<Long, String> {
-        val user = users.saveAndFlush(UserEntity(nickname = "guest"))
+        val user = users.saveAndFlush(UserEntity(nickname = null))
         val id = checkNotNull(user.id)
         val device = UUID.randomUUID().toString()
         auths.saveAndFlush(UserAuthEntity(id, AuthProvider.GUEST, device))
@@ -117,6 +117,8 @@ class GoogleOAuthApiTest {
         val id = first["user"]["userId"].asLong()
         assertTrue(first["isNew"].asBoolean())
         assertEquals("ACTIVE", first["user"]["status"].asText())
+        assertTrue(first["user"]["nickname"].asText().matches(Regex("^No\\. [0-9]{8}$")))
+        assertTrue(first["user"]["userCode"].asText().matches(Regex("^42[0-9]{6}$")))
         assertEquals(id.toString(), decoder.decode(first["accessToken"].asText()).subject)
         assertEquals(id, checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.GOOGLE, sub)).userId)
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM chorong_dev.housing_profile WHERE user_id=?", Long::class.java, id))
@@ -129,9 +131,13 @@ class GoogleOAuthApiTest {
     @Test fun `guest conversion keeps same account and assets and rejects other guest`() {
         subject()
         val (id, access) = guest()
+        val guestCode = users.findById(id).orElseThrow().userCode
         jdbc.update("INSERT INTO chorong_dev.user_wallet(user_id,coin) VALUES (?,321)", id)
         val data = request(access)["data"]
         assertEquals(id, data["user"]["userId"].asLong())
+        // 회원으로 바뀌어도 고유번호는 그대로이고, 비어 있던 닉네임은 기본값을 받는다.
+        assertEquals(guestCode, data["user"]["userCode"].asText())
+        assertTrue(data["user"]["nickname"].asText().startsWith("No. "))
         assertEquals("ACTIVE", data["user"]["status"].asText())
         assertFalse(data["isNew"].asBoolean())
         assertEquals(321L, jdbc.queryForObject("SELECT coin FROM chorong_dev.user_wallet WHERE user_id=?", Long::class.java, id))

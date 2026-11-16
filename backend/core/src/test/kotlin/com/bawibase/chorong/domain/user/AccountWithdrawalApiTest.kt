@@ -31,6 +31,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 @SpringBootTest(properties = ["spring.application.name=chorong-account-withdrawal-test"])
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
@@ -55,7 +56,7 @@ class AccountWithdrawalApiTest {
     @Autowired lateinit var jdbc: JdbcTemplate
 
     private fun activeUser(): Long {
-        val user = UserEntity(nickname = "보존", email = "retained@example.com").apply { status = UserStatus.ACTIVE }
+        val user = UserEntity(nickname = "보존-${System.nanoTime()}", email = "retained@example.com").apply { status = UserStatus.ACTIVE }
         return checkNotNull(users.saveAndFlush(user).id)
     }
 
@@ -109,7 +110,7 @@ class AccountWithdrawalApiTest {
         val withdrawn = users.findById(userId).orElseThrow()
         assertEquals(UserStatus.WITHDRAWN, withdrawn.status)
         assertEquals("테스트 탈퇴 사유", withdrawn.withdrawalReason)
-        assertEquals("보존", withdrawn.nickname)
+        assertTrue(checkNotNull(withdrawn.nickname).startsWith("보존-"))
         assertEquals("retained@example.com", withdrawn.email)
         assertNotNull(withdrawn.withdrawnAt)
         assertEquals(withdrawn.withdrawnAt!!.plusDays(90), withdrawn.deletionAfter)
