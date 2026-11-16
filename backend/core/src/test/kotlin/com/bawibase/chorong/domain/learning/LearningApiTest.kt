@@ -27,6 +27,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
+import org.springframework.test.web.servlet.put
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.sql.Timestamp
@@ -943,6 +944,134 @@ class LearningApiTest {
             "COMPLETED",
             jdbc.queryForObject("SELECT status FROM lesson_progress WHERE user_id=? AND lesson_id=?", String::class.java, userId, lessonId),
         )
+    }
+
+    @Test
+    fun `leaving mid lesson saves the position and draft for resume`() {
+        val (lessonId, contents) = draftLesson("도중 나가기")
+        start(lessonId)
+        mvc.post("/api/v1/contents/${contents[0]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+
+        saveProgress(lessonId, """{"contentId":${contents[1]},"draft":{"contentId":${contents[1]},"input":{"text":"울트"}}}""").andExpect {
+            status { isOk() }
+            jsonPath("$.data.progress.status") { value("IN_PROGRESS") }
+            jsonPath("$.data.progress.resumeContentId") { value(contents[1]) }
+            jsonPath("$.data.progress.draft.input.text") { value("울트") }
+            jsonPath("$.data.progress.contentVersion") { value(1) }
+        }
+        start(lessonId).andExpect {
+            jsonPath("$.data.progress.lastContentId") { value(contents[0]) }
+            jsonPath("$.data.progress.resumeContentId") { value(contents[1]) }
+            jsonPath("$.data.progress.draft.contentId") { value(contents[1]) }
+            jsonPath("$.data.progress.draft.input.text") { value("울트") }
+            jsonPath("$.data.progress.contentVersion") { value(1) }
+        }
+
+        val (_, otherContents) = draftLesson("다른 레슨")
+        saveProgress(lessonId, """{"contentId":${contents[2]}}""").andExpect { status { isConflict() } }
+        saveProgress(lessonId, """{"contentId":${otherContents[0]}}""").andExpect { status { isBadRequest() } }
+        saveProgress(lessonId, """{"contentId":${contents[1]},"draft":{"contentId":${contents[0]},"input":{}}}""").andExpect {
+            status { isBadRequest() }
+        }
+        val large = "가".repeat(1500)
+        saveProgress(
+            lessonId,
+            """{"contentId":${contents[1]},"draft":{"contentId":${contents[1]},"input":{"text":"$large"}}}""",
+        ).andExpect {
+            status { isBadRequest() }
+        }
+
+        mvc.post("/api/v1/contents/${contents[1]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        start(lessonId).andExpect {
+            jsonPath("$.data.progress.resumeContentId") { value(contents[2]) }
+            jsonPath("$.data.progress.draft") { doesNotExist() }
+        }
+    }
+
+    @Test
+    fun `restart clears the saved position and draft`() {
+        val (lessonId, contents) = draftLesson("처음부터")
+        start(lessonId)
+        mvc.post("/api/v1/contents/${contents[0]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        saveProgress(lessonId, """{"contentId":${contents[1]},"draft":{"contentId":${contents[1]},"input":{"answer":1}}}""")
+            .andExpect { status { isOk() } }
+
+        mvc
+            .post("/api/v1/lessons/$lessonId/start") {
+                header(HttpHeaders.AUTHORIZATION, auth)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"restart":true}"""
+            }.andExpect {
+                status { isOk() }
+                jsonPath("$.data.progress.status") { value("IN_PROGRESS") }
+                jsonPath("$.data.progress.lastContentId") { doesNotExist() }
+                jsonPath("$.data.progress.resumeContentId") { value(contents[0]) }
+                jsonPath("$.data.progress.draft") { doesNotExist() }
+            }
+        assertEquals(
+            listOf(null, null, null),
+            jdbc
+                .queryForMap(
+                    "SELECT last_content_id, current_content_id, draft FROM lesson_progress WHERE user_id=? AND lesson_id=?",
+                    userId,
+                    lessonId,
+                ).values
+                .toList(),
+        )
+    }
+
+    @Test
+    fun `a new lesson version discards the saved draft`() {
+        val (lessonId, contents) = draftLesson("버전 변경")
+        start(lessonId)
+        mvc.post("/api/v1/contents/${contents[0]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        saveProgress(lessonId, """{"contentId":${contents[0]},"draft":{"contentId":${contents[0]},"input":{"answer":2}}}""")
+            .andExpect { status { isOk() } }
+
+        jdbc.update("UPDATE lesson SET content_version = 2 WHERE lesson_id=?", lessonId)
+        start(lessonId).andExpect {
+            jsonPath("$.data.progress.lastContentId") { value(contents[0]) }
+            jsonPath("$.data.progress.resumeContentId") { value(contents[1]) }
+            jsonPath("$.data.progress.draft") { doesNotExist() }
+            jsonPath("$.data.progress.contentVersion") { value(2) }
+        }
+        assertEquals(
+            null,
+            jdbc.queryForObject(
+                "SELECT draft::text FROM lesson_progress WHERE user_id=? AND lesson_id=?",
+                String::class.java,
+                userId,
+                lessonId,
+            ),
+        )
+    }
+
+    private fun draftLesson(title: String): Pair<Long, List<Long>> {
+        val (_, lessonId) = createUnlockedLesson(title)
+        val contents =
+            (1..3).map { order ->
+                checkNotNull(
+                    jdbc.queryForObject(
+                        "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,?,'TEXT','본문') RETURNING content_id",
+                        Long::class.java,
+                        lessonId,
+                        order,
+                    ),
+                )
+            }
+        return lessonId to contents
+    }
+
+    private fun start(lessonId: Long) =
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+
+    private fun saveProgress(
+        lessonId: Long,
+        body: String,
+    ) = mvc.put("/api/v1/lessons/$lessonId/progress") {
+        header(HttpHeaders.AUTHORIZATION, auth)
+        contentType = MediaType.APPLICATION_JSON
+        content = body
     }
 
     @Test

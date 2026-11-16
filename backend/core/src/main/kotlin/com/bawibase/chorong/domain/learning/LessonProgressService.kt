@@ -3,6 +3,8 @@ package com.bawibase.chorong.domain.learning
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.domain.user.service.UserWalletService
+import com.fasterxml.jackson.core.type.TypeReference
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -15,12 +17,14 @@ class LessonProgressService(
     private val lessonReplay: LessonReplayService,
     private val wallets: UserWalletService,
     private val unlocks: LessonUnlockService,
+    private val mapper: ObjectMapper,
 ) {
     @Transactional
     fun start(
         userId: Long,
         lessonId: Long,
         replay: Boolean,
+        restart: Boolean = false,
     ): LessonStartResponse {
         requireId(userId)
         requireId(lessonId)
@@ -39,16 +43,123 @@ class LessonProgressService(
             )
         }
         val detail = learning.getLesson(lessonId)
-        val replayLastContentId = if (replay) lessonReplay.start(userId, lessonId) else null
-        val lastContentId = if (replay) replayLastContentId else row.lastContentId
-        val resumeId = nextContentId(lessonId, lastContentId)
         val status = if (row.status == "UNLOCKED") "IN_PROGRESS" else row.status
+        val progress =
+            if (replay) {
+                if (restart) {
+                    jdbc.update(
+                        "UPDATE lesson_replay_progress SET last_content_id=NULL WHERE user_id=? AND lesson_id=? AND completed_at IS NULL",
+                        userId,
+                        lessonId,
+                    )
+                }
+                val lastContentId = lessonReplay.start(userId, lessonId)
+                LessonProgressState(status, lastContentId, nextContentId(lessonId, lastContentId), contentVersion = detail.version)
+            } else {
+                resume(userId, lessonId, status, if (restart) null else row.lastContentId, restart, detail.version)
+            }
         return LessonStartResponse(
-            progress = LessonProgressState(status, lastContentId, resumeId),
+            progress = progress,
             energyNotice = energyNotice(userId, lessonId),
             contents = detail.contents,
             segments = detail.segments,
         )
+    }
+
+    /**
+     * 이어하기 상태를 만든다. 저장한 버전이 현재 레슨 버전과 다르면 저장 위치와 입력을 버리고
+     * 마지막 완료 화면 다음부터 시작한다. restart면 완료 위치까지 지우고 첫 화면부터 시작한다.
+     */
+    private fun resume(
+        userId: Long,
+        lessonId: Long,
+        status: String,
+        lastContentId: Long?,
+        restart: Boolean,
+        version: Int,
+    ): LessonProgressState {
+        val saved =
+            jdbc
+                .query(
+                    "SELECT current_content_id, draft, content_version FROM lesson_progress WHERE user_id=? AND lesson_id=?",
+                    { rs, _ ->
+                        SavedProgress(
+                            rs.getObject("current_content_id", java.lang.Long::class.java)?.toLong(),
+                            rs.getString("draft"),
+                            rs.getObject("content_version", Integer::class.java)?.toInt(),
+                        )
+                    },
+                    userId,
+                    lessonId,
+                ).first()
+        val stale = saved.version != null && saved.version != version
+        if (restart || stale) {
+            jdbc.update(
+                """UPDATE lesson_progress SET current_content_id=NULL, draft=NULL, content_version=NULL,
+                          last_content_id=CASE WHEN ? THEN NULL ELSE last_content_id END, modified_at=now()
+                   WHERE user_id=? AND lesson_id=?""",
+                restart,
+                userId,
+                lessonId,
+            )
+            return LessonProgressState(status, lastContentId, nextContentId(lessonId, lastContentId), contentVersion = version)
+        }
+        val position = saved.contentId
+        val draft =
+            if (position != null && saved.draft != null) {
+                LessonDraft(position, mapper.readValue(saved.draft, object : TypeReference<Map<String, Any?>>() {}))
+            } else {
+                null
+            }
+        return LessonProgressState(status, lastContentId, position ?: nextContentId(lessonId, lastContentId), draft, version)
+    }
+
+    /** API-409. 도중 나가기에서 보고 있던 화면과 미제출 입력을 저장한다. 아직 도달하지 않은 화면은 저장할 수 없다. */
+    @Transactional
+    fun save(
+        userId: Long,
+        lessonId: Long,
+        request: LessonProgressSaveRequest,
+    ): LessonProgressState {
+        requireId(userId)
+        requireId(lessonId)
+        ensureUser(userId)
+        lessonCourse(lessonId)
+        val contentId = request.contentId ?: throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val draft = request.draft
+        if (draft != null && draft.contentId != contentId) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val input = draft?.let { mapper.writeValueAsString(it.input) }
+        if (input != null && input.toByteArray().size > MAX_DRAFT_BYTES) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val row = progress(userId, lessonId, true) ?: throw ApiV1Exception(ApiErrorCode.CONFLICT)
+        if (row.status != "IN_PROGRESS") throw ApiV1Exception(ApiErrorCode.CONFLICT)
+        val order =
+            jdbc
+                .query(
+                    "SELECT content_order FROM lesson_content WHERE content_id=? AND lesson_id=?",
+                    { rs, _ -> rs.getInt(1) },
+                    contentId,
+                    lessonId,
+                ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+        val reachable =
+            nextContentId(lessonId, row.lastContentId)?.let { next ->
+                jdbc.queryForObject("SELECT content_order FROM lesson_content WHERE content_id=?", Int::class.java, next)
+            }
+        if (reachable == null || order > reachable) throw ApiV1Exception(ApiErrorCode.CONFLICT)
+        val version =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """UPDATE lesson_progress SET current_content_id=?, draft=?::jsonb,
+                              content_version=(SELECT content_version FROM lesson WHERE lesson_id=?), modified_at=now()
+                       WHERE user_id=? AND lesson_id=? RETURNING content_version""",
+                    Int::class.java,
+                    contentId,
+                    input,
+                    lessonId,
+                    userId,
+                    lessonId,
+                ),
+            )
+        return LessonProgressState("IN_PROGRESS", row.lastContentId, contentId, draft, version)
     }
 
     @Transactional
@@ -101,7 +212,8 @@ class LessonProgressService(
         if (nextContentId(content.lessonId, row.lastContentId) != contentId) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (content.type == "QUIZ" && !hasCompletedAttempt(userId, content.quizId)) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         jdbc.update(
-            "UPDATE lesson_progress SET status='IN_PROGRESS', last_content_id=?, modified_at=now() WHERE user_id=? AND lesson_id=?",
+            """UPDATE lesson_progress SET status='IN_PROGRESS', last_content_id=?, current_content_id=NULL, draft=NULL, modified_at=now()
+               WHERE user_id=? AND lesson_id=?""",
             contentId,
             userId,
             content.lessonId,
@@ -222,6 +334,12 @@ class LessonProgressService(
         if (id <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
     }
 
+    private data class SavedProgress(
+        val contentId: Long?,
+        val draft: String?,
+        val version: Int?,
+    )
+
     private data class ProgressRow(
         val status: String,
         val lastContentId: Long?,
@@ -232,4 +350,8 @@ class LessonProgressService(
         val type: String,
         val quizId: Long?,
     )
+
+    companion object {
+        private const val MAX_DRAFT_BYTES = 4096
+    }
 }
