@@ -1,10 +1,17 @@
 openapi: 3.1.0
 info:
   title: 초롱 서비스 API
-  version: 0.4.1
+  version: 0.4.2
   description: |
     피그마 개발자 전달용 페이지와 디자인 파일, 학습 콘텐츠 시뮬레이터, 학습 콘텐츠 회의 결정을 반영한 API 계약입니다.
     기준 자료가 충돌하면 학습 유형과 퀴즈 콘텐츠는 시뮬레이터와 추가 유형 피그마를, 화면 동작은 개발자 전달용 페이지와 디자인을 따릅니다.
+    0.4.2의 주요 변경 (2026-11-16 프론트엔드 합의):
+    - 별자리에 코스 slug(`Constellation.slug`)를 추가했습니다. 앱은 별 좌표·그림을 slug로 찾습니다. `constellationId`는 환경마다 다릅니다.
+    - 하우징 그림은 미디어 버킷 `housing/` 아래 PNG로 두고, 서버가 미디어 주소를 붙인 URL로 내려줍니다.
+      인벤토리·배치에 `imageUrl`·`width`·`height`·`category`를, 상점 아이템에 `category`를, 상점 옵션에 `width`·`height`를 추가했습니다.
+    - `ShopOption.previewAsset`은 경로가 아니라 URL이며 방에 놓는 그림으로도 씁니다.
+    - 가구 분류 `ItemCategory`(화분·러그·의자·조명·책상·책장·침대)를 추가했습니다. `itemType`은 그대로 둡니다.
+    - 인벤토리에서 고양이(`starter_cat`)와 예전 방식의 기본 지급품(배경·벽·바닥·아바타·방)을 뺐습니다.
     0.4.1의 주요 변경 (2026-11-15 회의 결정):
     - 복습은 복습 전용 문제를 먼저 고르고, 모자란 자리는 레슨에서 틀린 문제로 채웁니다(API-501).
     - 학습 레슨의 첫 퀴즈는 채점하지 않습니다(온보딩은 모두 채점). `QuizPublic.graded`와 `AnswerResult.graded`가 false이고 `isCorrect`는 null입니다.
@@ -54,7 +61,7 @@ paths:
       description: |
         F-01-01, F-02-05, F-07-01. 같은 `deviceUuid`가 이미 있으면 기존 게스트 계정을 돌려주고,
         없으면 users · user_auth · auth_guest · 하우징 · 아바타 · 지갑을 함께 생성합니다.
-        신규 사용자에게 기본 가구 3개를 인벤토리로 지급합니다.
+        신규 사용자에게 기본 가구(책상·의자)와 고양이를 지급합니다. 고양이는 인벤토리에 나오지 않습니다.
       security: []
       requestBody:
         required: true
@@ -1519,7 +1526,10 @@ paths:
       tags: [shop]
       operationId: API-907
       summary: 인벤토리 조회
-      description: F-14-01. 같은 아이템·옵션을 묶어 보유·배치·배치 가능 수와 개별 보유 ID를 돌려줍니다.
+      description: |
+        F-14-01. 같은 아이템·옵션을 묶어 보유·배치·배치 가능 수와 개별 보유 ID를 돌려줍니다.
+        고양이(`starter_cat`)는 위치·상태를 `Avatar`로 다루므로 나오지 않습니다.
+        예전 방식의 기본 지급품(배경·벽·바닥·아바타·방)도 나오지 않습니다.
       parameters:
         - name: itemType
           in: query
@@ -1744,6 +1754,13 @@ components:
         ENUM-07. FLOOR는 바닥, WALL은 벽지입니다. 별자리 완성 보너스로 상점에서 해금됩니다.
         바닥·벽지를 우주선에 적용하는 저장 형식은 하우징 꾸미기 명세에서 정합니다.
       enum: [FURNITURE, OBJECT, FLOOR, WALL]
+    ItemCategory:
+      type: string
+      description: |
+        ENUM-07-1. 방 꾸미기 화면의 필터 탭에 쓰는 가구 분류입니다.
+        PLANT 화분, RUG 러그, CHAIR 의자, LAMP 조명, DESK 책상, SHELF 책장, BED 침대.
+        FLOOR·WALL 아이템은 분류가 없습니다(null).
+      enum: [PLANT, RUG, CHAIR, LAMP, DESK, SHELF, BED]
     HousingItemType:
       type: string
       description: ENUM-08
@@ -2448,9 +2465,27 @@ components:
               allOf:
                 - { $ref: '#/components/schemas/ItemOption' }
               description: Omitted when the item has no option.
+            imageUrl:
+              type: string
+              format: uri
+              nullable: true
+              description: 방에 놓는 그림(PNG) URL. 바닥에 닿는 점이 그림 아래 가운데입니다. 그림이 없으면 null
+            width:
+              type: integer
+              nullable: true
+              description: 그림의 1배 기준 픽셀 너비
+            height:
+              type: integer
+              nullable: true
+              description: 그림의 1배 기준 픽셀 높이
+            category:
+              allOf:
+                - { $ref: '#/components/schemas/ItemCategory' }
+              nullable: true
     Avatar:
       type: object
-      description: 고양이 아바타는 가구 아이템으로 보유·배치하며 상태와 위치는 이 객체로 표시합니다.
+      description: |
+        고양이 아바타의 위치와 상태입니다. 고양이는 기본 지급 가구(`starter_cat`)로 보유하지만 인벤토리(API-907)에는 나오지 않습니다.
       properties:
         x: { type: number }
         y: { type: number }
@@ -2533,7 +2568,18 @@ components:
         option: { $ref: '#/components/schemas/ItemOption' }
         currency: { $ref: '#/components/schemas/CurrencyType' }
         price: { type: integer, format: int64 }
-        previewAsset: { type: string }
+        previewAsset:
+          type: string
+          format: uri
+          description: 옵션 그림(PNG) URL. 상점 미리보기와 방에 놓는 그림에 같이 씁니다.
+        width:
+          type: integer
+          nullable: true
+          description: 그림의 1배 기준 픽셀 너비
+        height:
+          type: integer
+          nullable: true
+          description: 그림의 1배 기준 픽셀 높이
         ownedCount: { type: integer, minimum: 0 }
         unlocked:
           type: boolean
@@ -2548,6 +2594,10 @@ components:
         itemId: { type: integer }
         name: { type: string }
         itemType: { $ref: '#/components/schemas/ItemType' }
+        category:
+          allOf:
+            - { $ref: '#/components/schemas/ItemCategory' }
+          nullable: true
         unlocked: { type: boolean }
         unlockHint:
           type: string
@@ -2570,6 +2620,23 @@ components:
         itemType: { $ref: '#/components/schemas/ItemType' }
         name: { type: string }
         option: { $ref: '#/components/schemas/ItemOption' }
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: 방에 놓는 그림(PNG) URL. 바닥에 닿는 점이 그림 아래 가운데입니다. 그림이 없으면 null
+        width:
+          type: integer
+          nullable: true
+          description: 그림의 1배 기준 픽셀 너비
+        height:
+          type: integer
+          nullable: true
+          description: 그림의 1배 기준 픽셀 높이
+        category:
+          allOf:
+            - { $ref: '#/components/schemas/ItemCategory' }
+          nullable: true
         ownedCount: { type: integer, minimum: 0 }
         placedCount: { type: integer, minimum: 0 }
         availableCount:
@@ -2591,6 +2658,9 @@ components:
       properties:
         constellationId: { type: integer, format: int64 }
         courseId: { type: integer, format: int64 }
+        slug:
+          type: string
+          description: 코스 slug(예 firefly). 환경이 달라도 바뀌지 않습니다. 앱은 별 좌표·그림을 이 값으로 찾습니다.
         order: { type: integer, minimum: 1 }
         name: { type: string }
         description: { type: string }
