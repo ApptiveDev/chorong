@@ -660,12 +660,13 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       >
         <View style={[s.shipColumn, { width: shipWidth }]}>
           <View style={s.shipBar}>
-            <StardustCount value={wallet?.stardust ?? null} />
+            {/* 재화는 학습 홈처럼 오른쪽, 내 우주선 상태 버튼은 왼쪽 */}
             <VisibilityBadge
               isPublic={isPublic}
               disabled={!room}
               onPress={() => setInfoOpen(true)}
             />
+            <StardustCount value={wallet?.stardust ?? null} />
           </View>
           <View style={s.roomBox}>
             <View style={s.sceneFit}>
@@ -869,7 +870,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
                   {pending.length ? (
                     <View style={s.primaryPrice}>
                       <StarIcon fill={tone} />
-                      <Text style={[s.primaryText, { color: tone }]}>x {totalStardust}</Text>
+                      <Text style={[s.primaryText, { color: tone }]}>{totalStardust}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -951,10 +952,14 @@ function Product({
       </View>
       <View style={s.productCaption}>
         {price !== undefined ? (
-          <Text style={s.productCaptionText} numberOfLines={1}>
-            x {price}
-            {caption ? ` · ${caption}` : ''}
-          </Text>
+          // 가격: 별가루 아이콘 + 숫자(우주선 잔액 표시와 같은 아이콘).
+          <View style={s.productPrice}>
+            <StarIcon fill={color.yellow} />
+            <Text style={s.productCaptionText} numberOfLines={1}>
+              {price}
+              {caption ? ` · ${caption}` : ''}
+            </Text>
+          </View>
         ) : (
           <Text style={s.productCaptionText} numberOfLines={1}>
             {caption}
@@ -1084,6 +1089,7 @@ const s = StyleSheet.create({
   productImage: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center' },
   productCaption: { width: '100%', paddingHorizontal: 8 },
   productCaptionText: { color: '#000000', fontFamily: 'PretendardRegular', fontSize: 12 },
+  productPrice: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   empty: {
     width: '100%',
     color: color.tertiary,

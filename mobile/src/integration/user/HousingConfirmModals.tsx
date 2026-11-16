@@ -122,7 +122,7 @@ export function PurchaseConfirmModal({
           </View>
           <View style={s.price} accessible accessibilityLabel={`별가루 ${total}`}>
             <StarIcon fill={color.base} />
-            <Text style={s.priceText}>x {total}</Text>
+            <Text style={s.priceText}>{total}</Text>
           </View>
         </View>
         <View style={s.actions}>

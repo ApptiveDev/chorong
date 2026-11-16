@@ -94,7 +94,7 @@ export function StardustCount({ value }: { value: number | null }) {
   return (
     <View style={s.stardust} accessible accessibilityLabel={`별가루 ${value ?? '정보 없음'}`}>
       <StarIcon fill={shipColor.yellow} />
-      <Text style={s.stardustText}>x {value ?? '—'}</Text>
+      <Text style={s.stardustText}>{value ?? '—'}</Text>
     </View>
   );
 }

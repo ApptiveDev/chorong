@@ -79,12 +79,13 @@ function Home() {
             <View style={s.ship}>
               <View style={s.shipColumn}>
                 <View style={s.shipBar}>
-                  <StardustCount value={starBalance} />
+                  {/* 재화는 학습 홈처럼 오른쪽, 내 우주선 상태 버튼은 왼쪽 */}
                   <VisibilityBadge
                     isPublic={visibility.isPublic}
                     disabled={!room}
                     onPress={() => setInfoOpen(true)}
                   />
+                  <StardustCount value={starBalance} />
                 </View>
                 <View style={s.roomBox}>
                   <View style={s.sceneFit}>
