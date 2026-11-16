@@ -62,7 +62,7 @@ enum class ApiErrorCode(
     VERIFICATION_INVALID(HttpStatus.BAD_REQUEST, "인증코드가 만료되었거나 올바르지 않습니다."),
     QUIZ_DATA_INVALID(HttpStatus.CONFLICT, "문제 설정이 올바르지 않습니다."),
     LESSON_LOCKED(HttpStatus.FORBIDDEN, "아직 해금되지 않은 학습입니다."),
-    REVIEW_REQUIRED(HttpStatus.CONFLICT, "복습을 먼저 완료하세요."),
+    REVIEW_SESSION_CLOSED(HttpStatus.CONFLICT, "이미 끝난 복습입니다."),
     INVENTORY_ITEM_NOT_OWNED(HttpStatus.BAD_REQUEST, "보유하지 않은 아이템입니다."),
     PLACEMENT_AREA_MISMATCH(HttpStatus.BAD_REQUEST, "배치 영역이 맞지 않습니다."),
     PLACEMENT_NOT_FOUND(HttpStatus.BAD_REQUEST, "배치를 찾을 수 없습니다."),

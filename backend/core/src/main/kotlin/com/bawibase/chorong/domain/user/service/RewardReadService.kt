@@ -4,8 +4,8 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.PageMeta
 import com.bawibase.chorong.common.api.PagedResponse
-import com.bawibase.chorong.domain.learning.LearningArtwork
 import com.bawibase.chorong.domain.learning.LearningRewardBadge
+import com.bawibase.chorong.domain.learning.LessonUnlockService
 import com.fasterxml.jackson.annotation.JsonInclude
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -31,17 +31,12 @@ data class RewardRecordResponse(
     val amount: Long? = null,
     val itemId: Long? = null,
     val badge: LearningRewardBadge? = null,
-    val artwork: LearningArtwork? = null,
     val source: RewardSource = RewardSource(),
     val grantedAt: Instant,
 )
 
 data class RewardPageData(
     val rewards: List<RewardRecordResponse>,
-)
-
-data class ArtworkPageData(
-    val artworks: List<LearningArtwork>,
 )
 
 data class InventoryCopy(
@@ -68,14 +63,28 @@ data class InventoryData(
     val items: List<InventoryItemResponse>,
 )
 
+data class ConstellationStar(
+    val lessonId: Long,
+    // 완료하지 않은 별은 null. 앱은 물음표로 표시한다.
+    val title: String?,
+    val order: Int,
+    val completed: Boolean,
+    val completedAt: Instant?,
+)
+
 data class ConstellationResponse(
     val constellationId: Long,
     val courseId: Long,
+    val order: Int,
     val name: String,
+    val description: String,
+    val status: String,
     val starCount: Int,
     val earnedStars: Int,
     val badgeEarned: Boolean,
+    val completedAt: Instant?,
     val imageUrl: String? = null,
+    val stars: List<ConstellationStar>,
 )
 
 data class ConstellationData(
@@ -86,49 +95,8 @@ data class ConstellationData(
 class RewardReadService(
     private val jdbc: JdbcTemplate,
     private val objectMapper: ObjectMapper,
+    private val lessonUnlock: LessonUnlockService,
 ) {
-    @Transactional(readOnly = true)
-    fun artworks(
-        userId: Long,
-        cursor: String?,
-        size: Int?,
-    ): PagedResponse<ArtworkPageData> {
-        requireUser(userId)
-        val pageSize = size ?: DEFAULT_PAGE_SIZE
-        if (pageSize !in 1..MAX_PAGE_SIZE) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
-        val position = cursor?.let(::decodeCursor)
-        val mapper =
-            org.springframework.jdbc.core.RowMapper<LearningArtwork> { rs, _ ->
-                LearningArtwork(
-                    rs.getLong("artwork_id"),
-                    rs.getLong("lesson_id"),
-                    rs.getString("image_url"),
-                    rs.getTimestamp("completed_at").toInstant(),
-                )
-            }
-        val rows =
-            if (position == null) {
-                jdbc.query(
-                    "SELECT * FROM learning_artwork WHERE user_id=? ORDER BY completed_at DESC, artwork_id DESC LIMIT ?",
-                    mapper,
-                    userId,
-                    pageSize + 1,
-                )
-            } else {
-                jdbc.query(
-                    "SELECT * FROM learning_artwork WHERE user_id=? AND (completed_at,artwork_id) < (?,?) ORDER BY completed_at DESC,artwork_id DESC LIMIT ?",
-                    mapper,
-                    userId,
-                    position.timestamp,
-                    position.id,
-                    pageSize + 1,
-                )
-            }
-        val page = rows.take(pageSize)
-        val next = page.lastOrNull()?.takeIf { rows.size > pageSize }?.let { encodeCursor(it.completedAt, it.artworkId) }
-        return PagedResponse(ArtworkPageData(page), PageMeta(next))
-    }
-
     @Transactional(readOnly = true)
     fun rewards(
         userId: Long,
@@ -151,38 +119,79 @@ class RewardReadService(
         return PagedResponse(RewardPageData(page.map { it.record }), PageMeta(nextCursor))
     }
 
+    /** API-906. 별 수는 보상 지급이 아니라 레슨 완료 기록으로 센다. */
     @Transactional(readOnly = true)
     fun constellations(userId: Long): ConstellationData {
         requireUser(userId)
-        val rows =
+        val courses =
             jdbc.query(
-                """SELECT c.constellation_id, c.course_id, c.title,
-                          COUNT(DISTINCT l.lesson_id)::int AS star_count,
-                          COUNT(DISTINCT l.lesson_id) FILTER (WHERE r.reward_ledger_id IS NOT NULL)::int AS earned_stars,
+                """SELECT c.constellation_id, c.course_id, c.title, c.description,
                           EXISTS (SELECT 1 FROM reward_ledger badge
                                   WHERE badge.user_id=? AND badge.source_type='COURSE'
                                     AND badge.source_id=c.course_id AND badge.reward_type='CONSTELLATION'
                                     AND badge.constellation_id=c.constellation_id) AS badge_earned
                    FROM course c
-                   LEFT JOIN lesson l ON l.course_id=c.course_id
-                   LEFT JOIN reward_ledger r ON r.user_id=? AND r.source_type='LESSON'
-                     AND r.source_id=l.lesson_id AND r.reward_type='WALLET' AND r.currency IN ('STAR','STARDUST')
-                   WHERE c.constellation_id IS NOT NULL
-                   GROUP BY c.course_id ORDER BY c.course_order,c.course_id""",
+                   WHERE c.constellation_id IS NOT NULL AND NOT c.is_onboarding
+                   ORDER BY c.course_order, c.course_id""",
                 { rs, _ ->
-                    ConstellationResponse(
-                        constellationId = rs.getLong("constellation_id"),
-                        courseId = rs.getLong("course_id"),
-                        name = rs.getString("title"),
-                        starCount = rs.getInt("star_count"),
-                        earnedStars = rs.getInt("earned_stars"),
-                        badgeEarned = rs.getBoolean("badge_earned"),
+                    CourseRow(
+                        rs.getLong("constellation_id"),
+                        rs.getLong("course_id"),
+                        rs.getString("title"),
+                        rs.getString("description"),
+                        rs.getBoolean("badge_earned"),
                     )
                 },
                 userId,
-                userId,
             )
-        return ConstellationData(rows)
+        val stars =
+            jdbc
+                .query(
+                    """SELECT l.course_id, l.lesson_id, l.title, lp.completed_at
+                       FROM lesson l
+                       JOIN course c ON c.course_id = l.course_id
+                       LEFT JOIN lesson_progress lp ON lp.user_id = ? AND lp.lesson_id = l.lesson_id AND lp.status = 'COMPLETED'
+                       WHERE c.constellation_id IS NOT NULL AND NOT c.is_onboarding
+                       ORDER BY l.course_id, l.lesson_order, l.lesson_id""",
+                    { rs, _ ->
+                        val completedAt = rs.getTimestamp("completed_at")?.toInstant()
+                        rs.getLong("course_id") to
+                            ConstellationStar(
+                                lessonId = rs.getLong("lesson_id"),
+                                title = rs.getString("title").takeIf { completedAt != null },
+                                order = 0,
+                                completed = completedAt != null,
+                                completedAt = completedAt,
+                            )
+                    },
+                    userId,
+                ).groupBy({ it.first }, { it.second })
+                .mapValues { (_, list) -> list.mapIndexed { index, star -> star.copy(order = index + 1) } }
+        val locked = lessonUnlock.map(userId).lockedCourseIds
+        return ConstellationData(
+            courses.mapIndexed { index, course ->
+                val courseStars = stars[course.courseId].orEmpty()
+                val completed = courseStars.isNotEmpty() && courseStars.all { it.completed }
+                ConstellationResponse(
+                    constellationId = course.constellationId,
+                    courseId = course.courseId,
+                    order = index + 1,
+                    name = course.title,
+                    description = course.description,
+                    status =
+                        when {
+                            completed -> "COMPLETED"
+                            course.courseId in locked -> "LOCKED"
+                            else -> "IN_PROGRESS"
+                        },
+                    starCount = courseStars.size,
+                    earnedStars = courseStars.count { it.completed },
+                    badgeEarned = course.badgeEarned,
+                    completedAt = if (completed) courseStars.mapNotNull { it.completedAt }.max() else null,
+                    stars = courseStars,
+                )
+            },
+        )
     }
 
     @Transactional(readOnly = true)
@@ -303,6 +312,14 @@ class RewardReadService(
             throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
         }
 
+    private data class CourseRow(
+        val constellationId: Long,
+        val courseId: Long,
+        val title: String,
+        val description: String,
+        val badgeEarned: Boolean,
+    )
+
     private data class CursorPosition(
         val timestamp: Timestamp,
         val id: Long,
@@ -344,10 +361,8 @@ class RewardReadService(
         private const val REWARD_SELECT =
             """SELECT r.reward_ledger_id, r.created_at, r.reward_type, r.currency, r.amount, r.item_id,
                       r.constellation_id, r.badge_type, l.lesson_id, l.title AS lesson_title, c.course_id, c.title AS course_title,
-                      a.artwork_id, a.lesson_id AS artwork_lesson_id, a.image_url AS artwork_image_url, a.completed_at AS artwork_completed_at,
                       CASE WHEN r.reward_type='CONSTELLATION' THEN r.constellation_id END AS badge_constellation_id
                FROM reward_ledger r
-               LEFT JOIN learning_artwork a ON a.artwork_id=r.artwork_id AND a.user_id=r.user_id
                LEFT JOIN review_session s ON r.source_type='REVIEW' AND s.review_session_id=r.source_id
                LEFT JOIN lesson l ON l.lesson_id=CASE
                  WHEN r.source_type IN ('LESSON','ONBOARDING') THEN r.source_id
@@ -387,19 +402,6 @@ class RewardReadService(
                                                 "STAR"
                                         },
                                     )
-                                },
-                            artwork =
-                                rs.getLong("artwork_id").let { artworkId ->
-                                    if (rs.wasNull()) {
-                                        null
-                                    } else {
-                                        LearningArtwork(
-                                            artworkId,
-                                            rs.getLong("artwork_lesson_id"),
-                                            rs.getString("artwork_image_url"),
-                                            rs.getTimestamp("artwork_completed_at").toInstant(),
-                                        )
-                                    }
                                 },
                             source = source,
                             grantedAt = grantedAt,

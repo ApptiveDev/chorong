@@ -30,7 +30,6 @@ class OnboardingService(
     private val wallets: UserWalletService,
     private val idempotency: IdempotencyService,
     private val studyStreak: StudyStreakService,
-    private val artworks: LearningArtworkService,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -105,7 +104,6 @@ class OnboardingService(
             wallets.credit(userId, WalletCurrency.STARDUST, ONBOARDING_REWARD)
             rewards += LearningReward("WALLET", "STARDUST", ONBOARDING_REWARD)
         }
-        artworks.grant(userId, lessonId, clock.instant())?.let(rewards::add)
         val streakDays = studyStreak.recordCompletedStudy(userId)
         log.info("learning.onboarding.completed userId={} skipped=false rewards={} streakDays={}", userId, rewards.size, streakDays)
         return response(rewards, userId)

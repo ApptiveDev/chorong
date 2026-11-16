@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
@@ -41,6 +42,8 @@ data class LessonSummary(
     // 하루 해금이 없어져 항상 null이다. 앱 응답 검사가 이 칸을 요구해서 남긴다.
     val unlocksAt: java.time.Instant? = null,
     val completedAt: java.time.Instant? = null,
+    // 레슨 별가루를 받았는지. false인 완료 레슨은 에너지가 있을 때 다시 완료하면 받는다.
+    val rewardReceived: Boolean = false,
 )
 
 data class CourseDetail(
@@ -109,18 +112,40 @@ data class LessonDetail(
 
 data class LessonStartRequest(
     val replay: Boolean = false,
+    // 이어하기 확인에서 처음부터를 고르면 true. 저장된 위치와 입력을 지운다.
+    val restart: Boolean = false,
+)
+
+/** 이어하기에서 복원할 미제출 입력. input은 앱이 정한 형식이며 서버는 해석하지 않는다. */
+data class LessonDraft(
+    val contentId: Long,
+    val input: Map<String, Any?>,
+)
+
+data class LessonProgressSaveRequest(
+    val contentId: Long?,
+    val draft: LessonDraft? = null,
+)
+
+data class LessonProgressSaveResponse(
+    val progress: LessonProgressState,
 )
 
 data class LessonProgressState(
     val status: String,
     val lastContentId: Long?,
     val resumeContentId: Long?,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val draft: LessonDraft? = null,
+    @field:JsonInclude(JsonInclude.Include.NON_NULL)
+    val contentVersion: Int? = null,
 )
 
 data class LessonStartResponse(
-    val reviewRequired: Boolean,
-    val review: ReviewSetResponse? = null,
+    // 레슨 전 필수 복습이 없어져 항상 false다. 앱 응답 검사가 이 칸을 요구해서 남긴다.
+    val reviewRequired: Boolean = false,
     val progress: LessonProgressState,
+    val energyNotice: Boolean = false,
     val contents: List<LearningContent>,
     val segments: List<LessonSegment>,
 )
@@ -209,7 +234,16 @@ class LearningController(
         @CurrentUserId userId: Long,
         @PathVariable lessonId: Long,
         @RequestBody(required = false) request: LessonStartRequest?,
-    ): ApiResponse<LessonStartResponse> = ApiResponse(lessonProgress.start(userId, lessonId, request?.replay ?: false))
+    ): ApiResponse<LessonStartResponse> =
+        ApiResponse(lessonProgress.start(userId, lessonId, request?.replay ?: false, request?.restart ?: false))
+
+    @PutMapping("/lessons/{lessonId}/progress")
+    @Operation(operationId = "API-409", summary = "Save lesson progress")
+    fun saveProgress(
+        @CurrentUserId userId: Long,
+        @PathVariable lessonId: Long,
+        @RequestBody request: LessonProgressSaveRequest,
+    ): ApiResponse<LessonProgressSaveResponse> = ApiResponse(LessonProgressSaveResponse(lessonProgress.save(userId, lessonId, request)))
 
     @PostMapping("/contents/{contentId}/complete")
     @Operation(operationId = "API-405", summary = "Complete lesson content")
@@ -224,12 +258,27 @@ class LearningController(
         @CurrentUserId userId: Long,
     ): ApiResponse<LearningProgressSummary> = ApiResponse(lessonProgress.getProgress(userId))
 
+    @GetMapping("/reviews/status")
+    @Operation(operationId = "API-504", summary = "Get review availability")
+    fun reviewStatus(
+        @CurrentUserId userId: Long,
+    ): ApiResponse<ReviewStatusResponse> = ApiResponse(reviewSets.status(userId))
+
+    @PostMapping("/reviews/abandon")
+    @Operation(operationId = "API-505", summary = "Abandon review session")
+    fun abandonReview(
+        @CurrentUserId userId: Long,
+        @RequestBody request: ReviewSessionRequest,
+    ): ResponseEntity<Void> {
+        reviewCompletion.abandon(userId, request.reviewSessionId)
+        return ResponseEntity.noContent().build()
+    }
+
     @GetMapping("/reviews/next")
     @Operation(operationId = "API-501", summary = "Get next review set")
     fun nextReviewSet(
         @CurrentUserId userId: Long,
-        @RequestParam(required = false) lessonId: Long?,
-    ): ApiResponse<ReviewSetResponse> = ApiResponse(reviewSets.next(userId, lessonId))
+    ): ApiResponse<ReviewSetResponse> = ApiResponse(reviewSets.next(userId))
 
     @PostMapping("/reviews/{reviewItemId}/answer")
     @Operation(operationId = "API-502", summary = "Submit a review answer")
@@ -246,7 +295,7 @@ class LearningController(
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
         @RequestBody request: ReviewCompleteRequest,
     ): ResponseEntity<ApiResponse<ReviewCompleteResponse>> {
-        val result = reviewCompletion.complete(userId, request.reviewItemIds, idempotencyKey)
+        val result = reviewCompletion.complete(userId, request.reviewSessionId, idempotencyKey)
         return ResponseEntity.status(result.status).body(ApiResponse(result.body))
     }
 
