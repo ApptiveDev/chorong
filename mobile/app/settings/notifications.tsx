@@ -43,6 +43,6 @@ export default function NotificationsSettings() {
 }
 
 const s = StyleSheet.create({
-  notice: { marginTop: 16, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
-  error: { marginTop: 16, color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 14 },
+  notice: { marginTop: 16, color: '#aaaaaa', fontFamily: 'PretendardRegular', fontSize: 14 },
+  error: { marginTop: 16, color: '#f92669', fontFamily: 'PretendardRegular', fontSize: 14 },
 });

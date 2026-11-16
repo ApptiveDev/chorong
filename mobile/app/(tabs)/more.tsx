@@ -220,12 +220,13 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
 const HEADER_TOP = 32;
 
 const s = StyleSheet.create({
-  guestSafe: { flex: 1, backgroundColor: '#e4e4e4' },
+  // 다른 탭과 같은 검정 바탕. 카드·메뉴 버튼은 밝은 색 그대로 둔다.
+  guestSafe: { flex: 1, backgroundColor: '#161616' },
   guestScroll: { flex: 1 },
   guestContent: { flexGrow: 1, alignItems: 'center', paddingBottom: 32 },
   guestHeader: { width: '100%', paddingHorizontal: 32, marginBottom: 60 },
   guestHeaderTitle: {
-    color: '#161616',
+    color: '#f1f1f1',
     fontFamily: 'PretendardBold',
     fontSize: 24,
     lineHeight: 29,
@@ -240,6 +241,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderBottomWidth: 4,
     borderColor: '#161616',
+    // 아래 4px 그림자. 검정 바탕에서 보이도록 회색으로 둔다.
+    borderBottomColor: '#424242',
     borderRadius: 8,
     overflow: 'hidden',
   },
@@ -302,7 +305,8 @@ const s = StyleSheet.create({
     top: 4,
     width: 332,
     height: 164,
-    backgroundColor: '#161616',
+    // 검정 바탕에서 보이도록 회색 그림자(비회원 카드와 같다).
+    backgroundColor: '#424242',
     borderRadius: 8,
   },
   memberCard: {
@@ -345,5 +349,5 @@ const s = StyleSheet.create({
   memberSignatureOne: { position: 'absolute', left: 139, top: 112, width: 89, height: 23 },
   memberSignatureTwo: { position: 'absolute', left: 170, top: 129, width: 129, height: 23 },
   memberBarcode: { position: 'absolute', right: 0, top: 44, width: 13, height: 106 },
-  memberError: { color: '#161616', fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
+  memberError: { color: '#f1f1f1', fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
 });

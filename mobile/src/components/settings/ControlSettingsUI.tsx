@@ -12,7 +12,8 @@ export const figma = {
   bg: '#e4e4e4', // BG/Base - Present
 };
 
-// 화면 틀: 배경 #e4e4e4, 상단 32, 헤더와 본문 사이 60, 본문 좌우 32.
+// 화면 틀: 배경 #161616(다른 탭과 같은 검정), 상단 32, 헤더와 본문 사이 60, 본문 좌우 32.
+// 설정 상자는 밝은 색 그대로 두고 헤더 글자·뒤로 화살표만 밝게 한다.
 export function ControlSettingsScreen({
   title,
   onBack,
@@ -32,7 +33,7 @@ export function ControlSettingsScreen({
           hitSlop={12}
           style={s.back}
         >
-          <BackArrow />
+          <BackArrow color={figma.fale} />
         </Pressable>
         <Text style={s.title}>{title}</Text>
       </View>
@@ -103,7 +104,7 @@ export function ControlToggle({ value }: { value: boolean }) {
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: figma.bg },
+  screen: { flex: 1, backgroundColor: figma.base },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -112,7 +113,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 32,
   },
   back: { width: 14, height: 29, alignItems: 'center', justifyContent: 'center' },
-  title: { color: figma.base, fontFamily: 'PretendardBold', fontSize: 24 },
+  title: { color: figma.fale, fontFamily: 'PretendardBold', fontSize: 24 },
   body: { flex: 1, marginTop: 60, paddingHorizontal: 32 },
   row: {
     // Figma 는 332 고정(본문 폭 338 과 거의 같음). 아래 목록 상자와 폭이 어긋나지 않게 본문 폭을 채운다.

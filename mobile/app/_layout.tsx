@@ -71,11 +71,9 @@ export default function RootLayout() {
           <Stack.Screen name="settings/contact" options={{ headerShown: false }} />
           <Stack.Screen name="settings/universe" options={{ headerShown: false }} />
           <Stack.Screen name="settings/notifications" options={{ headerShown: false }} />
-          <Stack.Screen name="settings/blocked" options={{ headerShown: false }} />
           <Stack.Screen name="settings/terms" options={{ headerShown: false }} />
           <Stack.Screen name="settings/privacy" options={{ headerShown: false }} />
           <Stack.Screen name="settings/delete-request" options={{ headerShown: false }} />
-          <Stack.Screen name="settings/app-info" options={{ title: '앱 정보' }} />
           <Stack.Screen name="settings/dev-tools" options={{ title: '개발자 도구' }} />
           <Stack.Screen name="+not-found" options={{ title: '없는 페이지' }} />
         </Stack>

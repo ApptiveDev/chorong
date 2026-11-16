@@ -24,16 +24,8 @@ type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']
 };
 
 function DockBar({ state, navigation, bottom, onGuestHousing }: DockBarProps) {
-  // 제어실은 회원·비회원 모두 밝은 배경이라 내비 바도 회색으로 맞춘다.
-  const controlRoom = state.routes[state.index]?.name === 'more';
   return (
-    <View
-      style={[
-        dockStyles.bar,
-        controlRoom && dockStyles.controlBar,
-        { height: 64 + bottom, paddingBottom: bottom },
-      ]}
-    >
+    <View style={[dockStyles.bar, { height: 64 + bottom, paddingBottom: bottom }]}>
       <View style={dockStyles.items}>
         {dockItems.map((item) => {
           const routeIndex = state.routes.findIndex((route) => route.name === item.name);
@@ -59,19 +51,9 @@ function DockBar({ state, navigation, bottom, onGuestHousing }: DockBarProps) {
                 if (!selected && !event.defaultPrevented) navigation.navigate(route.name);
               }}
               onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
-              style={[
-                dockStyles.item,
-                selected && dockStyles.selected,
-                selected && controlRoom && dockStyles.controlSelected,
-              ]}
+              style={[dockStyles.item, selected && dockStyles.selected]}
             >
-              <Text
-                style={[
-                  dockStyles.label,
-                  controlRoom && dockStyles.controlLabel,
-                  selected && dockStyles.selectedLabel,
-                ]}
-              >
+              <Text style={[dockStyles.label, selected && dockStyles.selectedLabel]}>
                 {item.label}
               </Text>
             </Pressable>
@@ -159,11 +141,9 @@ function TabNavigator() {
 
 const dockStyles = StyleSheet.create({
   bar: { width: '100%', backgroundColor: '#161616' },
-  controlBar: { backgroundColor: '#e4e4e4' },
   items: { width: '100%', height: 64, flexDirection: 'row' },
   item: { flex: 1, height: 64, alignItems: 'center', justifyContent: 'center' },
   selected: { borderBottomWidth: 4, borderBottomColor: '#f1f1f1' },
-  controlSelected: { borderBottomColor: '#161616' },
   label: {
     color: '#f1f1f1',
     fontSize: 16,
@@ -172,5 +152,4 @@ const dockStyles = StyleSheet.create({
     includeFontPadding: false,
   },
   selectedLabel: { fontFamily: 'PretendardBold' },
-  controlLabel: { color: '#161616' },
 });

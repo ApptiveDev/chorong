@@ -234,7 +234,7 @@ const s = StyleSheet.create({
   blocked: { marginTop: 24, gap: 12 },
   blockedTitle: {
     paddingLeft: 8,
-    color: figma.base,
+    color: figma.fale,
     fontFamily: 'PretendardMedium',
     fontSize: 16,
   },
@@ -267,6 +267,6 @@ const s = StyleSheet.create({
   unblock: { width: 28, height: 14, justifyContent: 'center' },
   empty: { paddingVertical: 12, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
   more: { paddingTop: 12, color: figma.base, fontFamily: 'PretendardMedium', fontSize: 14 },
-  notice: { marginTop: 16, color: '#747474', fontFamily: 'PretendardRegular', fontSize: 14 },
-  error: { marginTop: 16, color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 14 },
+  notice: { marginTop: 16, color: figma.lght, fontFamily: 'PretendardRegular', fontSize: 14 },
+  error: { marginTop: 16, color: '#f92669', fontFamily: 'PretendardRegular', fontSize: 14 },
 });

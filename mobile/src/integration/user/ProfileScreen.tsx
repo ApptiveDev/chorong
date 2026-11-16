@@ -193,7 +193,7 @@ export default function ProfileScreen() {
               onPress={() => router.replace('/more')}
               style={s.back}
             >
-              <BackArrow />
+              <BackArrow color="#f1f1f1" />
             </Pressable>
             <Text style={s.title}>프로필과 계정</Text>
           </View>
@@ -366,12 +366,13 @@ export default function ProfileScreen() {
 
 const s = StyleSheet.create({
   flex: { flex: 1 },
-  safe: { flex: 1, backgroundColor: '#e4e4e4' },
+  // 다른 탭과 같은 검정 바탕. 카드·입력 상자·버튼·모달은 밝은 색 그대로 둔다.
+  safe: { flex: 1, backgroundColor: '#161616' },
   loading: { flex: 1 },
   content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 32 },
   header: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 12 },
   back: { width: 14, height: 29, justifyContent: 'center', alignItems: 'center' },
-  title: { color: '#161616', fontFamily: 'PretendardBold', fontSize: 24, lineHeight: 29 },
+  title: { color: '#f1f1f1', fontFamily: 'PretendardBold', fontSize: 24, lineHeight: 29 },
   center: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -433,15 +434,17 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  nicknameTitle: { color: '#161616', fontFamily: 'PretendardMedium', fontSize: 14, lineHeight: 17 },
-  nicknameHint: { color: '#4f4f4f', fontFamily: 'PretendardRegular', fontSize: 12, lineHeight: 15 },
+  nicknameTitle: { color: '#f1f1f1', fontFamily: 'PretendardMedium', fontSize: 14, lineHeight: 17 },
+  nicknameHint: { color: '#aaaaaa', fontFamily: 'PretendardRegular', fontSize: 12, lineHeight: 15 },
   inputBox: {
     height: 40,
     marginTop: 11,
     flexDirection: 'row',
     alignItems: 'center',
+    // 검정 바탕에서 보이도록 설정 상자(ControlSettingRow)처럼 밝은 바탕·회색 테두리.
+    backgroundColor: '#f1f1f1',
     borderWidth: 1,
-    borderColor: '#161616',
+    borderColor: '#aaaaaa',
     borderRadius: 4,
   },
   inputValue: {
@@ -517,7 +520,7 @@ const s = StyleSheet.create({
   },
   nicknameModalSaveText: { color: '#f1f1f1', fontFamily: 'PretendardRegular', fontSize: 16 },
   error: {
-    color: '#b42342',
+    color: '#f92669',
     fontFamily: 'PretendardRegular',
     fontSize: 12,
     lineHeight: 17,
