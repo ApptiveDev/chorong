@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, Line, Path } from 'react-native-svg';
 import type { useTask } from '../hooks';
-import type { ConstellationImage } from './constellationLayouts';
+import type { ConstellationImage, StarLine } from './constellationLayouts';
 import { segmentStyle, type RecordStar, type StarState } from './constellationRecord';
 import { EnergyIcon } from './CompletionResult';
 import { DotTabsHeader, StarIcon } from './ShipStatus';
@@ -44,6 +44,8 @@ export type LearningHomeProps = {
   constellation: {
     name: string;
     stars: RecordStar[];
+    // 이을 별 쌍(stars 배열 위치)
+    lines: readonly StarLine[];
     lit: number;
     image: ConstellationImage | null;
   } | null;
@@ -101,6 +103,7 @@ export function LearningHome({
               <ConstellationCanvas
                 k={k}
                 stars={constellation.stars}
+                lines={constellation.lines}
                 image={constellation.image}
                 nextResume={nextResume}
                 onStar={onStar}
@@ -173,12 +176,14 @@ const STAR_HIT = 44;
 function ConstellationCanvas({
   k,
   stars,
+  lines,
   image,
   nextResume,
   onStar,
 }: {
   k: number;
   stars: RecordStar[];
+  lines: readonly StarLine[];
   image: ConstellationImage | null;
   nextResume: boolean;
   onStar: (star: RecordStar) => void;
@@ -187,25 +192,29 @@ function ConstellationCanvas({
     x: SKY.x + star.point.x * SKY.width,
     y: SKY.y + star.point.y * SKY.height,
   });
-  const segments = stars.slice(1).map((to, index) => {
-    const from = stars[index];
-    const a = at(from);
-    const b = at(to);
-    const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-    const ux = (b.x - a.x) / length;
-    const uy = (b.y - a.y) / length;
-    const startTrim = STAR_RADIUS[from.state];
-    const endTrim = STAR_RADIUS[to.state];
-    return {
-      key: `${from.lessonId}-${to.lessonId}`,
-      style: segmentStyle(from.state),
-      x1: a.x + ux * startTrim,
-      y1: a.y + uy * startTrim,
-      x2: b.x - ux * endTrim,
-      y2: b.y - uy * endTrim,
-      visible: length > startTrim + endTrim,
-    };
-  });
+  // 선 스타일은 앞 번호(먼저 배우는) 별 상태를 따른다.
+  const segments = lines
+    .filter(([a, b]) => stars[a] && stars[b])
+    .map(([fromIndex, toIndex]) => {
+      const from = stars[fromIndex];
+      const to = stars[toIndex];
+      const a = at(from);
+      const b = at(to);
+      const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const ux = (b.x - a.x) / length;
+      const uy = (b.y - a.y) / length;
+      const startTrim = STAR_RADIUS[from.state];
+      const endTrim = STAR_RADIUS[to.state];
+      return {
+        key: `${from.lessonId}-${to.lessonId}`,
+        style: segmentStyle(from.state),
+        x1: a.x + ux * startTrim,
+        y1: a.y + uy * startTrim,
+        x2: b.x - ux * endTrim,
+        y2: b.y - uy * endTrim,
+        visible: length > startTrim + endTrim,
+      };
+    });
   return (
     <>
       {image ? (
