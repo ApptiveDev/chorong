@@ -114,6 +114,7 @@ function RecordGrid({
             >
               <ConstellationFigure
                 points={item.points}
+                lines={item.lines}
                 image={item.image}
                 width={60}
                 height={60}
@@ -166,6 +167,7 @@ function RecordMap({
               >
                 <ConstellationFigure
                   points={item.points}
+                  lines={item.lines}
                   image={item.image}
                   width={100}
                   height={80}

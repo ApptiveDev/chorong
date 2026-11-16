@@ -12,7 +12,7 @@ import Svg, {
   Path,
   Rect,
 } from 'react-native-svg';
-import type { ConstellationImage, StarPoint } from './constellationLayouts';
+import type { ConstellationImage, StarLine, StarPoint } from './constellationLayouts';
 import {
   FOLDER_CARD_PATH,
   FOLDER_ICON_PATH,
@@ -88,6 +88,7 @@ export function GlowFilter({
 // image 가 있으면(서버 imageUrl 또는 설정 그림) 그 그림을 대신 보여 준다.
 export function ConstellationFigure({
   points,
+  lines,
   image,
   width,
   height,
@@ -98,6 +99,8 @@ export function ConstellationFigure({
   padding,
 }: {
   points: StarPoint[];
+  // 이을 별 쌍. 없으면 별 순서대로 잇는다.
+  lines?: readonly StarLine[];
   image?: ConstellationImage | null;
   width: number;
   height: number;
@@ -139,17 +142,19 @@ export function ConstellationFigure({
       <Defs>
         <GlowFilter id={filterId} blur={glow} inner={innerGlow} width={width} height={height} />
       </Defs>
-      {placed.slice(1).map((point, index) => (
-        <Line
-          key={`line-${index}`}
-          x1={placed[index].x}
-          y1={placed[index].y}
-          x2={point.x}
-          y2={point.y}
-          stroke={artColor.fale}
-          strokeWidth={lineWidth}
-        />
-      ))}
+      {(lines ?? placed.slice(1).map((_, index) => [index, index + 1] as const))
+        .filter(([a, b]) => placed[a] && placed[b])
+        .map(([a, b]) => (
+          <Line
+            key={`line-${a}-${b}`}
+            x1={placed[a].x}
+            y1={placed[a].y}
+            x2={placed[b].x}
+            y2={placed[b].y}
+            stroke={artColor.fale}
+            strokeWidth={lineWidth}
+          />
+        ))}
       {placed.map((point, index) => (
         <Circle
           key={`star-${index}`}

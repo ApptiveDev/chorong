@@ -12,6 +12,7 @@ import {
   allConstellations,
   completedConstellations,
   constellationImage,
+  constellationShape,
   litStars,
   nextLessonOf,
   recordStars,
@@ -148,10 +149,15 @@ function Courses() {
   const currentConstellation = currentCourse
     ? constellations?.find((item) => item.courseId === currentCourse.courseId)
     : undefined;
-  const constellationId =
-    currentConstellation?.constellationId ?? currentCourse?.constellation?.constellationId;
+  const constellationKey = currentCourse
+    ? {
+        slug: currentConstellation?.slug,
+        name:
+          currentConstellation?.name ?? currentCourse.constellation?.name ?? currentCourse.title,
+      }
+    : null;
   const stars = currentCourse
-    ? recordStars(courseLessons, nextLesson?.lessonId ?? null, constellationId)
+    ? recordStars(courseLessons, nextLesson?.lessonId ?? null, constellationKey)
     : [];
   const joinModal = (
     <Modal
@@ -242,8 +248,9 @@ function Courses() {
                     currentCourse.constellation?.name ??
                     currentCourse.title,
                   stars,
+                  lines: constellationShape(constellationKey, stars.length).lines,
                   lit: litStars(stars),
-                  image: constellationImage(constellationId, currentConstellation?.imageUrl),
+                  image: constellationImage(constellationKey, currentConstellation?.imageUrl),
                 }
               : null
           }

@@ -163,12 +163,12 @@ const topicSummary = (topic: (typeof newTopics)[number], order: number) => ({
 export const courses: CourseDetail[] = [
   {
     courseId: 1,
-    title: '작은곰자리',
+    title: '반짝반짝 반딧불자리',
     category: '교양',
-    topic: '작은곰자리',
+    topic: '반짝반짝 반딧불자리',
     totalLessons: 4,
     completedLessons: 0,
-    constellation: { constellationId: 1, name: '빛을 찾아서' },
+    constellation: { constellationId: 1, name: '반짝반짝 반딧불자리' },
     description: '우주, 경제, 예술에서 시작하는 네 가지 이야기',
     lessons: [
       {
@@ -194,12 +194,12 @@ export const courses: CourseDetail[] = [
   },
   {
     courseId: 2,
-    title: '오리온자리',
+    title: '냥칼진 오르골자리',
     category: '교양',
-    topic: '오리온자리',
+    topic: '냥칼진 오르골자리',
     totalLessons: 4,
     completedLessons: 0,
-    constellation: { constellationId: 2, name: '오리온자리' },
+    constellation: { constellationId: 2, name: '냥칼진 오르골자리' },
     description: '자연과 소리, 동물에서 찾는 네 가지 궁금증',
     lessons: [
       {
@@ -225,12 +225,12 @@ export const courses: CourseDetail[] = [
   },
   {
     courseId: 3,
-    title: '카시오페이아자리',
+    title: '50년 묵은 꿀단지자리',
     category: '교양',
-    topic: '카시오페이아자리',
+    topic: '50년 묵은 꿀단지자리',
     totalLessons: 4,
     completedLessons: 0,
-    constellation: { constellationId: 3, name: '카시오페이아자리' },
+    constellation: { constellationId: 3, name: '50년 묵은 꿀단지자리' },
     description: '수, 태양, 목소리, 구조를 살펴보는 네 가지 이야기',
     lessons: [
       {
@@ -248,12 +248,12 @@ export const courses: CourseDetail[] = [
   },
   {
     courseId: 4,
-    title: '백조자리',
+    title: '자기가 사람인 줄 아는 고양이 자리',
     category: '교양',
-    topic: '백조자리',
+    topic: '자기가 사람인 줄 아는 고양이 자리',
     totalLessons: 3,
     completedLessons: 0,
-    constellation: { constellationId: 4, name: '백조자리' },
+    constellation: { constellationId: 4, name: '자기가 사람인 줄 아는 고양이 자리' },
     description: '지리, 건축, 마음을 연결하는 세 가지 이야기',
     lessons: newTopics
       .filter((topic) => constellationForTopic(topic.courseId) === 4)

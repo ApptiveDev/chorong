@@ -461,11 +461,13 @@ test('failed logout keeps session; successful 204 logout clears persisted tokens
   assert.equal(entries.size, 0);
   assert.equal(c.getSnapshot().traces[0].api, 'API-107');
 });
-test('profile nickname validation follows the server 2~12 rule and rejects unsupported characters', () => {
-  assert.equal(nicknameValidationError('가'), '닉네임을 2~12자로 입력해 주세요.');
+test('profile nickname validation follows the server 1~10 rule and rejects unsupported characters', () => {
+  assert.equal(nicknameValidationError('   '), '닉네임을 1~10자로 입력해 주세요.');
+  assert.equal(nicknameValidationError('가'), null);
+  assert.equal(nicknameValidationError('가나다라마바사아자차'), null);
   assert.equal(
-    nicknameValidationError('가나다라마바사아자차카타파'),
-    '닉네임을 2~12자로 입력해 주세요.',
+    nicknameValidationError('가나다라마바사아자차카'),
+    '닉네임을 1~10자로 입력해 주세요.',
   );
   assert.equal(nicknameValidationError('  별지기7  '), null);
   assert.equal(nicknameValidationError('별 지기'), '한글, 영문, 숫자만 입력할 수 있습니다.');
@@ -813,7 +815,7 @@ test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 �
   );
   assert.equal(
     (await api.benefits.constellations()).constellations.find((item) => item.courseId === 1).name,
-    '빛을 찾아서',
+    '반짝반짝 반딧불자리',
   );
   assert.equal(
     (await api.benefits.rewards({ size: 100 })).data.rewards.some(
@@ -2723,8 +2725,11 @@ test('복습 회차 API: API-501 은 인자 없이, 완료는 reviewSessionId·�
 });
 
 const {
+  chainLines,
   constellationImage,
+  constellationShape,
   fallbackLayout,
+  findConstellationLayout,
   litStars,
   nextLessonOf,
   recordStars,
@@ -2791,27 +2796,110 @@ test('별자리 기록: 완료는 흰 별, 다음 학습은 ?, 나머지는 빈 
 });
 
 test('별 위치는 별자리별 설정 → 별 개수별 기본 → 자동 배치 순이고 그림은 서버 imageUrl 이 먼저다', () => {
+  const unknown = { name: '없는 별자리' };
   for (const count of [0, 1, 2, 4, 7, 15]) {
     const points = fallbackLayout(count);
     assert.equal(points.length, count);
     assert.ok(points.every(({ x, y }) => x >= 0 && x <= 1 && y >= 0 && y <= 1));
-    assert.deepEqual(starLayout(999, count), count === 3 ? layoutsByStarCount[3].stars : points);
+    assert.deepEqual(
+      starLayout(unknown, count),
+      count === 3 ? layoutsByStarCount[3].stars : points,
+    );
+    // 설정이 없으면 별 순서대로 잇는다.
+    assert.deepEqual(constellationShape(unknown, count).lines, chainLines(count));
   }
-  const custom = { stars: [0.1, 0.3, 0.5, 0.7].map((x) => ({ x, y: x })), image: 42 };
-  constellationLayouts[77] = custom;
+  const custom = {
+    name: '시험 고양이 자리',
+    slug: 'test-cat',
+    stars: [0.1, 0.3, 0.5, 0.7].map((x) => ({ x, y: x })),
+    lines: [
+      [0, 1],
+      [1, 2],
+      [1, 3],
+    ],
+    image: 42,
+  };
+  constellationLayouts.push(custom);
   try {
-    assert.deepEqual(starLayout(77, 3), custom.stars.slice(0, 3));
-    assert.deepEqual(starLayout(77, 4), custom.stars);
+    // 이름은 띄어쓰기를 무시하고, slug 가 맞으면 이름이 달라도 찾는다.
+    assert.equal(findConstellationLayout({ name: '시험고양이자리' }), custom);
+    assert.equal(findConstellationLayout({ name: '다른 이름', slug: 'test-cat' }), custom);
+    assert.equal(findConstellationLayout(null), undefined);
+    const key = { name: custom.name };
+    assert.deepEqual(starLayout(key, 4), custom.stars);
+    // 레슨이 설정보다 적으면 앞에서부터 쓰고 남는 별에 닿는 선은 뺀다.
+    assert.deepEqual(constellationShape(key, 3), {
+      points: custom.stars.slice(0, 3),
+      lines: [
+        [0, 1],
+        [1, 2],
+      ],
+    });
     // 설정보다 별이 많으면 설정을 쓰지 않는다.
-    assert.equal(starLayout(77, 5).length, 5);
-    assert.equal(constellationImage(77, null), 42);
-    assert.deepEqual(constellationImage(77, 'https://img.example/77.png'), {
+    assert.equal(starLayout(key, 5).length, 5);
+    assert.deepEqual(constellationShape(key, 5).lines, chainLines(5));
+    assert.equal(constellationImage(key, null), 42);
+    assert.deepEqual(constellationImage(key, 'https://img.example/77.png'), {
       uri: 'https://img.example/77.png',
     });
   } finally {
-    delete constellationLayouts[77];
+    constellationLayouts.pop();
   }
   assert.equal(constellationImage(null, null), null);
+});
+
+test('Figma 별자리 10개 설정: 좌표는 0~1, 선은 있는 별끼리, 별자리마다 하나로 이어진다', () => {
+  assert.equal(constellationLayouts.length, 10);
+  const starCounts = constellationLayouts.map((layout) => layout.stars.length);
+  // 기획표 '별자리 10개'의 레슨 수
+  assert.deepEqual(starCounts, [6, 5, 6, 5, 7, 6, 6, 6, 6, 6]);
+  for (const layout of constellationLayouts) {
+    const count = layout.stars.length;
+    assert.ok(
+      layout.stars.every(({ x, y }) => x >= 0 && x <= 1 && y >= 0 && y <= 1),
+      layout.name,
+    );
+    assert.ok(
+      layout.lines.every(([a, b]) => Number.isInteger(a) && a >= 0 && a < b && b < count),
+      layout.name,
+    );
+    const linked = new Set([0]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const [a, b] of layout.lines) {
+        if (linked.has(a) !== linked.has(b)) {
+          linked.add(a);
+          linked.add(b);
+          grew = true;
+        }
+      }
+    }
+    assert.equal(linked.size, count, `${layout.name}: 떨어진 별이 있다`);
+    assert.equal(findConstellationLayout({ name: layout.name }), layout);
+  }
+});
+
+test('별자리 10개 slug 는 기획자 시뮬레이터 id 와 같고 slug 로 찾는다', () => {
+  const expected = {
+    '반짝반짝 반딧불자리': 'firefly',
+    '50년 묵은 꿀단지자리': 'honeypot',
+    '냥칼진 오르골자리': 'musicbox',
+    '자기가 사람인 줄 아는 고양이 자리': 'human-cat',
+    '목욕하기 싫어하는 고양이 자리': 'bath-cat',
+    '하늘을 나는 종이배자리': 'paperboat',
+    '둥실둥실 민들레자리': 'dandelion',
+    '어떡할까냥 자리': 'choose-cat',
+    '주인만 기다리는 고양이 자리': 'waiting-cat',
+    '츄르는 많을수록 좋다냥 자리': 'churu-cat',
+  };
+  const figma = constellationLayouts.filter((layout) => layout.name in expected);
+  assert.equal(figma.length, 10);
+  for (const layout of figma) {
+    assert.equal(layout.slug, expected[layout.name]);
+    // 서버 이름이 달라져도 slug 가 맞으면 같은 설정을 쓴다.
+    assert.equal(findConstellationLayout({ name: '바뀐 이름', slug: layout.slug }), layout);
+  }
 });
 
 test('목업: 레슨을 마치고 코스 상세를 다시 읽으면 흰 별이 늘고 ? 가 다음 레슨으로 옮겨 간다', () => {
@@ -2826,11 +2914,7 @@ test('목업: 레슨을 마치고 코스 상세를 다시 읽으면 흰 별이 �
     const before = detail();
     const next = nextLessonOf(before.lessons);
     assert.ok(next, '목업 첫 코스에 진행할 레슨이 있어야 한다');
-    const beforeStars = recordStars(
-      before.lessons,
-      next.lessonId,
-      before.constellation?.constellationId,
-    );
+    const beforeStars = recordStars(before.lessons, next.lessonId, before.constellation);
     assert.equal(beforeStars.find((star) => star.lessonId === next.lessonId).state, 'next');
 
     mockApi('API-404', { path: { lessonId: next.lessonId }, body: { replay: false } });
@@ -2839,11 +2923,7 @@ test('목업: 레슨을 마치고 코스 상세를 다시 읽으면 흰 별이 �
 
     const after = detail();
     const afterNext = nextLessonOf(after.lessons);
-    const afterStars = recordStars(
-      after.lessons,
-      afterNext?.lessonId ?? null,
-      after.constellation?.constellationId,
-    );
+    const afterStars = recordStars(after.lessons, afterNext?.lessonId ?? null, after.constellation);
     assert.equal(afterStars.find((star) => star.lessonId === next.lessonId).state, 'done');
     assert.equal(litStars(afterStars), litStars(beforeStars) + 1);
     assert.ok(afterStars.filter((star) => star.state === 'next').length <= 1);

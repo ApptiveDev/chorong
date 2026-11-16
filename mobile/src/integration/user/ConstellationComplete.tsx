@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
 import { artColor as color, ConstellationFigure } from './constellationArt';
-import type { ConstellationImage, StarPoint } from './constellationLayouts';
+import type { ConstellationImage, StarLine, StarPoint } from './constellationLayouts';
 import { CompletionArc, useCompletionLayout } from './CompletionResult';
 
 // Figma L04_1 별자리 완성(342:650). 별자리 소속 레슨을 모두 마친 순간 학습 완료 화면 다음에 보여 준다.
@@ -11,6 +11,7 @@ export function ConstellationComplete({
   completedOn,
   bonus,
   points,
+  lines,
   image,
   onRecord,
   onHome,
@@ -21,6 +22,7 @@ export function ConstellationComplete({
   // 완성 보너스 줄(completionResult.constellationBonusLines). 비어 있으면 보너스 줄을 그리지 않는다.
   bonus: readonly string[];
   points: StarPoint[];
+  lines: readonly StarLine[];
   image: ConstellationImage | null;
   onRecord: () => void;
   onHome: () => void;
@@ -44,6 +46,7 @@ export function ConstellationComplete({
       <View style={[s.figure, { top: top(173) }]}>
         <ConstellationFigure
           points={points}
+          lines={lines}
           image={image}
           width={169 * scale}
           height={177 * scale}

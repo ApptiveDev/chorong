@@ -23,6 +23,7 @@ import {
 } from '../models';
 import { integrationApi as api } from '../runtime';
 import { BrowseView } from './BrowseView';
+import { REPORT_DETAIL_MAX } from './SocialConfirmModals';
 import { UserScreen, UserStatus } from './Screen';
 import { PublicConfirmModal } from './VisibilityConfirmModals';
 
@@ -264,7 +265,7 @@ export function VisitScreen() {
   };
   const report = () =>
     void task.run(async () => {
-      await api.social.report(id, reason, detail.trim() || undefined);
+      await api.social.report(id, reason, detail.trim());
       setReportOpen(false);
       setNotice('신고를 접수했습니다.');
     });
@@ -342,13 +343,21 @@ export function VisitScreen() {
             </View>
             <TextInput
               accessibilityLabel="신고 내용"
-              placeholder="신고 내용 (선택)"
+              placeholder="신고 내용"
               value={detail}
               onChangeText={setDetail}
+              maxLength={REPORT_DETAIL_MAX}
               multiline
               style={s.input}
             />
-            <Pressable accessibilityRole="button" onPress={report} style={s.primaryButton}>
+            {/* API-805 detail 은 필수(앞뒤 공백을 뺀 1~255자) */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !detail.trim() }}
+              disabled={!detail.trim()}
+              onPress={report}
+              style={[s.primaryButton, !detail.trim() && { opacity: 0.4 }]}
+            >
               <Text style={s.primaryText}>신고 접수</Text>
             </Pressable>
             <Pressable

@@ -2,8 +2,33 @@ import {
   constellationLayouts,
   layoutsByStarCount,
   type ConstellationImage,
+  type ConstellationLayout,
+  type StarLine,
   type StarPoint,
 } from './constellationLayouts';
+
+// 별자리 설정을 찾는 열쇠. slug 가 있으면 slug, 없으면 이름(띄어쓰기 무시)으로 찾는다.
+export type ConstellationKey = { name?: string | null; slug?: string | null } | null | undefined;
+
+const compactName = (name: string) => name.replace(/\s+/g, '');
+
+export function findConstellationLayout(key: ConstellationKey): ConstellationLayout | undefined {
+  if (!key) return undefined;
+  const bySlug = key.slug
+    ? constellationLayouts.find((layout) => layout.slug === key.slug)
+    : undefined;
+  if (bySlug) return bySlug;
+  const name = key.name ? compactName(key.name) : '';
+  return name
+    ? constellationLayouts.find((layout) => compactName(layout.name) === name)
+    : undefined;
+}
+
+export type ConstellationShape = { points: StarPoint[]; lines: StarLine[] };
+
+// 설정이 없는 별자리의 선: 별 순서대로 잇는다.
+export const chainLines = (count: number): StarLine[] =>
+  Array.from({ length: Math.max(0, count - 1) }, (_, index) => [index, index + 1] as const);
 
 type LessonStatus = 'LOCKED' | 'UNLOCKED' | 'IN_PROGRESS' | 'COMPLETED';
 type LessonLike = { lessonId: number; title: string; order: number; status: LessonStatus };
@@ -23,10 +48,10 @@ export function nextLessonOf<T extends LessonLike>(lessons: readonly T[]): T | n
 export function recordStars(
   lessons: readonly LessonLike[],
   nextLessonId: number | null,
-  constellationId: number | null | undefined,
+  key: ConstellationKey,
 ): RecordStar[] {
   const ordered = [...lessons].sort((a, b) => a.order - b.order);
-  const points = starLayout(constellationId, ordered.length);
+  const points = starLayout(key, ordered.length);
   return ordered.map((lesson, index) => ({
     lessonId: lesson.lessonId,
     title: lesson.title,
@@ -43,14 +68,23 @@ export const segmentStyle = (from: StarState): 'solid' | 'dashed' =>
 export const litStars = (stars: readonly RecordStar[]) =>
   stars.filter((star) => star.state === 'done').length;
 
-// 별 위치: 별자리별 설정 → 별 개수별 기본 배치 → 자동 배치 순으로 고른다.
-export function starLayout(constellationId: number | null | undefined, count: number): StarPoint[] {
-  const custom = constellationId == null ? undefined : constellationLayouts[constellationId];
-  if (custom && custom.stars.length >= count) return custom.stars.slice(0, count);
+// 별 위치·선: 별자리별 설정 → 별 개수별 기본 배치 → 자동 배치 순으로 고른다.
+// 설정의 별이 레슨보다 많으면 앞에서부터 레슨 수만큼 쓰고, 남는 별에 닿는 선은 뺀다.
+export function constellationShape(key: ConstellationKey, count: number): ConstellationShape {
+  const custom = findConstellationLayout(key);
+  if (custom && custom.stars.length >= count) {
+    return {
+      points: custom.stars.slice(0, count),
+      lines: custom.lines.filter(([a, b]) => a < count && b < count),
+    };
+  }
   const preset = layoutsByStarCount[count];
-  if (preset && preset.stars.length === count) return preset.stars;
-  return fallbackLayout(count);
+  const points = preset && preset.stars.length === count ? preset.stars : fallbackLayout(count);
+  return { points, lines: chainLines(count) };
 }
+
+export const starLayout = (key: ConstellationKey, count: number): StarPoint[] =>
+  constellationShape(key, count).points;
 
 // 설정이 없는 별 개수: Figma 3개 배치처럼 왼쪽 아래에서 오른쪽 위로 완만한 호를 그리며 놓는다.
 export function fallbackLayout(count: number): StarPoint[] {
@@ -67,13 +101,11 @@ export function fallbackLayout(count: number): StarPoint[] {
 
 // 별자리 그림: 서버 imageUrl 을 먼저 쓰고, 없으면 설정의 임시 그림, 둘 다 없으면 null.
 export function constellationImage(
-  constellationId: number | null | undefined,
+  key: ConstellationKey,
   serverImageUrl: string | null | undefined,
 ): ConstellationImage | null {
   if (serverImageUrl) return { uri: serverImageUrl };
-  return (
-    (constellationId == null ? undefined : constellationLayouts[constellationId]?.image) ?? null
-  );
+  return findConstellationLayout(key)?.image ?? null;
 }
 
 const round = (value: number) => Math.round(value * 10000) / 10000;
@@ -106,8 +138,9 @@ export type CompletedConstellation = {
   name: string;
   // 서버 imageUrl → 설정 그림 → null(별 배치로 그린다)
   image: ConstellationImage | null;
-  // 레슨 수만큼의 별 위치(모두 밝힌 상태로 그린다)
+  // 레슨 수만큼의 별 위치(모두 밝힌 상태로 그린다)와 별 사이 선
   points: StarPoint[];
+  lines: StarLine[];
   // 'YYYY. MM. DD'. 완성 기록(API-905 별자리 뱃지)이 없으면 null.
   completedOn: string | null;
   // 별자리를 완성했는지. 지도는 완성하지 않은 별자리도 흐리게 함께 보여 준다.
@@ -135,12 +168,15 @@ export function allConstellations(
     const record = constellations?.find((item) => item.courseId === course.courseId);
     const constellationId =
       record?.constellationId ?? course.constellation?.constellationId ?? null;
+    const name = record?.name ?? course.constellation?.name ?? course.title;
+    const shape = constellationShape({ name }, course.totalLessons);
     return {
       courseId: course.courseId,
       constellationId,
-      name: record?.name ?? course.constellation?.name ?? course.title,
-      image: constellationImage(constellationId, record?.imageUrl),
-      points: starLayout(constellationId, course.totalLessons),
+      name,
+      image: constellationImage({ name }, record?.imageUrl),
+      points: shape.points,
+      lines: shape.lines,
       completedOn: completedOn[course.courseId] ?? null,
       completed: isConstellationComplete(course),
     };

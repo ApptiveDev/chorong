@@ -34,7 +34,7 @@ import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
 import { prefetchLessonAudio } from './quizAudio';
 import { ConstellationComplete } from './ConstellationComplete';
-import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
+import { constellationImage, constellationShape, formatDotDate } from './constellationRecord';
 import { FirstStudyLoginModal } from './SocialLoginModal';
 import { CompletionArc, CompletionResult, CompletionStar, EnergyIcon } from './CompletionResult';
 import { ENERGY_NOTICE_SHOWN, EnergyNoticeModal } from './lessonStart';
@@ -78,9 +78,10 @@ function Study() {
   const loadedLessonId = useRef<number | null>(null);
   const [constellationName, setConstellationName] = useState('별자리');
   const [constellationDate, setConstellationDate] = useState<string | null>(null);
-  // 별자리 완성 화면의 별 그림. API-906 의 별자리 ID·별 수·그림 주소.
+  // 별자리 완성 화면의 별 그림. API-906 의 별자리 slug·이름·별 수·그림 주소.
   const [constellationFigure, setConstellationFigure] = useState<{
-    constellationId: number | null;
+    slug?: string;
+    name: string;
     starCount: number;
     imageUrl: string | null;
   } | null>(null);
@@ -271,7 +272,8 @@ function Study() {
         setConstellationFigure(
           constellation
             ? {
-                constellationId: constellation.constellationId,
+                slug: constellation.slug,
+                name: constellation.name,
                 starCount: constellation.starCount,
                 imageUrl: constellation.imageUrl,
               }
@@ -551,14 +553,8 @@ function Study() {
                 name={constellationName}
                 completedOn={constellationDate ?? formatDotDate(new Date().toISOString())}
                 bonus={constellationBonus}
-                points={starLayout(
-                  constellationFigure?.constellationId,
-                  constellationFigure?.starCount ?? 0,
-                )}
-                image={constellationImage(
-                  constellationFigure?.constellationId,
-                  constellationFigure?.imageUrl,
-                )}
+                {...constellationShape(constellationFigure, constellationFigure?.starCount ?? 0)}
+                image={constellationImage(constellationFigure, constellationFigure?.imageUrl)}
                 onRecord={() => router.replace({ pathname: '/', params: { view: 'record' } })}
                 onHome={leaveStudy}
               />
