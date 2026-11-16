@@ -19,12 +19,14 @@ data class StorePlacementInventory(
     val itemType: String,
     val optionId: Long,
     val option: Map<String, Any?>,
+    val art: ItemArt = ItemArt(null, null, null, null),
 )
 
 @Service
 class HousingStoreCatalogService(
     private val jdbc: JdbcTemplate,
     private val objectMapper: ObjectMapper,
+    private val media: MediaUrls,
 ) {
     @Transactional(readOnly = true)
     fun list(
@@ -57,8 +59,9 @@ class HousingStoreCatalogService(
         val parameters = arrayOf<Any>(userId, *inventoryIds.toTypedArray())
         return jdbc
             .query(
-                """SELECT own.inventory_id, item.item_id, item.item_type,
-                          option.option_id, option.option_json::text AS option_json
+                """SELECT own.inventory_id, item.item_id, item.item_type, item.item_category,
+                          option.option_id, option.option_json::text AS option_json,
+                          option.preview_asset, option.width, option.height
                    FROM housing_store_owned_option own
                    JOIN housing_store_option option ON option.option_id=own.option_id
                    JOIN housing_store_item item ON item.item_id=option.item_id
@@ -74,11 +77,38 @@ class HousingStoreCatalogService(
                                     rs.getString("option_json"),
                                     object : TypeReference<Map<String, Any?>>() {},
                                 ),
+                            art = storeArt(rs),
                         )
                 },
                 *parameters,
             ).toMap()
     }
+
+    /** 기본 지급 가구(housing_furniture)의 그림. */
+    @Transactional(readOnly = true)
+    fun furnitureArt(furnitureIds: Collection<Long>): Map<Long, ItemArt> {
+        if (furnitureIds.isEmpty()) return emptyMap()
+        val placeholders = furnitureIds.joinToString(",") { "?" }
+        return jdbc
+            .query(
+                "SELECT furniture_id, image_path, width, height, item_category FROM housing_furniture WHERE furniture_id IN ($placeholders)",
+                { rs, _ -> rs.getLong("furniture_id") to art(rs, "image_path") },
+                *furnitureIds.toTypedArray(),
+            ).toMap()
+    }
+
+    /** 상점 옵션 그림. preview_asset 을 방 그림으로도 쓴다. */
+    fun storeArt(rs: java.sql.ResultSet): ItemArt = art(rs, "preview_asset")
+
+    private fun art(
+        rs: java.sql.ResultSet,
+        pathColumn: String,
+    ) = ItemArt(
+        imageUrl = media.url(rs.getString(pathColumn)),
+        width = rs.getObject("width", Integer::class.java)?.toInt(),
+        height = rs.getObject("height", Integer::class.java)?.toInt(),
+        category = rs.getString("item_category"),
+    )
 
     private fun queryRows(
         userId: Long,
@@ -88,12 +118,12 @@ class HousingStoreCatalogService(
         jdbc.query(
             """SELECT x.*, x.unlocked AND (NOT x.requires_unlock OR x.option_unlocked_for_user) AS option_unlocked
                FROM (
-               SELECT i.item_id, i.name, i.item_type, i.unlock_hint, i.sort_order AS item_sort, o.sort_order AS option_sort,
+               SELECT i.item_id, i.name, i.item_type, i.item_category, i.unlock_hint, i.sort_order AS item_sort, o.sort_order AS option_sort,
                       i.unlocked OR EXISTS (SELECT 1 FROM user_store_unlock u
                                             WHERE u.user_id=? AND u.item_id=i.item_id AND u.option_id IS NULL) AS unlocked,
                       o.requires_unlock, o.unlock_hint AS option_unlock_hint,
                       EXISTS (SELECT 1 FROM user_store_unlock u WHERE u.user_id=? AND u.option_id=o.option_id) AS option_unlocked_for_user,
-                      o.option_id, o.option_json::text AS option_json, o.currency, o.price, o.preview_asset,
+                      o.option_id, o.option_json::text AS option_json, o.currency, o.price, o.preview_asset, o.width, o.height,
                       (SELECT COUNT(*) FROM housing_store_owned_option own
                               WHERE own.user_id=? AND own.option_id=o.option_id) AS owned_count
                FROM housing_store_item i
@@ -114,7 +144,7 @@ class HousingStoreCatalogService(
                     optionJson = rs.getString("option_json"),
                     currency = rs.getString("currency"),
                     price = rs.getLong("price"),
-                    previewAsset = rs.getString("preview_asset"),
+                    art = storeArt(rs),
                     ownedCount = rs.getLong("owned_count"),
                     optionUnlocked = rs.getBoolean("option_unlocked"),
                     optionUnlockHint = rs.getString("option_unlock_hint"),
@@ -140,7 +170,9 @@ class HousingStoreCatalogService(
                         option = objectMapper.readValue(row.optionJson, type),
                         currency = row.currency,
                         price = row.price,
-                        previewAsset = row.previewAsset,
+                        previewAsset = row.art.imageUrl.orEmpty(),
+                        width = row.art.width,
+                        height = row.art.height,
                         ownedCount = row.ownedCount,
                         unlocked = row.optionUnlocked,
                         unlockHint = row.optionUnlockHint.takeUnless { row.optionUnlocked },
@@ -151,6 +183,7 @@ class HousingStoreCatalogService(
                 itemId = first.itemId,
                 name = first.name,
                 itemType = first.itemType,
+                category = first.art.category,
                 unlocked = first.unlocked,
                 unlockHint = first.unlockHint,
                 minPrice = HousingStorePriceResponse(cheapest.currency, cheapest.price),
@@ -169,7 +202,7 @@ class HousingStoreCatalogService(
         val optionJson: String,
         val currency: String,
         val price: Long,
-        val previewAsset: String,
+        val art: ItemArt,
         val ownedCount: Long,
         val optionUnlocked: Boolean,
         val optionUnlockHint: String?,

@@ -240,22 +240,32 @@ class HousingService(
                 }
                 throw error
             }
-        return HousingCoordinatePlacementBatchResponse(saved.mapNotNull { it.toResponse(ownedById, storeOwnedById) })
+        val furnitureArt = furnitureArt(ownedById.values)
+        return HousingCoordinatePlacementBatchResponse(saved.mapNotNull { it.toResponse(ownedById, storeOwnedById, furnitureArt) })
     }
 
     private fun coordinatePlacementsResponse(userId: Long): List<HousingCoordinatePlacementResponse> {
         val rows = coordinatePlacements.findAllByUserIdOrderByLayerAscIdAsc(userId)
         val ownedById = ownedItems.findAllById(rows.mapNotNull { it.ownedItemId }).associateBy { it.id }
         val storeOwnedById = storeCatalog.ownedPlacementInventory(userId, rows.mapNotNull { it.storeInventoryId })
-        return rows.mapNotNull { it.toResponse(ownedById, storeOwnedById) }
+        val furnitureArt = furnitureArt(ownedById.values)
+        return rows.mapNotNull { it.toResponse(ownedById, storeOwnedById, furnitureArt) }
     }
+
+    private fun furnitureArt(owned: Collection<HousingOwnedItemEntity>): Map<Long, ItemArt> =
+        storeCatalog.furnitureArt(owned.filter { it.itemType == HousingItemType.FURNITURE }.map { it.itemId })
 
     private fun HousingCoordinatePlacementEntity.toResponse(
         ownedById: Map<Long?, HousingOwnedItemEntity>,
         storeOwnedById: Map<Long, com.bawibase.chorong.domain.housing.service.StorePlacementInventory>,
+        furnitureArt: Map<Long, ItemArt>,
     ): HousingCoordinatePlacementResponse? {
         val storeInventory = storeInventoryId?.let { storeOwnedById[it] }
-        val itemId = ownedItemId?.let { ownedById[it]?.itemId } ?: storeInventory?.itemId ?: return null
+        val owned = ownedItemId?.let { ownedById[it] }
+        val itemId = owned?.itemId ?: storeInventory?.itemId ?: return null
+        val art =
+            storeInventory?.art
+                ?: owned?.takeIf { it.itemType == HousingItemType.FURNITURE }?.let { furnitureArt[it.itemId] }
         return HousingCoordinatePlacementResponse(
             placementId = checkNotNull(id),
             inventoryId = storeInventoryId?.let { "$STORE_INVENTORY_PREFIX$it" } ?: ownedItemId.toString(),
@@ -264,6 +274,10 @@ class HousingService(
             itemId = itemId,
             optionId = storeInventory?.optionId,
             option = storeInventory?.option,
+            imageUrl = art?.imageUrl,
+            width = art?.width,
+            height = art?.height,
+            category = art?.category,
         )
     }
 

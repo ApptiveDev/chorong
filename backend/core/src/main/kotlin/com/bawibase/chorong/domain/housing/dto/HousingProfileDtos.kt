@@ -84,6 +84,10 @@ data class HousingCoordinatePlacementResponse(
     val itemId: Long,
     @field:JsonInclude(JsonInclude.Include.NON_NULL) val optionId: Long?,
     @field:JsonInclude(JsonInclude.Include.NON_NULL) val option: Map<String, Any?>?,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val imageUrl: String? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val width: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val height: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val category: String? = null,
 )
 
 data class HousingPlacementTransformResponse(

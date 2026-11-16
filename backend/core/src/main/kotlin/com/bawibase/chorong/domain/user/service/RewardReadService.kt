@@ -4,6 +4,9 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.PageMeta
 import com.bawibase.chorong.common.api.PagedResponse
+import com.bawibase.chorong.domain.housing.service.HousingStoreCatalogService
+import com.bawibase.chorong.domain.housing.service.ItemArt
+import com.bawibase.chorong.domain.housing.service.MediaUrls
 import com.bawibase.chorong.domain.learning.LearningRewardBadge
 import com.bawibase.chorong.domain.learning.LessonUnlockService
 import com.fasterxml.jackson.annotation.JsonInclude
@@ -56,6 +59,10 @@ data class InventoryItemResponse(
     val name: String,
     val optionId: Long?,
     val option: Map<String, Any?>?,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val imageUrl: String? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val width: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val height: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val category: String? = null,
     val ownedCount: Int,
     val placedCount: Int,
     val availableCount: Int,
@@ -78,6 +85,8 @@ data class ConstellationStar(
 data class ConstellationResponse(
     val constellationId: Long,
     val courseId: Long,
+    // 코스 slug. 앱은 별 좌표·그림을 이 값으로 찾는다.
+    val slug: String?,
     val order: Int,
     val name: String,
     val description: String,
@@ -99,6 +108,8 @@ class RewardReadService(
     private val jdbc: JdbcTemplate,
     private val objectMapper: ObjectMapper,
     private val lessonUnlock: LessonUnlockService,
+    private val storeCatalog: HousingStoreCatalogService,
+    private val media: MediaUrls,
 ) {
     @Transactional(readOnly = true)
     fun rewards(
@@ -128,7 +139,7 @@ class RewardReadService(
         requireUser(userId)
         val courses =
             jdbc.query(
-                """SELECT c.constellation_id, c.course_id, c.title, c.description,
+                """SELECT c.constellation_id, c.course_id, c.slug, c.title, c.description,
                           EXISTS (SELECT 1 FROM reward_ledger badge
                                   WHERE badge.user_id=? AND badge.source_type='COURSE'
                                     AND badge.source_id=c.course_id AND badge.reward_type='CONSTELLATION'
@@ -140,6 +151,7 @@ class RewardReadService(
                     CourseRow(
                         rs.getLong("constellation_id"),
                         rs.getLong("course_id"),
+                        rs.getString("slug"),
                         rs.getString("title"),
                         rs.getString("description"),
                         rs.getBoolean("badge_earned"),
@@ -178,6 +190,7 @@ class RewardReadService(
                 ConstellationResponse(
                     constellationId = course.constellationId,
                     courseId = course.courseId,
+                    slug = course.slug,
                     order = index + 1,
                     name = course.title,
                     description = course.description,
@@ -217,6 +230,14 @@ class RewardReadService(
                         acquiredVia = rs.getString("acquired_via"),
                         acquiredAt = rs.getTimestamp("created_at").toInstant(),
                         placed = rs.getBoolean("placed"),
+                        avatar = rs.getString("furniture_category") == "AVATAR",
+                        art =
+                            ItemArt(
+                                media.url(rs.getString("image_path")),
+                                rs.getObject("width", Integer::class.java)?.toInt(),
+                                rs.getObject("height", Integer::class.java)?.toInt(),
+                                rs.getString("item_category"),
+                            ),
                     )
                 },
                 userId,
@@ -225,10 +246,10 @@ class RewardReadService(
             rows
                 .asSequence()
                 .filter { it.name != null }
-                .filter {
-                    filter == null || (filter == FURNITURE && it.itemType == "FURNITURE") ||
-                        (filter == OBJECT && it.itemType != "FURNITURE")
-                }.map(::legacyEntry)
+                // 예전 방식 지급품은 가구만 낸다. 배경·벽·바닥·아바타·방과 고양이(위치·상태는 Avatar)는 빼낸다.
+                .filter { it.itemType == FURNITURE && !it.avatar }
+                .filter { filter == null || filter == FURNITURE }
+                .map(::legacyEntry)
                 .toList()
         val optionType = object : TypeReference<Map<String, Any?>>() {}
         val storeItems =
@@ -250,6 +271,7 @@ class RewardReadService(
                             rs.getLong("option_id"),
                             objectMapper.readValue(rs.getString("option_json"), optionType),
                             copy,
+                            storeCatalog.storeArt(rs),
                         )
                     },
                     userId,
@@ -269,6 +291,10 @@ class RewardReadService(
                         first.name,
                         first.optionId,
                         first.option,
+                        first.art.imageUrl,
+                        first.art.width,
+                        first.art.height,
+                        first.art.category,
                         copies.size,
                         placed,
                         copies.size - placed,
@@ -280,7 +306,7 @@ class RewardReadService(
 
     private fun legacyEntry(row: InventoryRow): InventoryEntry {
         val copy = InventoryCopy(row.ownedItemId.toString(), row.acquiredVia, row.acquiredAt, row.placed)
-        return InventoryEntry(row.itemId, row.itemType, checkNotNull(row.name), null, null, copy)
+        return InventoryEntry(row.itemId, row.itemType, checkNotNull(row.name), null, null, copy, row.art)
     }
 
     private fun requireUser(userId: Long) {
@@ -319,6 +345,7 @@ class RewardReadService(
     private data class CourseRow(
         val constellationId: Long,
         val courseId: Long,
+        val slug: String?,
         val title: String,
         val description: String,
         val badgeEarned: Boolean,
@@ -343,6 +370,8 @@ class RewardReadService(
         val acquiredVia: String,
         val acquiredAt: Instant,
         val placed: Boolean,
+        val avatar: Boolean,
+        val art: ItemArt,
     )
 
     private data class InventoryEntry(
@@ -352,6 +381,7 @@ class RewardReadService(
         val optionId: Long?,
         val option: Map<String, Any?>?,
         val copy: InventoryCopy,
+        val art: ItemArt,
     )
 
     companion object {
@@ -420,6 +450,7 @@ class RewardReadService(
         private const val INVENTORY_SQL =
             """SELECT o.owned_item_id,o.item_id,o.item_type,o.created_at,o.acquired_via,
                       COALESCE(f.name,b.name,w.name,fl.name,a.name,rm.name) AS item_name,
+                      f.category AS furniture_category, f.image_path, f.width, f.height, f.item_category,
                       CASE WHEN EXISTS (SELECT 1 FROM housing_coordinate_placement cp WHERE cp.owned_item_id=o.owned_item_id) THEN TRUE
                       WHEN o.owned_item_id <> (SELECT MIN(first_owned.owned_item_id) FROM housing_owned_item first_owned
                            WHERE first_owned.user_id=o.user_id AND first_owned.item_type=o.item_type AND first_owned.item_id=o.item_id) THEN FALSE
@@ -441,7 +472,8 @@ class RewardReadService(
                WHERE o.user_id=? ORDER BY o.created_at DESC,o.owned_item_id DESC"""
 
         private const val STORE_INVENTORY_SQL =
-            """SELECT own.inventory_id,own.acquired_via,item.item_id,item.item_type,item.name AS item_name,option.option_id,
+            """SELECT own.inventory_id,own.acquired_via,item.item_id,item.item_type,item.item_category,item.name AS item_name,option.option_id,
+                      option.preview_asset,option.width,option.height,
                       option.option_json::text AS option_json,own.acquired_at,
                       EXISTS (SELECT 1 FROM housing_coordinate_placement placement
                               WHERE placement.store_inventory_id=own.inventory_id) AS placed
