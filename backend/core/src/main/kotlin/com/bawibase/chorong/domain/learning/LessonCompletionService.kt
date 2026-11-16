@@ -166,12 +166,25 @@ class LessonCompletionService(
         rewards: MutableList<LearningReward>,
     ): LessonRewardStatus {
         if (stardustGranted(userId, lessonId)) return LessonRewardStatus.ALREADY_GRANTED
-        if (!wallets.spendEnergy(userId)) return LessonRewardStatus.NO_ENERGY
+        // 예전 규칙으로 시작할 때 에너지를 이미 냈으면 다시 쓰지 않는다(V49).
+        val prepaid = jdbc.update("DELETE FROM lesson_energy_prepaid WHERE user_id=? AND lesson_id=?", userId, lessonId) == 1
+        if (!prepaid && !wallets.spendEnergy(userId)) return LessonRewardStatus.NO_ENERGY
         check(insertWalletReward(userId, "LESSON", lessonId, stardustSource(lessonId), "STARDUST", LESSON_STARDUST_REWARD))
         wallets.credit(userId, WalletCurrency.STARDUST, LESSON_STARDUST_REWARD)
         rewards += LearningReward("WALLET", "STARDUST", LESSON_STARDUST_REWARD)
         return LessonRewardStatus.GRANTED
     }
+
+    fun energyPrepaid(
+        userId: Long,
+        lessonId: Long,
+    ): Boolean =
+        jdbc.queryForObject(
+            "SELECT EXISTS (SELECT 1 FROM lesson_energy_prepaid WHERE user_id=? AND lesson_id=?)",
+            Boolean::class.java,
+            userId,
+            lessonId,
+        ) ?: false
 
     private fun stardustSource(lessonId: Long) = "LESSON:$lessonId:WALLET:STARDUST"
 

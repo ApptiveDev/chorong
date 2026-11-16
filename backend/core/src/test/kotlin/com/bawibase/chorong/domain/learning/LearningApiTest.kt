@@ -1146,6 +1146,40 @@ class LearningApiTest {
     }
 
     @Test
+    fun `energy paid at start under the old rule is used instead of spending again`() {
+        val (_, lessonId) = createUnlockedLesson("선납 에너지")
+        val contentId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문') RETURNING content_id",
+                    Long::class.java,
+                    lessonId,
+                ),
+            )
+        jdbc.update("INSERT INTO lesson_energy_prepaid(user_id,lesson_id) VALUES (?,?)", userId, lessonId)
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,energy,energy_date) VALUES (?,0,?) ON CONFLICT (user_id) DO UPDATE SET energy=0, energy_date=?",
+            userId,
+            java.sql.Date.valueOf(today()),
+            java.sql.Date.valueOf(today()),
+        )
+
+        mvc.post("/api/v1/lessons/$lessonId/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.energyNotice") { value(false) }
+        }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.completion.rewardStatus") { value("GRANTED") }
+            jsonPath("$.data.completion.wallet.energy") { value(0) }
+        }
+        assertEquals(
+            0,
+            jdbc.queryForObject("SELECT COUNT(*) FROM lesson_energy_prepaid WHERE user_id=?", Int::class.java, userId),
+        )
+    }
+
+    @Test
     fun `energy bonus fills up to the maximum and converts the rest`() {
         val (courseId, _) = createUnlockedLesson("에너지 보너스")
         jdbc.update("INSERT INTO constellation_bonus(course_id,bonus_type,energy) VALUES (?,'ENERGY',3)", courseId)

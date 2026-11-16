@@ -74,6 +74,111 @@ class OpenApiV2DataMigrationTest {
     }
 
     @Test
+    fun `v49 keeps energy already paid at lesson start for unrewarded lessons`() {
+        val schema = "openapi_v2_prepaid_energy"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(database.jdbcUrl, database.username, database.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("48")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
+        jdbc.update("INSERT INTO $schema.app_user(user_id,status) VALUES (100,'ACTIVE')")
+        jdbc.update("INSERT INTO $schema.course(course_id,slug,title) VALUES (1,'c','코스')")
+        for (lessonId in 1..4) {
+            jdbc.update(
+                "INSERT INTO $schema.lesson(lesson_id,course_id,slug,title,lesson_order) VALUES (?,1,?,'레슨',?)",
+                lessonId,
+                "c/l$lessonId",
+                lessonId,
+            )
+        }
+        // 1: 시작 때 냈고 보상 전, 2: 냈지만 이미 보상 받음, 3: 내지 않음, 4: 다시 하기에서 냄
+        for ((lessonId, spent) in listOf(1 to true, 2 to true, 3 to false)) {
+            jdbc.update(
+                "INSERT INTO $schema.lesson_progress(user_id,lesson_id,course_id,status,energy_spent) VALUES (100,?,1,'IN_PROGRESS',?)",
+                lessonId,
+                spent,
+            )
+        }
+        jdbc.update(
+            """INSERT INTO $schema.reward_ledger(user_id,source_type,source_id,source_key,reward_type,currency,amount)
+               VALUES (100,'LESSON',2,'LESSON:2:WALLET:STARDUST','WALLET','STARDUST',10)""",
+        )
+        jdbc.update("INSERT INTO $schema.lesson_replay_progress(user_id,lesson_id,started_at,energy_spent) VALUES (100,4,now(),TRUE)")
+
+        migrate("49")
+        assertEquals(
+            listOf(1L, 4L),
+            jdbc.queryForList("SELECT lesson_id FROM $schema.lesson_energy_prepaid WHERE user_id=100 ORDER BY lesson_id", Long::class.java),
+        )
+    }
+
+    @Test
+    fun `v56 clears lesson wrong marks left on first quizzes`() {
+        val schema = "openapi_v2_first_quiz"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(database.jdbcUrl, database.username, database.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("55")
+        // 트리거·제약이 스키마 없이 quiz_item 을 찾으므로 연결의 기본 스키마를 테스트 스키마로 둔다.
+        val url = database.jdbcUrl + (if ("?" in database.jdbcUrl) "&" else "?") + "currentSchema=$schema"
+        val jdbc = JdbcTemplate(DriverManagerDataSource(url, database.username, database.password))
+        jdbc.update("INSERT INTO $schema.app_user(user_id,status) VALUES (100,'ACTIVE')")
+        jdbc.update("INSERT INTO $schema.course(course_id,slug,title) VALUES (1,'c','코스'),(2,'onboarding','온보딩')")
+        jdbc.update("UPDATE $schema.course SET is_onboarding=TRUE WHERE course_id=2")
+        jdbc.update("INSERT INTO $schema.lesson(lesson_id,course_id,slug,title,lesson_order) VALUES (1,1,'c/l','레슨',1),(2,2,'o/l','온보딩',1)")
+
+        fun quiz(lessonId: Long): Long =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO $schema.quiz_item(lesson_id,question,instruction,interaction_type,config,answer,explanation,difficulty,quiz_order)
+                       VALUES (?,'문제','고르기','OX','{}'::jsonb,'{"answer":true}'::jsonb,'해설','기초',1) RETURNING quiz_id""",
+                    Long::class.java,
+                    lessonId,
+                ),
+            )
+        val first = quiz(1)
+        val second = quiz(1)
+        val onboardingFirst = quiz(2)
+        for ((lessonId, order, quizId) in listOf(Triple(1L, 2, first), Triple(1L, 5, second), Triple(2L, 1, onboardingFirst))) {
+            jdbc.update(
+                "INSERT INTO $schema.lesson_content(lesson_id,content_order,content_type,quiz_id) VALUES (?,?,'QUIZ',?)",
+                lessonId,
+                order,
+                quizId,
+            )
+        }
+        // 첫 퀴즈보다 앞에 있는 일반 화면은 첫 퀴즈 판단에 영향을 주지 않는다.
+        jdbc.update("INSERT INTO $schema.lesson_content(lesson_id,content_order,content_type,body) VALUES (1,1,'TEXT','본문')")
+        for (quizId in listOf(first, second, onboardingFirst)) {
+            jdbc.update(
+                "INSERT INTO $schema.quiz_review_pool(user_id,quiz_id,lesson_wrong,available_on,last_submitted_at) VALUES (100,?,TRUE,CURRENT_DATE,now())",
+                quizId,
+            )
+        }
+
+        migrate("56")
+        val marks =
+            jdbc
+                .queryForList("SELECT quiz_id, lesson_wrong FROM $schema.quiz_review_pool WHERE user_id=100")
+                .associate { (it["quiz_id"] as Number).toLong() to it["lesson_wrong"] as Boolean }
+        assertEquals(mapOf(first to false, second to true, onboardingFirst to true), marks)
+    }
+
+    @Test
     fun `v41 backfills missing starter furniture without duplicating existing inventory`() {
         val schema = "openapi_v2_starter_furniture"
 

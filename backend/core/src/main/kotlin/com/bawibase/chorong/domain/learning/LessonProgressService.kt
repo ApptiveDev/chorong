@@ -262,7 +262,11 @@ class LessonProgressService(
                 Boolean::class.java,
                 lessonId,
             ) ?: false
-        if (onboarding || lessonCompletion.stardustGranted(userId, lessonId)) return false
+        if (onboarding || lessonCompletion.stardustGranted(userId, lessonId) ||
+            lessonCompletion.energyPrepaid(userId, lessonId)
+        ) {
+            return false
+        }
         return wallets.energy(wallets.ensureWallet(userId)) == 0
     }
 
