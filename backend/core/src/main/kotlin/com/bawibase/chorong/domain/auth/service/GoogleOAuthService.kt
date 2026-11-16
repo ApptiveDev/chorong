@@ -45,7 +45,8 @@ class GoogleOAuthService(
         subject: String,
         deviceUuid: String,
         currentUserId: Long?,
-    ): GuestAuthData = authenticate(AuthProvider.GOOGLE, subject, deviceUuid, currentUserId)
+        switchToExisting: Boolean = false,
+    ): GuestAuthData = authenticate(AuthProvider.GOOGLE, subject, deviceUuid, currentUserId, switchToExisting)
 
     @Transactional
     fun authenticate(
@@ -53,20 +54,27 @@ class GoogleOAuthService(
         subject: String,
         deviceUuid: String,
         currentUserId: Long?,
+        switchToExisting: Boolean = false,
     ): GuestAuthData {
-        require(provider in setOf(AuthProvider.GOOGLE, AuthProvider.KAKAO))
+        require(provider in setOf(AuthProvider.GOOGLE, AuthProvider.KAKAO, AuthProvider.APPLE))
         val key = MessageDigest.getInstance("SHA-256").digest("chorong.${provider.name.lowercase()}:$subject".toByteArray(Charsets.UTF_8))
         jdbc.query("SELECT pg_advisory_xact_lock(?)", RowCallbackHandler { }, ByteBuffer.wrap(key).long)
         val existing = auths.findByProviderAndProviderUid(provider, subject)
         val user: UserEntity
         val created: Boolean
-        if (currentUserId != null) {
-            user = users.findByIdForUpdate(currentUserId) ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
-            if (user.status != UserStatus.GUEST) throw ApiV1Exception(ApiErrorCode.FORBIDDEN)
-            if (existing != null && existing.userId != currentUserId) {
-                throw ApiV1Exception(ApiErrorCode.ACCOUNT_EXISTS_FOR_PROVIDER)
+        val guest =
+            currentUserId?.let {
+                val found = users.findByIdForUpdate(it) ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
+                if (found.status != UserStatus.GUEST) throw ApiV1Exception(ApiErrorCode.FORBIDDEN)
+                found
             }
-            if (existing == null) addIdentity(currentUserId, provider, subject)
+        // 게스트가 다른 회원 계정의 수단으로 들어왔다. 기본은 ERR-14,
+        // switchToExisting=true 면 그 회원 계정으로 로그인하고 게스트 계정과 기록은 건드리지 않는다.
+        val conflict = guest != null && existing != null && existing.userId != currentUserId
+        if (conflict && !switchToExisting) throw ApiV1Exception(ApiErrorCode.ACCOUNT_EXISTS_FOR_PROVIDER)
+        if (guest != null && !conflict) {
+            user = guest
+            if (existing == null) addIdentity(checkNotNull(currentUserId), provider, subject)
             user.status = UserStatus.ACTIVE
             nicknames.assignDefaultIfMissing(user)
             created = false
