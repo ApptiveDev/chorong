@@ -1,4 +1,7 @@
-// Figma M05_1 모달 · 소셜 로그인 (656:4175). 비회원이 온보딩 첫 학습 완료 화면에서 '완료'를 누르면 띄운다.
+// Figma M05_1 모달 · 소셜 로그인. 비회원에게 소셜 로그인을 권하는 모달이며 쓰는 곳마다 제목·안내만 다르다.
+// - 656:4175 온보딩 첫 학습 완료 화면의 '완료'(FirstStudyLoginModal)
+// - 656:4211 제어실 '로그인'(SaveRecordLoginModal)
+// '나중에 하기'는 비회원 세션을 그대로 두고 닫는다.
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -16,17 +19,46 @@ const googleLetters = [
   ['기', '#f0a90e'],
 ] as const;
 
-export function FirstStudyLoginModal({
+type LoginModalProps = {
+  visible: boolean;
+  // '나중에 하기'. 비회원으로 남는다.
+  onLater: () => void;
+  // 약관 화면으로 이동하기 전에 모달을 닫는다. 돌아오면 다시 열 수 있다.
+  onDismiss: () => void;
+  // 로그인에 성공한 뒤 할 일.
+  onSignedIn: () => void;
+};
+
+// 656:4175. 온보딩 첫 학습 완료 화면에서 '완료'를 누르면 띄운다.
+export function FirstStudyLoginModal(props: LoginModalProps) {
+  return (
+    <SocialLoginModal
+      {...props}
+      title="첫 학습을 기록할까요?"
+      lines={['가입하면 처음 밝힌 별과', '첫 학습 기록을 저장할 수 있어요.']}
+    />
+  );
+}
+
+// 656:4211. 비회원 제어실에서 '로그인'을 누르면 띄운다.
+export function SaveRecordLoginModal(props: LoginModalProps) {
+  return (
+    <SocialLoginModal
+      {...props}
+      title="학습 기록을 저장할까요?"
+      lines={['가입하면 지금까지 밝힌 별과', '학습 기록을 이어갈 수 있어요.']}
+    />
+  );
+}
+
+function SocialLoginModal({
   visible,
+  title,
+  lines,
   onLater,
   onDismiss,
-}: {
-  visible: boolean;
-  // '나중에 하기': 기존 비회원 첫 학습 완료 동작(학습 홈 이동)을 그대로 쓴다.
-  onLater: () => void;
-  // 약관 화면으로 이동하기 전에 모달을 닫는다. 돌아오면 '완료'로 다시 열 수 있다.
-  onDismiss: () => void;
-}) {
+  onSignedIn,
+}: LoginModalProps & { title: string; lines: readonly [string, string] }) {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
@@ -37,13 +69,11 @@ export function FirstStudyLoginModal({
     void task.run(async () => {
       if (!(await continueWithSocial(provider, session.authenticated))) return;
       leaving.current = true;
-      // 로그인 후 이동은 기존 로그인 화면과 같은 기본 경로(학습 홈)를 따른다.
-      router.replace('/');
+      onSignedIn();
     });
   };
   const later = () => {
     if (task.busy || leaving.current) return;
-    leaving.current = true;
     onLater();
   };
   const openLegal = (path: '/settings/terms' | '/settings/privacy') => {
@@ -58,14 +88,14 @@ export function FirstStudyLoginModal({
         <View style={s.modal} accessibilityViewIsModal>
           <View style={s.copy}>
             <View style={s.titleWrap}>
-              <Text style={s.title}>첫 학습을 기록할까요?</Text>
+              <Text style={s.title}>{title}</Text>
             </View>
             <View style={s.bodyRow}>
               <Text style={s.bullet}>{'>'}</Text>
               <View style={s.body}>
-                <Text style={[s.bodyText, s.bodyFirstLine]}>가입하면 처음 밝힌 별과</Text>
+                <Text style={[s.bodyText, s.bodyFirstLine]}>{lines[0]}</Text>
                 <Text style={s.bodyText} numberOfLines={1} adjustsFontSizeToFit>
-                  첫 학습 기록을 저장할 수 있어요.
+                  {lines[1]}
                 </Text>
               </View>
             </View>

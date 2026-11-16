@@ -34,7 +34,7 @@ import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
 import { prefetchLessonAudio } from './quizAudio';
 import { ConstellationComplete } from './ConstellationComplete';
 import { constellationImage, formatDotDate, starLayout } from './constellationRecord';
-import { FirstStudyLoginModal } from './FirstStudyLoginModal';
+import { FirstStudyLoginModal } from './SocialLoginModal';
 import {
   CompletionResult,
   CompletionStar,
@@ -623,10 +623,11 @@ function Study() {
                 onPress={
                   lessonDone
                     ? () =>
-                        replay
-                          ? leaveStudy()
-                          : firstWelcomeStudy
-                            ? setLoginOpen(true)
+                        // 온보딩 첫 학습은 이미 마친 레슨을 다시 하는 경우(replay)에도 로그인 모달을 띄운다.
+                        firstWelcomeStudy
+                          ? setLoginOpen(true)
+                          : replay
+                            ? leaveStudy()
                             : params.fromWelcome === 'true'
                               ? leaveStudy()
                               : constellationCompleted
@@ -696,6 +697,7 @@ function Study() {
             leaveStudy();
           }}
           onDismiss={() => setLoginOpen(false)}
+          onSignedIn={leaveStudy}
         />
       ) : null}
     </UserScreen>

@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import {
   Image,
@@ -18,6 +18,7 @@ import {
   MemberLicenceSignatureTwo,
   MemberLicenceStar,
 } from '../../src/components/MemberLicenceArt';
+import { SaveRecordLoginModal } from '../../src/integration/user/SocialLoginModal';
 const providerNames: Record<string, string> = {
   EMAIL: 'Email',
   GOOGLE: 'Google',
@@ -37,10 +38,20 @@ export default function More() {
 
 function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; returnTo?: '/social' }) {
   const router = useRouter();
-  const openSocial = () =>
-    returnTo ? router.push({ pathname: '/account', params: { returnTo } }) : go('/account');
+  // Figma 656:4211. 로그인 화면으로 가지 않고 소셜 로그인 모달을 띄운다.
+  // 로그인하면 이 화면이 회원 제어실로 바뀐다. 소셜 화면에서 왔으면 그 화면으로 돌아간다.
+  const [loginOpen, setLoginOpen] = useState(false);
   return (
     <SafeAreaView style={s.guestSafe} edges={['top', 'left', 'right']}>
+      <SaveRecordLoginModal
+        visible={loginOpen}
+        onLater={() => setLoginOpen(false)}
+        onDismiss={() => setLoginOpen(false)}
+        onSignedIn={() => {
+          setLoginOpen(false);
+          if (returnTo) router.replace(returnTo);
+        }}
+      />
       <ScrollView
         style={s.guestScroll}
         contentContainerStyle={[s.guestContent, { paddingTop: HEADER_TOP }]}
@@ -75,7 +86,7 @@ function GuestControlRoom({ go, returnTo }: { go: (path: string) => void; return
           </View>
           <View style={s.guestMenu}>
             {/* Figma S01_1 제어실/비회원: 로그인(강조) · 알림 두 개만 둔다. */}
-            <GuestMenuButton title="로그인" onPress={openSocial} highlight />
+            <GuestMenuButton title="로그인" onPress={() => setLoginOpen(true)} highlight />
             <GuestMenuButton title="알림" onPress={() => go('/settings/notifications')} />
           </View>
         </View>
