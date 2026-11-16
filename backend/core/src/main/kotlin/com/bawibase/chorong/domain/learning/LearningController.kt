@@ -258,6 +258,22 @@ class LearningController(
         @CurrentUserId userId: Long,
     ): ApiResponse<LearningProgressSummary> = ApiResponse(lessonProgress.getProgress(userId))
 
+    @GetMapping("/reviews/status")
+    @Operation(operationId = "API-504", summary = "Get review availability")
+    fun reviewStatus(
+        @CurrentUserId userId: Long,
+    ): ApiResponse<ReviewStatusResponse> = ApiResponse(reviewSets.status(userId))
+
+    @PostMapping("/reviews/abandon")
+    @Operation(operationId = "API-505", summary = "Abandon review session")
+    fun abandonReview(
+        @CurrentUserId userId: Long,
+        @RequestBody request: ReviewSessionRequest,
+    ): ResponseEntity<Void> {
+        reviewCompletion.abandon(userId, request.reviewSessionId)
+        return ResponseEntity.noContent().build()
+    }
+
     @GetMapping("/reviews/next")
     @Operation(operationId = "API-501", summary = "Get next review set")
     fun nextReviewSet(
@@ -279,7 +295,7 @@ class LearningController(
         @RequestHeader("Idempotency-Key") idempotencyKey: String,
         @RequestBody request: ReviewCompleteRequest,
     ): ResponseEntity<ApiResponse<ReviewCompleteResponse>> {
-        val result = reviewCompletion.complete(userId, request.reviewItemIds, idempotencyKey)
+        val result = reviewCompletion.complete(userId, request.reviewSessionId, idempotencyKey)
         return ResponseEntity.status(result.status).body(ApiResponse(result.body))
     }
 

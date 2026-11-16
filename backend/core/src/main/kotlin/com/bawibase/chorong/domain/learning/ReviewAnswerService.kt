@@ -68,10 +68,10 @@ class ReviewAnswerService(
         val item =
             jdbc
                 .query(
-                    """SELECT i.quiz_id, i.completed, i.attempt_id, i.answered_at, i.answer_result
+                    """SELECT i.quiz_id, i.completed, i.attempt_id, i.answered_at, i.answer_result, s.status
                FROM review_session_item i
                JOIN review_session s ON s.review_session_id=i.review_session_id
-               WHERE i.review_item_id=? AND s.user_id=? AND s.review_date=? AND s.status='OPEN'
+               WHERE i.review_item_id=? AND s.user_id=?
                FOR UPDATE OF s, i""",
                     { rs, _ ->
                         ReviewItemRow(
@@ -80,13 +80,15 @@ class ReviewAnswerService(
                             rs.getLong("attempt_id").let { if (rs.wasNull()) null else it },
                             rs.getTimestamp("answered_at")?.toInstant(),
                             rs.getString("answer_result"),
+                            rs.getString("status"),
                         )
                     },
                     reviewItemId,
                     userId,
-                    Date.valueOf(today),
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
+        // 이미 낸 답은 같은 결과를 돌려준다. 끝난 회차의 새 답안은 받지 않는다.
         if (item.completed) return previousAnswer(userId, reviewItemId, item)
+        if (item.sessionStatus != "OPEN") throw ApiV1Exception(ApiErrorCode.REVIEW_SESSION_CLOSED)
 
         val result = quizzes.submitPublic(userId, item.quizId, answer)
         var excludedUntil: Instant? = null
@@ -186,5 +188,6 @@ class ReviewAnswerService(
         val attemptId: Long?,
         val answeredAt: Instant?,
         val answerResult: String?,
+        val sessionStatus: String,
     )
 }
