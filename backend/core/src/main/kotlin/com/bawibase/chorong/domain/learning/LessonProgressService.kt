@@ -243,7 +243,7 @@ class LessonProgressService(
                 { rs, _ -> CourseProgressSummary(rs.getLong("course_id"), rs.getInt("completed"), rs.getInt("total")) },
                 userId,
             )
-        // 중단 지점(last_content_id)이 있으면 이어하기로 표시한다.
+        // 완료한 화면이나 도중 나가기로 저장한 화면이 있으면 이어하기로 표시한다.
         val current =
             unlocks.map(userId).current()?.let {
                 CurrentLessonProgress(it.lessonId, it.courseId, it.title, it.status, it.status == "IN_PROGRESS" && it.lastContentId != null)

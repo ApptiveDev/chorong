@@ -991,7 +991,12 @@ class LearningApiTest {
     @Test
     fun `restart clears the saved position and draft`() {
         val (lessonId, contents) = draftLesson("처음부터")
+        onlyCourses(checkNotNull(jdbc.queryForObject("SELECT course_id FROM lesson WHERE lesson_id=?", Long::class.java, lessonId)))
         start(lessonId)
+        assertEquals(false, lessonProgress.getProgress(userId).current?.resumable)
+        // 완료한 화면이 없어도 도중 나가기로 저장한 화면이 있으면 이어하기로 표시한다.
+        saveProgress(lessonId, """{"contentId":${contents[0]}}""").andExpect { status { isOk() } }
+        assertEquals(true, lessonProgress.getProgress(userId).current?.resumable)
         mvc.post("/api/v1/contents/${contents[0]}/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
         saveProgress(lessonId, """{"contentId":${contents[1]},"draft":{"contentId":${contents[1]},"input":{"answer":1}}}""")
             .andExpect { status { isOk() } }
@@ -1018,6 +1023,7 @@ class LearningApiTest {
                 ).values
                 .toList(),
         )
+        assertEquals(false, lessonProgress.getProgress(userId).current?.resumable)
     }
 
     @Test

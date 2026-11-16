@@ -36,7 +36,7 @@ class LessonUnlockService(
     fun map(userId: Long): LearningMap {
         val rows =
             jdbc.query(
-                """SELECT l.lesson_id, l.course_id, l.title, lp.status, lp.last_content_id
+                """SELECT l.lesson_id, l.course_id, l.title, lp.status, COALESCE(lp.current_content_id, lp.last_content_id) AS last_content_id
                    FROM lesson l
                    JOIN course c ON c.course_id = l.course_id
                    LEFT JOIN lesson_progress lp ON lp.lesson_id = l.lesson_id AND lp.user_id = ?
