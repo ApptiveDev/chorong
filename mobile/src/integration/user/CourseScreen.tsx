@@ -18,9 +18,8 @@ import type { CourseDetail } from '../models';
 import { positiveId } from '../ui';
 import { UserStatus } from './Screen';
 import { SessionConfirmModal } from './SessionConfirmModal';
-import { useLessonStart } from './lessonStart';
 import { artColor as color, SparkStar } from './constellationArt';
-import { constellationCompletedOn, nextLessonOf, starTitle } from './constellationRecord';
+import { constellationCompletedOn, starTitle } from './constellationRecord';
 import { loadConstellationDates } from './constellationDates';
 
 type Lesson = CourseDetail['lessons'][number];
@@ -80,13 +79,11 @@ export default function CourseScreen() {
       params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
     });
   };
-  // 잠긴 레슨은 누를 수 없다. 열린 레슨은 레슨 소개 화면 없이 바로 학습을 시작한다(홈 '다음 학습'과 같은 진입).
-  const lessonStart = useLessonStart();
+  // 완료한 별만 누를 수 있다(다시 학습). 완료하지 않은 별은 ??? 로 보이며 여기서는 진행하지 않는다.
+  // 새 레슨 학습은 학습 홈의 다음 학습(이어하기)·? 별로 들어간다.
   const openLesson = (lesson: Lesson) => {
     if (lesson.status === 'COMPLETED') setReplayTarget(lesson);
-    else if (lesson.status !== 'LOCKED') void lessonStart.start(lesson);
   };
-  const next = course ? nextLessonOf(course.lessons) : null;
   const rowWidth = Math.min(332, width - 70);
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right', 'bottom']}>
@@ -108,15 +105,8 @@ export default function CourseScreen() {
         {course ? (
           <View style={[s.lessons, { width: rowWidth }]}>
             {course.lessons.map((lesson) => {
-              const locked = lesson.status === 'LOCKED';
-              const status =
-                lesson.status === 'COMPLETED'
-                  ? '완료, 다시 학습'
-                  : lesson.lessonId === next?.lessonId
-                    ? '다음 학습'
-                    : locked
-                      ? '잠김'
-                      : '학습 가능';
+              const locked = lesson.status !== 'COMPLETED';
+              const status = locked ? '진행할 수 없음' : '완료, 다시 학습';
               return (
                 <Pressable
                   key={lesson.lessonId}
@@ -134,7 +124,7 @@ export default function CourseScreen() {
                       {starTitle(lesson)}
                     </Text>
                   </View>
-                  <Text style={s.chevron}>›</Text>
+                  {locked ? null : <Text style={s.chevron}>›</Text>}
                 </Pressable>
               );
             })}
@@ -147,7 +137,6 @@ export default function CourseScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
-      {lessonStart.modal}
       {/* Figma 알림창_선택지 2개_가로(656:4299) */}
       <SessionConfirmModal
         visible={!!replayTarget}
