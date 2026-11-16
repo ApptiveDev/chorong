@@ -52,6 +52,7 @@ data class HousingStoreItemResponse(
     val itemId: Long,
     val name: String,
     val itemType: String,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val category: String? = null,
     val unlocked: Boolean,
     @field:JsonInclude(JsonInclude.Include.ALWAYS) val unlockHint: String?,
     val minPrice: HousingStorePriceResponse,
@@ -68,7 +69,10 @@ data class HousingStoreOptionResponse(
     val option: Map<String, Any?>,
     val currency: String,
     val price: Long,
+    // 옵션 그림 URL. 상점 미리보기와 방에 놓는 그림에 같이 쓴다.
     val previewAsset: String,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val width: Int? = null,
+    @field:JsonInclude(JsonInclude.Include.ALWAYS) val height: Int? = null,
     val ownedCount: Long,
     // 별자리 완성 보너스로 해금하는 색상 옵션은 해금 전 false
     val unlocked: Boolean = true,

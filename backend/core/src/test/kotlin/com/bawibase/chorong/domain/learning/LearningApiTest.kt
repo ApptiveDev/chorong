@@ -1201,6 +1201,9 @@ class LearningApiTest {
             status { isOk() }
             jsonPath("$.data.constellations.length()") { value(3) }
             jsonPath("$.data.constellations[0].courseId") { value(first) }
+            jsonPath("$.data.constellations[0].slug") {
+                value(jdbc.queryForObject("SELECT slug FROM course WHERE course_id=?", String::class.java, first))
+            }
             jsonPath("$.data.constellations[0].order") { value(1) }
             jsonPath("$.data.constellations[0].description") { value("첫 별자리") }
             jsonPath("$.data.constellations[0].status") { value("COMPLETED") }

@@ -572,7 +572,7 @@ class HousingApiTest {
         val inventoryId =
             objectMapper
                 .readTree(inventoryBody)["data"]["items"]
-                .first { it["itemType"].asText() == "OBJECT" }["copies"][0]["inventoryId"]
+                .first { it["itemType"].asText() == "FURNITURE" }["copies"][0]["inventoryId"]
                 .asText()
         mockMvc
             .put("/api/v1/housings/me/placements") {
@@ -1010,6 +1010,103 @@ class HousingApiTest {
             jsonPath("$.data.placements.length()") { value(2) }
         }
         assertEquals(2, placed())
+    }
+
+    @Test
+    fun `art url size and category appear in inventory placements and shop without the cat or legacy defaults`() {
+        val email = "housing-art-${UUID.randomUUID()}@test.local"
+        val token = login(email)
+        val userId = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.PASSWORD, email)).userId
+        // 예전 방식 기본 지급품(배경·벽·바닥·아바타·방)을 받게 한다.
+        mockMvc.get("/api/housing/me") { header(header, token) }.andExpect { status { isOk() } }
+        jdbc.update(
+            """INSERT INTO housing_owned_item(user_id,item_type,item_id,acquired_via)
+               SELECT ?, 'FURNITURE', furniture_id, 'STARTER' FROM housing_furniture WHERE code IN ('starter_cat','starter_desk')
+               ON CONFLICT DO NOTHING""",
+            userId,
+        )
+        jdbc.update(
+            "UPDATE housing_furniture SET image_path='housing/starter_desk.png', width=32, height=24, item_category='DESK' WHERE code='starter_desk'",
+        )
+        val code = "art-chair-${UUID.randomUUID().toString().take(8)}"
+        val itemId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO housing_store_item(name,item_type,code,item_category) VALUES ('그림 의자','FURNITURE',?,'CHAIR') RETURNING item_id",
+                    Long::class.java,
+                    code,
+                ),
+            )
+        val optionId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    """INSERT INTO housing_store_option(item_id,option_json,currency,price,preview_asset,width,height)
+                       VALUES (?, '{"color":"green"}', 'STARDUST', 10, ?, 20, 30) RETURNING option_id""",
+                    Long::class.java,
+                    itemId,
+                    "housing/${code}_green.png",
+                ),
+            )
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,stardust) VALUES (?,100) ON CONFLICT (user_id) DO UPDATE SET stardust=100",
+            userId,
+        )
+        val chairUrl = "https://media-chorong-dev.bawibase.com/housing/${code}_green.png"
+
+        mockMvc.get("/api/v1/shop/items/$itemId") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.item.category") { value("CHAIR") }
+            jsonPath("$.data.options[0].previewAsset") { value(chairUrl) }
+            jsonPath("$.data.options[0].width") { value(20) }
+            jsonPath("$.data.options[0].height") { value(30) }
+        }
+        mockMvc
+            .post("/api/v1/shop/purchases") {
+                header(header, token)
+                header("Idempotency-Key", UUID.randomUUID().toString())
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"items":[{"itemId":$itemId,"optionId":$optionId,"quantity":1}]}"""
+            }.andExpect { status { isOk() } }
+
+        val inventory =
+            objectMapper.readTree(
+                mockMvc
+                    .get("/api/v1/users/me/inventory") { header(header, token) }
+                    .andExpect { status { isOk() } }
+                    .andReturn()
+                    .response.contentAsString,
+            )["data"]["items"]
+        // 고양이와 예전 기본 지급품은 나오지 않는다.
+        assertTrue(inventory.none { it["itemType"].asText() == "OBJECT" })
+        assertTrue(inventory.none { it["name"].asText() == "고양이" })
+        val desk = inventory.first { it["name"].asText() == "책상" }
+        assertEquals("https://media-chorong-dev.bawibase.com/housing/starter_desk.png", desk["imageUrl"].asText())
+        assertEquals(32, desk["width"].asInt())
+        assertEquals(24, desk["height"].asInt())
+        assertEquals("DESK", desk["category"].asText())
+        val chair = inventory.first { it["itemId"].asLong() == itemId }
+        assertEquals(chairUrl, chair["imageUrl"].asText())
+        assertEquals("CHAIR", chair["category"].asText())
+        val deskInventoryId = desk["copies"][0]["inventoryId"].asText()
+        val chairInventoryId = chair["copies"][0]["inventoryId"].asText()
+
+        mockMvc
+            .put("/api/v1/housings/me/placements") {
+                header(header, token)
+                contentType = MediaType.APPLICATION_JSON
+                content =
+                    """{"placements":[{"inventoryId":"$deskInventoryId","area":"INTERIOR","transform":{"x":0.2,"y":0.5}},""" +
+                    """{"inventoryId":"$chairInventoryId","area":"INTERIOR","transform":{"x":0.6,"y":0.5,"layer":1}}]}"""
+            }.andExpect { status { isOk() } }
+        mockMvc.get("/api/v1/housings/me") { header(header, token) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.placements[0].imageUrl") { value("https://media-chorong-dev.bawibase.com/housing/starter_desk.png") }
+            jsonPath("$.data.placements[0].category") { value("DESK") }
+            jsonPath("$.data.placements[1].imageUrl") { value(chairUrl) }
+            jsonPath("$.data.placements[1].width") { value(20) }
+            jsonPath("$.data.placements[1].category") { value("CHAIR") }
+        }
+        jdbc.update("UPDATE housing_furniture SET image_path=NULL, width=NULL, height=NULL, item_category=NULL WHERE code='starter_desk'")
     }
 
     @Test
