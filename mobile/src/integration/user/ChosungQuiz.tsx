@@ -41,6 +41,8 @@ export function ChosungQuiz({
   submit,
   onGraded,
   onAdvance,
+  initialText = '',
+  onTextChange,
 }: {
   quiz: Quiz;
   scale: number;
@@ -48,15 +50,19 @@ export function ChosungQuiz({
   submit: (answer: QuizAnswer) => Promise<AnswerResult>;
   onGraded: (result: AnswerResult) => void;
   onAdvance: () => Promise<void> | void;
+  // 이어하기로 복원한 미제출 입력(API-404 progress.draft). 복원만 하고 자동 제출하지 않는다.
+  initialText?: string;
+  // 입력이 바뀔 때마다 알린다. 학습 화면이 도중 나가기(API-409)의 draft 로 저장한다.
+  onTextChange?: (text: string) => void;
 }) {
   const hint = String(quiz.options?.hint ?? '');
   const slotCount = chosungSlotCount(hint);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const [phase, setPhase] = useState<Phase>('INPUT');
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [error, setError] = useState('');
   const phaseRef = useRef<Phase>('INPUT');
-  const textRef = useRef('');
+  const textRef = useRef(initialText);
   const inputRef = useRef<TextInput>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = useRef(true);
@@ -121,6 +127,7 @@ export function ChosungQuiz({
     const value = compactChosung(next);
     textRef.current = value;
     setText(value);
+    onTextChange?.(value);
     clearSettle();
     if (isChosungInputFilled(value, slotCount))
       settleTimer.current = setTimeout(() => void grade(), CHOSUNG_SETTLE_MS);

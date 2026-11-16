@@ -32,3 +32,21 @@ export function isChosungInputFilled(text: string, slotCount: number): boolean {
   const chars = Array.from(compactChosung(text));
   return slotCount > 0 && chars.length === slotCount && !chars.some((char) => JAMO.test(char));
 }
+
+// 도중 나가기(API-409)에 저장하는 초성 퀴즈의 미제출 입력. 다른 문항 유형은 선택·놓기와 동시에 제출하므로
+// 저장할 입력이 없다. quizId 를 함께 저장해 레슨 내용이 바뀐 뒤 다른 문항에 입력이 들어가지 않게 한다.
+export type ChosungDraftInput = { type: 'CHOSUNG'; quizId: number; text: string };
+
+export function chosungDraftInput(quizId: number, text: string): ChosungDraftInput | null {
+  const value = compactChosung(text);
+  return value ? { type: 'CHOSUNG', quizId, text: value } : null;
+}
+
+// 저장된 draft.input 에서 이 문항의 입력을 꺼낸다. 형식이 다르거나 다른 문항이면 빈 문자열.
+export function chosungDraftText(input: unknown, quizId: number): string {
+  if (!input || typeof input !== 'object') return '';
+  const draft = input as Partial<ChosungDraftInput>;
+  return draft.type === 'CHOSUNG' && draft.quizId === quizId && typeof draft.text === 'string'
+    ? compactChosung(draft.text)
+    : '';
+}

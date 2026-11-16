@@ -70,6 +70,8 @@ export const lessonSummary = object({
   // 0.4.1 에서 하루 해금이 없어져 명세에서 빠졌다. 서버는 호환용으로 null 을 보낸다.
   unlocksAt: optional(nullable(str)),
   completedAt: nullable(str),
+  // 이 레슨의 별가루 보상을 받았는지(#16). false 인 완료 레슨은 에너지가 있을 때 다시 완료하면 받는다.
+  rewardReceived: optional(bool),
 });
 const courseFields = {
   courseId: num,
@@ -178,13 +180,20 @@ export const lessonDetail = (value: unknown, path = '$') => {
   return lessonDetailBase(value, path) as Infer<typeof lessonDetailBase> &
     Partial<Infer<typeof lessonExtra>>;
 };
+// 도중 나가기(API-409)로 저장한 아직 제출하지 않은 입력. input 은 앱이 정한 형식이며 서버는 해석하지 않는다.
+export const lessonDraft = object({ contentId: num, input: unknownObject });
 export const progress = object({
   status: lessonStatus,
   lastContentId: nullable(num),
   resumeContentId: nullable(num),
+  draft: optional(nullable(lessonDraft)),
+  // 저장 시점의 레슨 버전. 버전이 바뀌면 서버가 저장 위치를 보정하고 draft 를 버린다.
+  contentVersion: optional(num),
 });
 export const reviewItem = object({ reviewItemId: num, quiz });
 export const reviewSet = object({
+  // 이번 회차 ID(#19). 후보가 부족해 회차를 만들지 않았으면 null. 완료(API-503)·종료(API-505)에 쓴다.
+  reviewSessionId: optional(nullable(num)),
   reviewItems: array(reviewItem),
   message: nullable(str),
   rewardEligible: bool,
@@ -194,6 +203,8 @@ const lessonStartBase = object({
   reviewRequired: optional(bool),
   review: optional(nullable(reviewSet)),
   progress,
+  // 보상 미수령 레슨에 에너지 0으로 들어왔으면 true(#16). 앱은 에너지 소진 안내를 띄운다.
+  energyNotice: optional(bool),
   contents: array(content),
 });
 export const lessonStart = (value: unknown, path = '$') => {
@@ -237,12 +248,34 @@ export const reward = object({
   badge: optional(nullable(unknownObject)),
 });
 export const rewards = object({ rewards: array(reward), wallet });
+// #16: quizSummary·stardustSkipped 가 없어지고 rewardStatus 로 보상 결과를 알린다.
+// GRANTED 별가루 +10·에너지 −1, NO_ENERGY 에너지가 없어 보상 미수령 유지, ALREADY_GRANTED 이미 받은 레슨.
+export const lessonRewardStatus = enumeration('GRANTED', 'NO_ENERGY', 'ALREADY_GRANTED');
 export const lessonComplete = object({
   rewards: array(reward),
   wallet,
+  rewardStatus: optional(lessonRewardStatus),
+  // 계정의 첫 레슨 완료 / 이 레슨을 처음 완료(별을 처음 밝힘)
+  firstLesson: optional(bool),
+  firstCompletion: optional(bool),
   courseCompleted: bool,
-  quizSummary: optional(object({ correctCount: num, totalCount: num })),
-  stardustSkipped: optional(bool),
+  // 다음에 열린 레슨. 모든 레슨을 마쳤으면 null
+  nextLesson: optional(nullable(object({ lessonId: num, courseId: num, title: str }))),
+});
+// API-503 복습 회차 완료(#19). 보상은 완료 시각 기준 한국 날짜마다 첫 완료에만 별가루 5.
+export const reviewComplete = object({
+  rewards: array(reward),
+  wallet,
+  correctCount: optional(num),
+  totalCount: optional(num),
+  rewardStatus: optional(enumeration('GRANTED', 'ALREADY_GRANTED')),
+});
+// API-504 복습 상태(#19). 회차를 만들지 않는다.
+export const reviewStatus = object({
+  available: bool,
+  candidateCount: num,
+  rewardEligible: bool,
+  rewardAmount: num,
 });
 export const contentComplete = object({
   progress,
@@ -256,7 +289,16 @@ export const onboardingComplete = object({
 });
 export const overallProgress = object({
   courses: array(object({ courseId: num, completedLessons: num, totalLessons: num })),
-  current: nullable(object({ lessonId: num, courseId: num, status: lessonStatus })),
+  current: nullable(
+    object({
+      lessonId: num,
+      courseId: num,
+      title: optional(str),
+      status: lessonStatus,
+      // 저장된 중단 지점(완료 화면 또는 API-409 저장 화면)이 있으면 true
+      resumable: optional(bool),
+    }),
+  ),
 });
 export const housing = object({ housingId: num, name: str, isPublic: bool, likeCount: num });
 export const housingArea = enumeration('INTERIOR', 'EXTERIOR');
@@ -397,6 +439,9 @@ export type Content = Infer<typeof content>;
 export type Quiz = Infer<typeof quiz>;
 export type AnswerResult = Infer<typeof answerResult>;
 export type ReviewSet = Infer<typeof reviewSet>;
+export type LessonDraft = Infer<typeof lessonDraft>;
+export type ReviewStatus = Infer<typeof reviewStatus>;
+export type ReviewCompleteResponse = Infer<typeof reviewComplete>;
 export type HousingCard = Infer<typeof housingCard>;
 export type HousingVisit = Infer<typeof housingVisit>;
 export type LessonStartResponse = Infer<typeof lessonStart>;

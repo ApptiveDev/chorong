@@ -79,8 +79,18 @@ export function createIntegrationApi(client: IntegrationClient) {
     course: (courseId: number) => client.request('API-402', m.courseDetail, { path: { courseId } }),
     lesson: (lessonId: number) =>
       client.request('API-403', contract.lesson, { path: { lessonId } }),
-    start: (lessonId: number, replay: boolean) =>
-      client.request('API-404', contract.lessonStart, { path: { lessonId }, body: { replay } }),
+    // restart=true: 이어하기 확인에서 '처음부터'를 고른 경우. 서버의 저장 위치와 입력(draft)을 지운다.
+    start: (lessonId: number, replay: boolean, restart = false) =>
+      client.request('API-404', contract.lessonStart, {
+        path: { lessonId },
+        body: restart ? { replay, restart } : { replay },
+      }),
+    // API-409 도중 나가기 저장. 보고 있던 콘텐츠와 아직 제출하지 않은 입력(4KB 이하)을 저장한다.
+    saveProgress: (lessonId: number, contentId: number, draft?: m.LessonDraft | null) =>
+      client.request('API-409', object({ progress: m.progress }), {
+        path: { lessonId },
+        body: draft ? { contentId, draft } : { contentId },
+      }),
     completeContent: (contentId: number) =>
       client.request('API-405', m.contentComplete, { path: { contentId } }),
     answer: (quizId: number, answer: m.QuizAnswer, replay = false) =>
@@ -96,8 +106,10 @@ export function createIntegrationApi(client: IntegrationClient) {
     progress: () => client.request('API-408', m.overallProgress),
   };
   const review = {
-    next: (lessonId?: number) =>
-      client.request('API-501', contract.reviewSet, { query: lessonId ? { lessonId } : undefined }),
+    // API-504 복습 가능 여부와 오늘 보상 상태. 회차를 만들지 않는다(복습 안내 화면용).
+    status: () => client.request('API-504', m.reviewStatus),
+    // API-501 은 부를 때마다 새 회차를 만들고 끝나지 않은 이전 회차를 종료한다. 복습 시작에서 한 번만 부른다.
+    next: () => client.request('API-501', contract.reviewSet),
     answer: (reviewItemId: number, answer: m.QuizAnswer) =>
       client.request(
         'API-502',
@@ -116,8 +128,11 @@ export function createIntegrationApi(client: IntegrationClient) {
           body: { answer: contract.encodeReviewAnswer(reviewItemId, answer) },
         },
       ),
-    complete: (reviewItemIds: number[], sessionKey: string) =>
-      client.request('API-503', m.rewards, { body: { reviewItemIds }, key: sessionKey }),
+    complete: (reviewSessionId: number, sessionKey: string) =>
+      client.request('API-503', m.reviewComplete, { body: { reviewSessionId }, key: sessionKey }),
+    // API-505 복습 도중 나가기. 회차를 종료하며 완료 기록·보상을 남기지 않는다(이미 종료됐으면 그대로 204).
+    abandon: (reviewSessionId: number) =>
+      client.request('API-505', null, { body: { reviewSessionId } }),
   };
   const onboarding = {
     load: () => client.request('API-601', contract.onboarding),

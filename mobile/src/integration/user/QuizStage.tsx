@@ -13,6 +13,7 @@ import { InlineWordQuiz } from './InlineWordQuiz';
 import { TileRevealQuiz } from './TileRevealQuiz';
 import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
+import { type ChosungDraftInput, chosungDraftInput, chosungDraftText } from './chosungInput';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
 
 // SINGLE 표시 방식별 전용 화면. 표시 방식이 없으면 일반 SINGLE 화면으로 보인다.
@@ -100,6 +101,8 @@ export function QuizStageQuiz({
   submit,
   onGraded,
   onAdvance,
+  draftInput,
+  onDraftInput,
 }: {
   quiz: Quiz;
   // 학습은 contentId, 복습은 reviewItemId
@@ -111,6 +114,10 @@ export function QuizStageQuiz({
   // justGraded: 방금 채점한 문항에서 바로 넘어가는지(학습 화면 advance 와 같은 뜻).
   // 이동하지 못하면 예외를 던진다. 문항 컴포넌트가 오류를 보여 주고 다시 누를 수 있게 한다.
   onAdvance: (justGraded: boolean) => Promise<void>;
+  // 학습 도중 나가기(API-409)의 미제출 입력. 지금은 초성 퀴즈만 저장·복원한다(chosungInput.ts).
+  // 복습은 넘기지 않는다.
+  draftInput?: unknown;
+  onDraftInput?: (input: ChosungDraftInput | null) => void;
 }) {
   const kind = quizStageKind(quiz);
   const typedKey = `${itemKey}:${quiz.quizId}`;
@@ -135,6 +142,10 @@ export function QuizStageQuiz({
         submit={submit}
         onGraded={onGraded}
         onAdvance={() => onAdvance(true)}
+        initialText={chosungDraftText(draftInput, quiz.quizId)}
+        onTextChange={
+          onDraftInput ? (text) => onDraftInput(chosungDraftInput(quiz.quizId, text)) : undefined
+        }
       />
     );
   if (kind.fillBlank)

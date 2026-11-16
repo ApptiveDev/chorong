@@ -21,6 +21,12 @@ import { mockVisibility } from './mockVisibility';
 
 declare const process: { env: Record<string, string | undefined> };
 
+// 목업 복습 회차(API-501~505). items 는 reviewItemId → quizId, answers 는 reviewItemId → 첫 채점 정답 여부.
+type MockReviewSession = {
+  status: 'OPEN' | 'COMPLETED' | 'ABANDONED';
+  items: Map<number, number>;
+  answers: Map<number, boolean>;
+};
 type MockState = {
   user: typeof me;
   wallet: typeof me.wallet;
@@ -33,7 +39,7 @@ type MockState = {
   completedConstellations: Map<number, string>;
   studyAnswers: Map<number, boolean>;
   reviewedToday: Map<number, string>;
-  activeReview: Map<number, number>;
+  reviewSessions: Map<number, MockReviewSession>;
   blockedUsers: { userId: number; nickname: string; blockedAt: string }[];
 };
 const state: MockState = {
@@ -48,7 +54,7 @@ const state: MockState = {
   completedConstellations: new Map(),
   studyAnswers: new Map(),
   reviewedToday: new Map(),
-  activeReview: new Map(),
+  reviewSessions: new Map(),
   blockedUsers: [{ userId: 5, nickname: '별이', blockedAt: '2026-10-30T00:00:00Z' }],
 };
 
@@ -123,9 +129,9 @@ export function restoreMockSnapshot(value: unknown): boolean {
   state.completedConstellations = new Map(saved.completedConstellations);
   state.studyAnswers = new Map(saved.studyAnswers);
   state.reviewedToday = new Map(saved.reviewedToday);
-  state.activeReview = new Map();
+  state.reviewSessions = new Map();
   replayProgress.clear();
-  replayEnergySpent.clear();
+  savedProgress.clear();
   state.blockedUsers = saved.blockedUsers;
   room.housing = { ...room.housing, name: saved.housingName, isPublic: saved.isPublic };
   mockVisibility.set(saved.isPublic);
@@ -170,37 +176,136 @@ const courseDone = (courseId: number) =>
     ?.lessons.every(
       (item) => item.status === 'COMPLETED' || state.rewardedLessons.has(item.lessonId),
     ) ?? false;
-// 에너지 0 으로 시작한 레슨. 명세(API-404): 완료해도 레슨 별가루를 주지 않는다(stardustSkipped).
-// 별 뱃지·코스 보상은 에너지와 무관하다. 목업 스냅샷에는 저장하지 않는다.
-const noEnergyLessons = new Set<number>();
 const replayProgress = new Map<number, Set<number>>();
-// 에너지 없이 마쳐 레슨 별가루를 아직 받지 않은 레슨. 명세(API-404): 다시 하기는 이런 레슨일 때만
-// 에너지를 쓰고, 완료하면 그때 별가루를 준다. 목업 스냅샷에는 저장하지 않는다.
+// 에너지 없이 마쳐 레슨 별가루를 아직 받지 않은 레슨(rewardStatus=NO_ENERGY). 명세(#16): 에너지가 있을 때
+// 다시 하기를 마치면 그때 에너지 1을 쓰고 별가루를 준다. 목업 스냅샷에는 저장하지 않는다.
 const unpaidStardustLessons = new Set<number>();
+// 도중 나가기(API-409)로 저장한 화면과 미제출 입력. 목업 스냅샷에는 저장하지 않는다.
+const savedProgress = new Map<
+  number,
+  { contentId: number; draft: { contentId: number; input: Record<string, unknown> } | null }
+>();
+// 목업 레슨 내용은 바뀌지 않으므로 레슨 버전(contentVersion)은 늘 1이다.
+const MOCK_CONTENT_VERSION = 1;
+const MAX_DRAFT_BYTES = 4096;
+const utf8Bytes = (text: string) =>
+  Array.from(text).reduce((sum, char) => {
+    const code = char.codePointAt(0) ?? 0;
+    return sum + (code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4);
+  }, 0);
+type LessonRewardStatus = 'GRANTED' | 'NO_ENERGY' | 'ALREADY_GRANTED';
+const courseLessons = () =>
+  courses.flatMap((course) =>
+    course.lessons.map((item) => ({ ...item, courseId: course.courseId })),
+  );
+const lessonDone = (item: { lessonId: number; status: string }) =>
+  item.status === 'COMPLETED' || state.rewardedLessons.has(item.lessonId);
+// 레슨 별가루를 받았는지. 목업 데이터에서 처음부터 COMPLETED 인 레슨은 받은 것으로 본다.
+const lessonStardustGranted = (lessonId: number) => {
+  const item = courseLessons().find((entry) => entry.lessonId === lessonId);
+  return !unpaidStardustLessons.has(lessonId) && !!item && lessonDone(item);
+};
+// 명세(#16) LessonCompletionService.grantStardust: 에너지는 보상을 받는 완료 때 1 쓴다.
+// 에너지가 없으면 주지 않고 보상 미수령으로 남긴다. 레슨 완료 표시(rewardedLessons) 전에 부른다.
+const grantLessonStardust = (lessonId: number): LessonRewardStatus => {
+  if (lessonStardustGranted(lessonId)) return 'ALREADY_GRANTED';
+  const energy = state.wallet.energy ?? 0;
+  if (energy <= 0) {
+    unpaidStardustLessons.add(lessonId);
+    return 'NO_ENERGY';
+  }
+  unpaidStardustLessons.delete(lessonId);
+  state.wallet = {
+    ...state.wallet,
+    energy: energy - 1,
+    stardust: state.wallet.stardust + LESSON_STARDUST,
+  };
+  return 'GRANTED';
+};
+// 완료 응답 nextLesson. 완료하지 않은 첫 레슨이며 모두 마쳤으면 null.
+const nextMockLesson = () => {
+  const next = courseLessons().find((item) => !lessonDone(item));
+  return next ? { lessonId: next.lessonId, courseId: next.courseId, title: next.title } : null;
+};
 // 서버 보상 상수(LessonCompletionService·ReviewCompletionService·OnboardingService)와 같은 값.
 // 별자리 완성은 뱃지만 주고 별가루 보너스는 없다.
 const LESSON_STARDUST = 1;
-const REVIEW_STARDUST = 1;
+const REVIEW_STARDUST = 5;
 const ONBOARDING_STARDUST = 50;
 let onboardingRewarded = false;
-const replayEnergySpent = new Set<number>();
-// 명세(API-503): 복습 보상은 하루 3세션까지. 같은 Idempotency-Key 는 같은 응답을 돌려준다.
-const REVIEW_DAILY_REWARD_LIMIT = 3;
-const reviewRewards = { date: '', paid: 0 };
+// 명세(API-503): 복습 보상은 완료 시각 기준 한국 날짜마다 첫 완료 한 번(별가루 5).
+// 같은 Idempotency-Key 는 같은 응답을 돌려준다.
+const reviewRewards = { date: '' };
 const reviewResponses = new Map<string, unknown>();
-// 날짜가 바뀌면 지급 횟수를 0 으로 되돌린다.
-const reviewRewardsToday = () => {
+const kstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+// 명세 rewardEligible(API-501·504): 오늘(KST) 복습 보상을 아직 받지 않았는지.
+const reviewRewardEligible = () => reviewRewards.date !== kstToday();
+let reviewSessionSeq = 0;
+const reviewError = (code: string, message: string, status: number) =>
+  new IntegrationError(`${code}: ${message} (HTTP ${status})`, code, status);
+const reviewSessionClosed = () =>
+  reviewError('REVIEW_SESSION_CLOSED', '이미 끝난 복습입니다.', 409);
+// 목업 복습 후보: 첫 레슨(11)을 마쳤으면 그 레슨에서 푼 퀴즈 중 오늘 복습에서 맞히지 않은 것.
+// 이번 체험판은 틀린 문제 4개와 맞힌 문제 1개가 있어야 회차를 만든다(API-504 available 도 같은 기준).
+const reviewCandidates = () => {
+  if (empty || !state.rewardedLessons.has(11) || !state.studyAnswers.size)
+    return { count: 0, wrong: [] as number[], right: [] as number[] };
   const today = new Date().toISOString().slice(0, 10);
-  if (reviewRewards.date !== today) Object.assign(reviewRewards, { date: today, paid: 0 });
-  return reviewRewards;
+  const available = [...state.studyAnswers].filter(
+    ([quizId]) => state.reviewedToday.get(quizId) !== today,
+  );
+  return {
+    count: available.length,
+    wrong: available.filter(([, correct]) => !correct).map(([quizId]) => quizId),
+    right: available.filter(([, correct]) => correct).map(([quizId]) => quizId),
+  };
 };
-// 명세 ReviewSet.rewardEligible: 오늘 보상 세션(3회)이 남아 있는지.
-const reviewRewardEligible = () => reviewRewardsToday().paid < REVIEW_DAILY_REWARD_LIMIT;
-const completion = (courseId?: number, newBadge = false, stardustSkipped = false) => ({
+// 서버처럼 API-501 마다 끝나지 않은 이전 회차를 닫고 새 회차를 연다. reviewItemId 는 회차마다 다르다.
+const openReviewSession = (quizIds: number[]) => {
+  for (const session of state.reviewSessions.values())
+    if (session.status === 'OPEN') session.status = 'ABANDONED';
+  if (!quizIds.length) return null;
+  reviewSessionSeq += 1;
+  const reviewSessionId = reviewSessionSeq;
+  const items = new Map(
+    quizIds.map((quizId, index) => [reviewSessionId * 100 + index + 1, quizId]),
+  );
+  state.reviewSessions.set(reviewSessionId, { status: 'OPEN', items, answers: new Map() });
+  return { reviewSessionId, items };
+};
+const findReviewSession = (reviewItemId: number) =>
+  [...state.reviewSessions.values()].find((item) => item.items.has(reviewItemId));
+// API-502: 열린 회차의 문항만 받는다. 닫힌 회차 문항이면 ERR-22.
+const openReviewItemQuiz = (reviewItemId: number) => {
+  const session = findReviewSession(reviewItemId);
+  if (session && session.status !== 'OPEN') throw reviewSessionClosed();
+  return session?.items.get(reviewItemId);
+};
+const recordReviewAnswer = (reviewItemId: number, correct: boolean) => {
+  const session = findReviewSession(reviewItemId);
+  if (session && !session.answers.has(reviewItemId)) session.answers.set(reviewItemId, correct);
+};
+// API-503·505 본문의 reviewSessionId 로 회차를 찾는다.
+const reviewSession = (raw: unknown) => {
+  const reviewSessionId = Number(body(raw).reviewSessionId);
+  if (!(reviewSessionId > 0))
+    throw reviewError('VALIDATION_FAILED', '요청 값이 올바르지 않습니다.', 400);
+  const session = state.reviewSessions.get(reviewSessionId);
+  if (!session) throw reviewError('NOT_FOUND', '대상을 찾을 수 없습니다.', 404);
+  return session;
+};
+// 명세(#16) LessonCompleteResponse. 별가루는 rewardStatus=GRANTED 일 때만 싣는다.
+// courseCompleted·firstLesson 은 이 레슨을 처음 완료(firstCompletion)했을 때만 true 다.
+const completion = (
+  courseId: number | undefined,
+  rewardStatus: LessonRewardStatus,
+  firstCompletion = false,
+  newBadge = false,
+) => ({
   rewards: [
-    ...(stardustSkipped
-      ? []
-      : [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: LESSON_STARDUST }]),
+    ...(rewardStatus === 'GRANTED'
+      ? [{ type: 'WALLET' as const, currency: 'STARDUST' as const, amount: LESSON_STARDUST }]
+      : []),
     ...(newBadge
       ? [
           {
@@ -215,8 +320,11 @@ const completion = (courseId?: number, newBadge = false, stardustSkipped = false
       : []),
   ],
   wallet: state.wallet,
-  courseCompleted: courseId ? courseDone(courseId) : false,
-  ...(stardustSkipped ? { stardustSkipped: true } : {}),
+  rewardStatus,
+  firstLesson: firstCompletion && courseLessons().filter(lessonDone).length === 1,
+  firstCompletion,
+  courseCompleted: firstCompletion && courseId ? courseDone(courseId) : false,
+  nextLesson: nextMockLesson(),
 });
 const auth = () => ({
   accessToken: 'mock-access',
@@ -552,23 +660,15 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response(lesson(id(options, 'lessonId')) ?? lessons[0]);
     case 'API-404': {
       const selected = lesson(id(options, 'lessonId')) ?? lessons[0];
+      // 명세(#16): 시작할 때 에너지를 쓰지 않는다. 보상을 아직 받지 않은 레슨에 에너지 0으로 들어오면
+      // energyNotice=true 로 알린다(다시 하기 포함).
+      const energyNotice =
+        !lessonStardustGranted(selected.lessonId) && (state.wallet.energy ?? 0) === 0;
       if (input.replay === true) {
         let completed = replayProgress.get(selected.lessonId);
-        if (!completed || completed.size === selected.contents.length) {
+        if (!completed || completed.size === selected.contents.length || input.restart === true) {
           completed = new Set();
           replayProgress.set(selected.lessonId, completed);
-          replayEnergySpent.delete(selected.lessonId);
-        }
-        // 명세(API-404): 다시 하기는 별가루를 아직 받지 않은 레슨일 때만 에너지를 쓴다.
-        // 이어서 시작하면 다시 쓰지 않고, 에너지가 0이면 줄이지 않는다.
-        const replayEnergy = state.wallet.energy ?? 0;
-        if (
-          unpaidStardustLessons.has(selected.lessonId) &&
-          !replayEnergySpent.has(selected.lessonId) &&
-          replayEnergy > 0
-        ) {
-          state.wallet = { ...state.wallet, energy: replayEnergy - 1 };
-          replayEnergySpent.add(selected.lessonId);
         }
         return response({
           reviewRequired: false,
@@ -581,42 +681,44 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
             resumeContentId:
               selected.contents.find((content) => !completed.has(content.contentId))?.contentId ??
               null,
+            contentVersion: MOCK_CONTENT_VERSION,
           },
+          energyNotice,
           contents: empty ? [] : selected.contents,
         });
       }
       replayProgress.delete(selected.lessonId);
-      // 명세(API-404): 레슨을 시작할 때 에너지 1개를 쓴다. 이어서 시작하거나
-      // 이미 별가루를 받은 레슨을 다시 하면 쓰지 않는다. 에너지가 0이면 줄이지 않는다.
-      const energy = state.wallet.energy ?? 0;
-      if (
-        !state.startedLessons.has(selected.lessonId) &&
-        !state.rewardedLessons.has(selected.lessonId)
-      ) {
-        if (energy > 0) state.wallet = { ...state.wallet, energy: energy - 1 };
-        else noEnergyLessons.add(selected.lessonId);
-      }
       state.startedLessons.add(selected.lessonId);
-      const completedContents = selected.contents.filter((content) =>
-        state.completed.has(content.contentId),
-      );
-      const lastContentId = completedContents.at(-1)?.contentId ?? null;
       // API-402 레슨 상태와 같은 기준이다. 보상을 받은 뒤 목업 레슨에 콘텐츠가 늘어나면
       // 남은 콘텐츠가 있으므로 IN_PROGRESS 로 이어 하게 한다.
-      const allCompleted = completedContents.length === selected.contents.length;
+      const isCompleted = () =>
+        state.rewardedLessons.has(selected.lessonId) &&
+        selected.contents.every((content) => state.completed.has(content.contentId));
+      // 명세(API-404 restart): 이어하기 확인에서 '처음부터'. 저장 화면·draft·완료 위치를 지운다.
+      if (input.restart === true && !isCompleted()) {
+        savedProgress.delete(selected.lessonId);
+        for (const content of selected.contents) state.completed.delete(content.contentId);
+      }
+      const lastContentId =
+        selected.contents.filter((content) => state.completed.has(content.contentId)).at(-1)
+          ?.contentId ?? null;
+      const saved = savedProgress.get(selected.lessonId);
       return response({
         reviewRequired: false,
         review: null,
         progress: {
-          status:
-            state.rewardedLessons.has(selected.lessonId) && allCompleted
-              ? 'COMPLETED'
-              : 'IN_PROGRESS',
+          status: isCompleted() ? 'COMPLETED' : 'IN_PROGRESS',
           lastContentId,
+          // API-409 로 저장한 화면이 있으면 그 화면부터 이어 한다.
           resumeContentId:
+            saved?.contentId ??
             selected.contents.find((content) => !state.completed.has(content.contentId))
-              ?.contentId ?? null,
+              ?.contentId ??
+            null,
+          ...(saved?.draft ? { draft: saved.draft } : {}),
+          contentVersion: MOCK_CONTENT_VERSION,
         },
+        energyNotice,
         contents: empty ? [] : selected.contents,
       });
     }
@@ -633,46 +735,27 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         replayed.add(contentId);
         const resumeContentId =
           selected.contents.find((content) => !replayed.has(content.contentId))?.contentId ?? null;
-        // 백엔드 completeReplay: 이미 별가루를 받은 레슨이면 completion=null, 아니면 이번 지급 결과.
-        let replayCompletion = null;
-        if (resumeContentId === null && unpaidStardustLessons.has(selected.lessonId)) {
-          const paid = replayEnergySpent.has(selected.lessonId);
-          if (paid) {
-            unpaidStardustLessons.delete(selected.lessonId);
-            state.wallet = { ...state.wallet, stardust: state.wallet.stardust + LESSON_STARDUST };
-          }
-          replayCompletion = {
-            rewards: paid
-              ? [
-                  {
-                    type: 'WALLET' as const,
-                    currency: 'STARDUST' as const,
-                    amount: LESSON_STARDUST,
-                  },
-                ]
-              : [],
-            wallet: state.wallet,
-            courseCompleted: courseDone(selected.courseId),
-            stardustSkipped: !paid,
-          };
-        }
+        // 백엔드 completeReplay(#16): 보상 미수령 레슨이면 이때 에너지 1을 써서 별가루를 준다.
+        // 이미 받은 레슨은 ALREADY_GRANTED, 이번에도 에너지가 없으면 NO_ENERGY 로 지급 없이 돌려준다.
         return response({
           progress: { status: 'COMPLETED', lastContentId: contentId, resumeContentId },
           lessonCompleted: resumeContentId === null,
-          completion: replayCompletion,
+          completion:
+            resumeContentId === null
+              ? completion(selected.courseId, grantLessonStardust(selected.lessonId))
+              : null,
         });
       }
       state.completed.add(contentId);
+      // 명세(API-405): 콘텐츠를 완료하면 API-409 로 저장한 화면·draft 를 지운다.
+      if (selected) savedProgress.delete(selected.lessonId);
       const done =
         !!selected && selected.contents.every((content) => state.completed.has(content.contentId));
       let newBadge = false;
-      const stardustSkipped = !!selected && noEnergyLessons.has(selected.lessonId);
+      let rewardStatus: LessonRewardStatus | null = null;
       if (done && selected && !state.rewardedLessons.has(selected.lessonId)) {
+        rewardStatus = grantLessonStardust(selected.lessonId);
         state.rewardedLessons.add(selected.lessonId);
-        noEnergyLessons.delete(selected.lessonId);
-        if (!stardustSkipped)
-          state.wallet = { ...state.wallet, stardust: state.wallet.stardust + LESSON_STARDUST };
-        else unpaidStardustLessons.add(selected.lessonId);
         if (
           courseDone(selected.courseId) &&
           !state.completedConstellations.has(selected.courseId)
@@ -691,7 +774,16 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                 ?.contentId ?? null),
         },
         lessonCompleted: done,
-        completion: done ? completion(selected?.courseId, newBadge, stardustSkipped) : null,
+        // 이미 완료한 레슨의 재보고는 지급·차감 없이 현재 보상 상태만 돌려준다.
+        completion:
+          done && selected
+            ? rewardStatus
+              ? completion(selected.courseId, rewardStatus, true, newBadge)
+              : completion(
+                  selected.courseId,
+                  lessonStardustGranted(selected.lessonId) ? 'ALREADY_GRANTED' : 'NO_ENERGY',
+                )
+            : null,
       });
     }
     case 'API-406':
@@ -699,7 +791,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       const quizId =
         apiId === 'API-406'
           ? id(options, 'quizId')
-          : state.activeReview.get(id(options, 'reviewItemId'));
+          : openReviewItemQuiz(id(options, 'reviewItemId'));
       const scored = quizId
         ? (scoreFirstLessonAnswer(quizId, input.answer) ??
           scoreChosungAnswer(quizId, input.answer) ??
@@ -711,8 +803,11 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       if (quizId) {
         if (apiId === 'API-406' && input.replay !== true && firstLessonQuiz(quizId))
           state.studyAnswers.set(quizId, scored.correct);
-        if (apiId === 'API-502' && scored.correct)
-          state.reviewedToday.set(quizId, new Date().toISOString().slice(0, 10));
+        if (apiId === 'API-502') {
+          recordReviewAnswer(id(options, 'reviewItemId'), scored.correct);
+          if (scored.correct)
+            state.reviewedToday.set(quizId, new Date().toISOString().slice(0, 10));
+        }
       }
       // 채점하지 않는 첫 퀴즈: isCorrect=null, correctAnswer 없음(해설은 그대로).
       if (apiId === 'API-406' && quizId && ungradedFirstQuizIds.has(quizId))
@@ -737,8 +832,17 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         ...(apiId === 'API-502' ? { excludedUntil: null } : {}),
       });
     }
-    case 'API-407':
-      return response(completion());
+    case 'API-407': {
+      // 목업은 마지막 콘텐츠 완료(API-405)가 레슨을 끝내므로 API-407 은 재확인만 한다.
+      // 백엔드처럼 이미 완료한 레슨은 지급·차감 없이 현재 보상 상태를 돌려준다.
+      const selected = lesson(id(options, 'lessonId'));
+      return response(
+        completion(
+          selected?.courseId,
+          selected && lessonStardustGranted(selected.lessonId) ? 'ALREADY_GRANTED' : 'NO_ENERGY',
+        ),
+      );
+    }
     case 'API-408':
       return response({
         courses: courses.map((item) => ({
@@ -752,83 +856,150 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
           totalLessons: item.totalLessons,
         })),
         current: state.startedLessons.size
-          ? {
-              lessonId: [...state.startedLessons].at(-1)!,
-              courseId: lesson([...state.startedLessons].at(-1)!)?.courseId ?? 1,
-              status: state.rewardedLessons.has([...state.startedLessons].at(-1)!)
-                ? 'COMPLETED'
-                : 'IN_PROGRESS',
-            }
-          : { lessonId: 12, courseId: 1, status: 'UNLOCKED' },
+          ? (() => {
+              const lessonId = [...state.startedLessons].at(-1)!;
+              const selected = lesson(lessonId);
+              const rewarded = state.rewardedLessons.has(lessonId);
+              return {
+                lessonId,
+                courseId: selected?.courseId ?? 1,
+                ...(selected ? { title: selected.title } : {}),
+                status: rewarded ? 'COMPLETED' : 'IN_PROGRESS',
+                // 완료한 화면이나 API-409 저장 화면이 있으면 이어하기로 표시한다.
+                resumable:
+                  !rewarded &&
+                  (savedProgress.has(lessonId) ||
+                    !!selected?.contents.some((content) => state.completed.has(content.contentId))),
+              };
+            })()
+          : { lessonId: 12, courseId: 1, status: 'UNLOCKED', resumable: false },
       });
-    case 'API-501': {
-      if (empty)
-        return response({
-          reviewItems: [],
-          message: '복습할 문제가 없습니다.',
-          rewardEligible: false,
-        });
-      const requestedLessonId = Number(body(options.query).lessonId);
-      if (requestedLessonId > 0 && requestedLessonId !== 11) {
-        const quiz = (lesson(requestedLessonId) ?? lessons[1]).contents.at(-1)!.quiz;
-        state.activeReview = new Map(quiz ? [[1, quiz.quizId]] : []);
-        return response({
-          reviewItems: [
-            {
-              reviewItemId: 1,
-              quiz,
-            },
-          ],
-          message: null,
-          rewardEligible: reviewRewardEligible(),
-        });
+    case 'API-409': {
+      // 명세(API-409): 진행 중인 레슨에서 이미 도달한 화면(마지막 완료 화면의 다음까지)만 저장한다.
+      // 아니면 409 ERR-07. draft.contentId 는 contentId 와 같아야 하고 input 은 4KB 이하 객체다.
+      const selected = lesson(id(options, 'lessonId'));
+      const contentId = input.contentId;
+      if (!selected || typeof contentId !== 'number')
+        throw new Error('MOCK_VALIDATION_FAILED: contentId 가 필요합니다.');
+      const index = selected.contents.findIndex((content) => content.contentId === contentId);
+      if (index < 0) throw new Error('MOCK_VALIDATION_FAILED: 레슨에 없는 콘텐츠입니다.');
+      let draft: { contentId: number; input: Record<string, unknown> } | null = null;
+      if (input.draft !== undefined && input.draft !== null) {
+        const raw = body(input.draft);
+        const draftInput = raw.input;
+        if (
+          raw.contentId !== contentId ||
+          !draftInput ||
+          typeof draftInput !== 'object' ||
+          Array.isArray(draftInput) ||
+          // UTF-8 바이트 수. 서버(MAX_DRAFT_BYTES)와 같은 기준이다.
+          utf8Bytes(JSON.stringify(draftInput)) > MAX_DRAFT_BYTES
+        )
+          throw new Error('MOCK_VALIDATION_FAILED: draft 를 확인하세요.');
+        draft = { contentId, input: draftInput as Record<string, unknown> };
       }
-      if (state.rewardedLessons.has(11) && state.studyAnswers.size) {
-        const today = new Date().toISOString().slice(0, 10);
-        const available = [...state.studyAnswers].filter(
-          ([quizId]) => state.reviewedToday.get(quizId) !== today,
-        );
-        const wrong = available.filter(([, correct]) => !correct).map(([quizId]) => quizId);
-        const right = available.filter(([, correct]) => correct).map(([quizId]) => quizId);
-        const shuffle = (values: number[]) => [...values].sort(() => Math.random() - 0.5);
-        const selected =
-          wrong.length >= 4 && right.length >= 1
-            ? shuffle([...shuffle(wrong).slice(0, 4), ...shuffle(right).slice(0, 1)])
-            : [];
-        state.activeReview = new Map(selected.map((quizId, index) => [index + 1, quizId]));
-        return response({
-          reviewItems: selected.map((quizId, index) => ({
-            reviewItemId: index + 1,
-            quiz: firstLessonQuiz(quizId),
-          })),
-          message: selected.length
-            ? null
-            : available.length < 5
-              ? '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.'
-              : '복습을 구성할 문제가 부족해요. 이번 체험판은 틀린 문제 4개와 맞힌 문제 1개로 구성해요.',
-          rewardEligible: reviewRewardEligible(),
-        });
-      }
+      const reachable = selected.contents.findIndex(
+        (content) => !state.completed.has(content.contentId),
+      );
+      if (
+        !state.startedLessons.has(selected.lessonId) ||
+        replayProgress.has(selected.lessonId) ||
+        reachable < 0 ||
+        index > reachable
+      )
+        throw new Error('MOCK_CONFLICT: ERR-07 진행 중인 레슨의 도달한 화면만 저장할 수 있습니다.');
+      savedProgress.set(selected.lessonId, { contentId, draft });
       return response({
-        reviewItems: [],
-        message: '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.',
+        progress: {
+          status: 'IN_PROGRESS',
+          lastContentId:
+            selected.contents.filter((content) => state.completed.has(content.contentId)).at(-1)
+              ?.contentId ?? null,
+          resumeContentId: contentId,
+          ...(draft ? { draft } : {}),
+          contentVersion: MOCK_CONTENT_VERSION,
+        },
+      });
+    }
+    case 'API-501': {
+      const emptyMessage =
+        '더 이상 복습할 문제가 없어요. 새로운 내용을 배우거나, 다음에 다시 확인해 주세요.';
+      // 서버에는 없는 목업 시험용 경로: query.lessonId 로 그 레슨 마지막 퀴즈 1문항 회차를 연다(채점 확인용, 완료 불가).
+      const requestedLessonId = Number(body(options.query).lessonId);
+      if (!empty && requestedLessonId > 0 && requestedLessonId !== 11) {
+        const quiz = (lesson(requestedLessonId) ?? lessons[1]).contents.at(-1)!.quiz;
+        const opened = openReviewSession(quiz ? [quiz.quizId] : []);
+        return response({
+          reviewSessionId: opened?.reviewSessionId ?? null,
+          reviewItems: opened ? [{ reviewItemId: [...opened.items.keys()][0], quiz }] : [],
+          message: opened ? null : emptyMessage,
+          rewardEligible: reviewRewardEligible(),
+        });
+      }
+      const { count, wrong, right } = reviewCandidates();
+      const shuffle = (values: number[]) => [...values].sort(() => Math.random() - 0.5);
+      const selected =
+        wrong.length >= 4 && right.length >= 1
+          ? shuffle([...shuffle(wrong).slice(0, 4), ...shuffle(right).slice(0, 1)])
+          : [];
+      const opened = openReviewSession(selected);
+      return response({
+        reviewSessionId: opened?.reviewSessionId ?? null,
+        reviewItems: opened
+          ? [...opened.items].map(([reviewItemId, quizId]) => ({
+              reviewItemId,
+              quiz: firstLessonQuiz(quizId),
+            }))
+          : [],
+        message: opened
+          ? null
+          : empty
+            ? '복습할 문제가 없습니다.'
+            : count < 5
+              ? emptyMessage
+              : '복습을 구성할 문제가 부족해요. 이번 체험판은 틀린 문제 4개와 맞힌 문제 1개로 구성해요.',
         rewardEligible: reviewRewardEligible(),
       });
     }
     case 'API-503': {
       const key = options.key;
       if (key && reviewResponses.has(key)) return response(reviewResponses.get(key));
-      const paid = reviewRewardEligible();
+      const session = reviewSession(options.body);
+      if (session.status === 'ABANDONED') throw reviewSessionClosed();
+      const correctCount = [...session.answers.values()].filter(Boolean).length;
+      const totalCount = session.items.size;
+      // 서버: 5문항을 모두 제출해야 완료할 수 있다(ERR-07).
+      if (session.status === 'OPEN' && (totalCount !== 5 || session.answers.size !== totalCount))
+        throw reviewError('CONFLICT', '현재 상태에서 요청을 처리할 수 없습니다.', 409);
+      const paid = session.status === 'OPEN' && reviewRewardEligible();
       if (paid) {
-        reviewRewards.paid += 1;
+        reviewRewards.date = kstToday();
         state.wallet = { ...state.wallet, stardust: state.wallet.stardust + REVIEW_STARDUST };
       }
+      session.status = 'COMPLETED';
       const data = {
         rewards: paid ? [{ type: 'WALLET', currency: 'STARDUST', amount: REVIEW_STARDUST }] : [],
         wallet: state.wallet,
+        correctCount,
+        totalCount,
+        rewardStatus: paid ? 'GRANTED' : 'ALREADY_GRANTED',
       };
       if (key) reviewResponses.set(key, data);
       return response(data);
+    }
+    case 'API-504': {
+      const { count, wrong, right } = reviewCandidates();
+      return response({
+        available: wrong.length >= 4 && right.length >= 1,
+        candidateCount: count,
+        rewardEligible: reviewRewardEligible(),
+        rewardAmount: REVIEW_STARDUST,
+      });
+    }
+    case 'API-505': {
+      const session = reviewSession(options.body);
+      if (session.status === 'OPEN') session.status = 'ABANDONED';
+      return response();
     }
     case 'API-601':
       return response({ lesson: lessons[0] });
