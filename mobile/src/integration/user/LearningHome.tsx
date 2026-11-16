@@ -54,6 +54,8 @@ export type LearningHomeProps = {
   nextDisabled: boolean;
   onOpenRecord: () => void;
   onNext: () => void;
+  // 별을 누른 경우. 밝힌 별(done)은 다시 학습, ? 별(next)은 다음 학습과 같다. 빈 별(todo)은 누를 수 없다.
+  onStar: (star: RecordStar) => void;
   onReview: () => void;
   onRetry: () => void;
 };
@@ -65,6 +67,7 @@ export function LearningHome({
   wallet,
   nextTitle,
   nextResume,
+  onStar,
   nextDisabled,
   onOpenRecord,
   onNext,
@@ -95,7 +98,13 @@ export function LearningHome({
         <View style={[s.column, { width: panelWidth }]}>
           {constellation ? (
             <View style={[s.panel, { height: CANVAS.panel * k }]}>
-              <ConstellationCanvas k={k} stars={constellation.stars} image={constellation.image} />
+              <ConstellationCanvas
+                k={k}
+                stars={constellation.stars}
+                image={constellation.image}
+                nextResume={nextResume}
+                onStar={onStar}
+              />
               <View style={s.titleRow}>
                 <Text style={s.name} numberOfLines={1}>
                   {constellation.name}
@@ -158,14 +167,21 @@ export function LearningHome({
   );
 }
 
+// 별 터치 영역 한 변(캔버스 단위). 빈 별 사이가 좁아도 누르기 쉽게 별 그림보다 넉넉히 둔다.
+const STAR_HIT = 44;
+
 function ConstellationCanvas({
   k,
   stars,
   image,
+  nextResume,
+  onStar,
 }: {
   k: number;
   stars: RecordStar[];
   image: ConstellationImage | null;
+  nextResume: boolean;
+  onStar: (star: RecordStar) => void;
 }) {
   const at = (star: RecordStar) => ({
     x: SKY.x + star.point.x * SKY.width,
@@ -293,6 +309,33 @@ function ConstellationCanvas({
                   top: (y - NEXT_IMAGE.centerY) * k,
                   width: NEXT_IMAGE.width * k,
                   height: NEXT_IMAGE.height * k,
+                },
+              ]}
+            />
+          );
+        })}
+      {stars
+        .filter((star) => star.state !== 'todo')
+        .map((star) => {
+          const { x, y } = at(star);
+          return (
+            <Pressable
+              key={`hit-${star.lessonId}`}
+              accessibilityRole="button"
+              accessibilityLabel={
+                star.state === 'done'
+                  ? `${star.title} 다시 학습`
+                  : `${star.title} ${nextResume ? '이어하기' : '학습 시작'}`
+              }
+              onPress={() => onStar(star)}
+              style={[
+                s.layer,
+                {
+                  left: (x - STAR_HIT / 2) * k,
+                  top: (y - STAR_HIT / 2) * k,
+                  width: STAR_HIT * k,
+                  height: STAR_HIT * k,
+                  borderRadius: (STAR_HIT / 2) * k,
                 },
               ]}
             />
