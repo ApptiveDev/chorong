@@ -86,7 +86,7 @@ export default function SocialLoginScreen() {
           </Text>
         </Pressable>
         <Text allowFontScaling={false} style={s.title}>
-          로그인·회원가입
+          로그인
         </Text>
       </View>
       <View style={s.center}>

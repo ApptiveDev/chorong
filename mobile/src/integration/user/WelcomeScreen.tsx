@@ -236,7 +236,7 @@ export default function WelcomeScreen() {
               style={s.secondary}
             >
               <Text allowFontScaling={false} numberOfLines={1} style={s.secondaryText}>
-                로그인 / 회원가입
+                기존 계정으로 로그인
               </Text>
             </Pressable>
           </View>
