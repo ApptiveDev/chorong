@@ -461,11 +461,11 @@ test('failed logout keeps session; successful 204 logout clears persisted tokens
   assert.equal(entries.size, 0);
   assert.equal(c.getSnapshot().traces[0].api, 'API-107');
 });
-test('profile nickname validation follows the server length and rejects unsupported characters', () => {
-  assert.equal(nicknameValidationError('가'), '닉네임은 2~12자로 입력하세요.');
+test('profile nickname validation follows the server 2~12 rule and rejects unsupported characters', () => {
+  assert.equal(nicknameValidationError('가'), '닉네임을 2~12자로 입력해 주세요.');
   assert.equal(
     nicknameValidationError('가나다라마바사아자차카타파'),
-    '닉네임은 2~12자로 입력하세요.',
+    '닉네임을 2~12자로 입력해 주세요.',
   );
   assert.equal(nicknameValidationError('  별지기7  '), null);
   assert.equal(nicknameValidationError('별 지기'), '한글, 영문, 숫자만 입력할 수 있습니다.');
@@ -2752,4 +2752,116 @@ test('0.4.1 response fields: ungraded answers, correctWord, userCode, new reward
   const { items } = await api.room.shop();
   assert.equal(items[0].options[0].unlocked, false);
   assert.equal(c.getSnapshot().user.userCode, '42001000');
+});
+const { socialLoginErrorModal } = require('../.expo/integration-tests/user/socialLoginResult');
+const { firstStudyRoute } = require('../.expo/integration-tests/user/welcomeFlow');
+
+test('소셜 로그인 실패는 세션과 오류 종류에 따라 M02_7·M02_8·M02_9 로 나뉜다', () => {
+  const { IntegrationError } = require('../.expo/integration-tests/client');
+  const conflict = new IntegrationError('충돌', 'ACCOUNT_EXISTS_FOR_PROVIDER', 409);
+  const guest = { guest: true, switchingToExisting: false };
+  const member = { guest: false, switchingToExisting: false };
+  assert.equal(socialLoginErrorModal(conflict, guest), 'switchAccount');
+  // 서버가 switchToExisting 을 무시해 같은 409 가 다시 오면 M02_8 을 반복하지 않는다.
+  assert.equal(
+    socialLoginErrorModal(conflict, { guest: true, switchingToExisting: true }),
+    'authFailed',
+  );
+  assert.equal(socialLoginErrorModal(conflict, member), 'authFailed');
+  const unauthorized = new IntegrationError('인증', 'UNAUTHORIZED', 401);
+  assert.equal(socialLoginErrorModal(unauthorized, guest), 'authFailed');
+  assert.equal(socialLoginErrorModal(unauthorized, member), 'authFailed');
+  const server = new IntegrationError('서버', 'INTERNAL', 500);
+  assert.equal(socialLoginErrorModal(server, guest), 'migrationFailed');
+  assert.equal(socialLoginErrorModal(server, member), 'authFailed');
+  const network = new IntegrationError('연결', 'ERR_NETWORK', null);
+  assert.equal(socialLoginErrorModal(network, guest), 'migrationFailed');
+  const config = new IntegrationError('설정', 'CONFIGURATION_ERROR', null);
+  assert.equal(socialLoginErrorModal(config, guest), 'authFailed');
+  assert.equal(socialLoginErrorModal(new Error('Google 오류'), guest), 'authFailed');
+});
+
+test('소셜 로그인은 isNew 를 돌려주고 switchToExisting 을 요청할 때만 보낸다', async () => {
+  const { c, api } = setup();
+  const bodies = [];
+  c.http.defaults.adapter = async (config) => {
+    bodies.push(JSON.parse(config.data));
+    return respond(config, { data: { ...tokens, user, isNew: bodies.length === 1 } });
+  };
+  assert.deepEqual(await api.account.oauthLogin('google', { idToken: 'id-1' }), { isNew: true });
+  assert.equal('switchToExisting' in bodies[0], false);
+  assert.deepEqual(
+    await api.account.oauthLogin('google', { idToken: 'id-1', switchToExisting: true }),
+    {
+      isNew: false,
+    },
+  );
+  assert.equal(bodies[1].switchToExisting, true);
+  assert.equal(c.getSnapshot().authenticated, true);
+});
+
+test('목업 소셜 로그인 시나리오로 새 회원·기존 계정 충돌·서버 오류를 만든다', async () => {
+  const modulePath = require.resolve('../.expo/integration-tests/mockApi');
+  const prior = process.env.EXPO_PUBLIC_MOCK_SCENARIO;
+  const load = (scenario) => {
+    process.env.EXPO_PUBLIC_MOCK_SCENARIO = scenario;
+    delete require.cache[modulePath];
+    return require(modulePath).mockApi;
+  };
+  const oauth = { path: { provider: 'google' }, body: { idToken: 'mock' } };
+  try {
+    const fresh = load('oauth-new');
+    fresh('API-104', {});
+    assert.equal(fresh('API-105', oauth).data.data.isNew, true);
+    fresh('API-101', {});
+    assert.equal(fresh('API-105', oauth).data.data.isNew, false);
+    const conflict = load('oauth-conflict');
+    conflict('API-101', {});
+    for (const body of [oauth.body, { ...oauth.body, switchToExisting: true }])
+      assert.throws(
+        () => conflict('API-105', { ...oauth, body }),
+        (error) => error.code === 'ACCOUNT_EXISTS_FOR_PROVIDER' && error.status === 409,
+      );
+    assert.throws(
+      () => load('oauth-server-error')('API-105', oauth),
+      (error) => error.status === 500,
+    );
+    assert.throws(
+      () => load('oauth-unauthorized')('API-105', oauth),
+      (error) => error.status === 401,
+    );
+  } finally {
+    if (prior === undefined) delete process.env.EXPO_PUBLIC_MOCK_SCENARIO;
+    else process.env.EXPO_PUBLIC_MOCK_SCENARIO = prior;
+    delete require.cache[modulePath];
+  }
+});
+
+test('첫 학습 경로는 첫 코스의 잠기지 않은 레슨을 열고 불러오지 못하면 null 이다', async () => {
+  const learning = {
+    courses: async () => ({ courses: [{ courseId: 3 }] }),
+    course: async () => ({
+      lessons: [
+        { lessonId: 31, title: '잠김', status: 'LOCKED' },
+        { lessonId: 32, title: '별의 탄생', status: 'COMPLETED' },
+      ],
+    }),
+  };
+  assert.deepEqual(await firstStudyRoute(learning), {
+    pathname: '/learn/study/[lessonId]',
+    params: { lessonId: '32', title: '별의 탄생', fromWelcome: 'true', replay: 'true' },
+  });
+  assert.equal(
+    await firstStudyRoute({ ...learning, courses: async () => ({ courses: [] }) }),
+    null,
+  );
+  assert.equal(
+    await firstStudyRoute({
+      ...learning,
+      courses: async () => {
+        throw new Error('offline');
+      },
+    }),
+    null,
+  );
 });

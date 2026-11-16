@@ -29,19 +29,18 @@ export function savedSceneItems(
 export function ShipInfoPopup({
   visible,
   nickname,
-  isPublic,
   likeCount,
   items,
   onClose,
 }: {
   visible: boolean;
   nickname: string | null;
+  // M07 제목에는 공개 상태를 쓰지 않는다. 호출하는 쪽 호환을 위해 받기만 한다.
   isPublic: boolean | null;
   likeCount: number | null;
   items: RoomSceneItem[];
   onClose: () => void;
 }) {
-  const status = isPublic === null ? '확인 중' : isPublic ? '공개' : '비공개';
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.overlay}>
@@ -53,10 +52,8 @@ export function ShipInfoPopup({
           >
             <View style={s.info}>
               <View style={s.heading}>
-                <Text style={s.headingText}>
-                  내 우주선 공개 상태
-                  <Text style={s.statusText}> · {status}</Text>
-                </Text>
+                {/* M07 내 공개 모습 */}
+                <Text style={s.headingText}>내 공개 모습</Text>
               </View>
               <View style={s.owner}>
                 <Text style={s.nickname} numberOfLines={1}>
@@ -125,7 +122,6 @@ const s = StyleSheet.create({
   heading: { paddingHorizontal: 8 },
   headingText: { color: color.base, fontFamily: 'PretendardSemiBold', fontSize: 12 },
   // Figma 에 공개 여부 표시 칸이 없어 제목 옆에 같은 크기로 붙인다.
-  statusText: { color: color.tertiary, fontFamily: 'PretendardRegular', fontSize: 12 },
   owner: {
     flexDirection: 'row',
     alignItems: 'center',

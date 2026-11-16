@@ -198,15 +198,15 @@ export function ReviewScreen() {
         <Text style={styles.text}>복습할 문제가 없습니다.</Text>
       ) : null}
       {/* 복습은 이어 하기가 없다. 나가면 이번 회차는 저장되지 않고 다음에 처음부터 다시 시작한다.
-          학습의 '잠시 멈출까요?'(Figma 알림창_선택지 2개_세로 462:718)와 같은 모달을 쓴다. 이 경우의 시안은 없어 문구는 앱이 정했다. */}
+          M03_2 복습 도중 나가기. 학습의 '잠시 멈출까요?'(Figma 알림창_선택지 2개_세로 462:718)와 같은 모달이다. */}
       <SessionConfirmModal
         visible={exitOpen}
-        title="복습을 그만둘까요?"
-        notice={'지금 나가면 이번 복습은 저장되지 않아요.\n다음 복습은 처음부터 다시 시작해요.'}
+        title="복습을 그만할까요?"
+        notice="지금 나가면 이번 복습은 끝나요. 다시 시작하면 첫 문제부터 풀어요."
         arrowBullet
         centerNotice
         stacked
-        confirmLabel="계속 복습"
+        confirmLabel="계속 복습하기"
         cancelLabel="나가기"
         busy={false}
         onConfirm={() => setExitOpen(false)}

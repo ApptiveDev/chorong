@@ -24,6 +24,7 @@ import {
 import { integrationApi as api } from '../runtime';
 import { BrowseView } from './BrowseView';
 import { UserScreen, UserStatus } from './Screen';
+import { PublicConfirmModal } from './VisibilityConfirmModals';
 
 const reportReasons: { value: ReportReason; label: string }[] = [
   { value: 'INAPPROPRIATE_NAME', label: '부적절한 이름' },
@@ -45,7 +46,8 @@ export default function SocialScreen() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [shopItems, setShopItems] = useState<ShopItem[]>([]);
   const [showOwn, setShowOwn] = useState(true);
-  const [dialog, setDialog] = useState<'login' | 'public' | 'private' | null>(null);
+  const [dialog, setDialog] = useState<'login' | 'public' | null>(null);
+  const [publicRequested, setPublicRequested] = useState(false);
   const [notice, setNotice] = useState('');
   const [loaded, setLoaded] = useState(false);
   const member = session.user?.status === 'ACTIVE';
@@ -87,15 +89,19 @@ export default function SocialScreen() {
       return;
     }
     if (!isPublic) {
+      setPublicRequested(false);
       setDialog('public');
       return;
     }
     setShowOwn(false);
     setNotice('');
   };
-  const changeVisibility = (value: boolean) => {
+  // M02_1 공개하고 구경: 공개(API-703) 뒤 바로 구경 목록으로 간다.
+  const publish = () => {
+    if (task.busy) return;
+    setPublicRequested(true);
     void task.run(async () => {
-      const housing = await housingVisibility.update(value);
+      const housing = await housingVisibility.update(true);
       setOwn(
         (current) =>
           current && {
@@ -104,9 +110,15 @@ export default function SocialScreen() {
           },
       );
       setDialog(null);
-      setNotice(value ? '우주선을 공개했습니다.' : '우주선을 비공개로 전환했습니다.');
-      setShowOwn(!value);
+      setPublicRequested(false);
+      setNotice('우주선을 공개했습니다.');
+      setShowOwn(false);
     });
+  };
+  const closePublic = () => {
+    if (task.busy) return;
+    setDialog(null);
+    setPublicRequested(false);
   };
   const leave = () => (fromBrowseTab ? router.navigate('/housing') : router.back());
 
@@ -185,67 +197,42 @@ export default function SocialScreen() {
       </View>
 
       <Modal
-        visible={dialog !== null}
+        visible={dialog === 'login'}
         transparent
         animationType="fade"
         onRequestClose={() => setDialog(null)}
       >
         <View style={s.overlay}>
           <View style={s.dialog}>
-            {dialog === 'login' ? (
-              <>
-                <Text style={s.dialogTitle}>다른 우주선을 구경해요</Text>
-                <Text style={s.dialogText}>로그인하면 다른 탐험가의 우주선을 볼 수 있어요.</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setDialog(null);
-                    router.push({ pathname: '/more', params: { returnTo: '/social' } });
-                  }}
-                  style={s.primaryButton}
-                >
-                  <Text style={s.primaryText}>로그인·회원가입</Text>
-                </Pressable>
-              </>
-            ) : dialog === 'public' ? (
-              <>
-                <Text style={s.dialogTitle}>공개하고 구경할까요?</Text>
-                <Text style={s.dialogText}>
-                  닉네임과 저장된 우주선이 공개돼요. 다른 우주선을 구경할 수 있어요.
-                </Text>
-                <Text style={s.caption}>이메일·별가루함은 공개하지 않아요.</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => changeVisibility(true)}
-                  style={s.primaryButton}
-                >
-                  <Text style={s.primaryText}>공개하고 구경하기</Text>
-                </Pressable>
-              </>
-            ) : dialog === 'private' ? (
-              <>
-                <Text style={s.dialogTitle}>비공개로 전환할까요?</Text>
-                <Text style={s.dialogText}>내 우주선은 다른 사용자에게 보이지 않아요.</Text>
-                <Text style={s.warning}>비공개하면 다른 우주선을 구경할 수 없어요!</Text>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => changeVisibility(false)}
-                  style={s.primaryButton}
-                >
-                  <Text style={s.primaryText}>비공개로 전환하기</Text>
-                </Pressable>
-              </>
-            ) : null}
+            <Text style={s.dialogTitle}>다른 우주선을 구경해요</Text>
+            <Text style={s.dialogText}>로그인하면 다른 탐험가의 우주선을 볼 수 있어요.</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDialog(null);
+                router.push({ pathname: '/more', params: { returnTo: '/social' } });
+              }}
+              style={s.primaryButton}
+            >
+              <Text style={s.primaryText}>로그인·회원가입</Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               onPress={() => setDialog(null)}
               style={s.outlineButton}
             >
-              <Text style={s.outlineText}>{dialog === 'login' ? '나중에 하기' : '취소'}</Text>
+              <Text style={s.outlineText}>나중에 하기</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
+      <PublicConfirmModal
+        visible={dialog === 'public'}
+        error={publicRequested ? task.error : null}
+        busy={task.busy}
+        onCancel={closePublic}
+        onConfirm={publish}
+      />
     </UserScreen>
   );
 }
@@ -448,7 +435,6 @@ const s = StyleSheet.create({
   },
   visibilityText: { flex: 1, gap: 3 },
   visibilityTitle: { color: '#273a52', fontSize: 13, fontWeight: '700' },
-  caption: { color: '#7b8795', fontSize: 11, lineHeight: 17 },
   visibilityButton: {
     borderWidth: 1,
     borderColor: '#dce2e8',
@@ -530,7 +516,6 @@ const s = StyleSheet.create({
   },
   dialogTitle: { color: '#282636', fontSize: 18, fontWeight: '700' },
   dialogText: { color: '#817790', fontSize: 13, lineHeight: 20 },
-  warning: { color: '#b84b4b', fontSize: 12, fontWeight: '700' },
   disabled: { opacity: 0.5 },
   reasons: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   reason: { borderWidth: 1, borderColor: '#e7dce9', borderRadius: 10, padding: 9 },

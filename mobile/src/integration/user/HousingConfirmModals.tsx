@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { shipColor as color, StarIcon } from './ShipStatus';
+import { shipColor as color } from './ShipStatus';
 
-// 우주선 꾸미기 확인 모달 3종. SessionConfirmModal 과 같은 틀(배경 #F1F1F1 · 모서리 8 · 버튼 48)을 쓰되
+// 우주선 꾸미기 확인 모달 4종. SessionConfirmModal 과 같은 틀(배경 #F1F1F1 · 모서리 8 · 버튼 48)을 쓰되
 // 가격 줄, 버튼 1개, 내용 폭 버튼처럼 공용 모달이 표현하지 못하는 차이를 여기서만 둔다.
 
 export function Frame({
@@ -115,20 +115,15 @@ export function PurchaseConfirmModal({
         <View style={s.titleOffset}>
           <Text style={s.title}>구매하고 배치를 저장할까요?</Text>
         </View>
-        <View style={s.priceRow}>
-          <View style={s.priceLabel}>
-            <Bullet />
-            <Text style={s.copyMedium}>필요한 별가루</Text>
-          </View>
-          <View style={s.price} accessible accessibilityLabel={`별가루 ${total}`}>
-            <StarIcon fill={color.base} />
-            <Text style={s.priceText}>{total}</Text>
-          </View>
+        {/* M02_12 일괄 구매 확인 */}
+        <View style={s.insufficientNotice}>
+          <Bullet />
+          <Text style={s.copyRegular}>이 아이템을 구매하려면 {total} 별가루가 필요해요.</Text>
         </View>
         <View style={s.actions}>
-          <DialogButton label="돌아가기" disabled={busy} style={s.buttonHalf} onPress={onCancel} />
+          <DialogButton label="취소" disabled={busy} style={s.buttonHalf} onPress={onCancel} />
           <DialogButton
-            label="구매하고 저장"
+            label="구매·저장"
             primary
             disabled={busy}
             style={s.buttonHalf}
@@ -164,7 +159,7 @@ export function InsufficientStardustModal({
           </View>
           <View style={s.insufficientNotice}>
             <Bullet />
-            <Text style={s.copyRegular}>아이템을 구매하려면 {amount}별가루가 필요해요.</Text>
+            <Text style={s.copyRegular}>이 아이템을 구매하려면 {amount} 별가루가 필요해요.</Text>
           </View>
         </View>
         <DialogButton
@@ -231,6 +226,52 @@ export function DiscardChangesModal({
   );
 }
 
+// M02_13 구매·배치 저장 실패. 별가루 부족(InsufficientStardustModal) 외의 실패에 띄운다.
+export function SaveFailedModal({
+  visible,
+  busy,
+  onClose,
+  onRetry,
+}: {
+  visible: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <Frame
+      visible={visible}
+      onRequestClose={() => !busy && onClose()}
+      padding={{ horizontal: 20, vertical: 28 }}
+      borderColor="#000000"
+    >
+      <View style={s.saveFailed}>
+        <View style={s.insufficientMessage}>
+          <View style={s.discardHeading}>
+            <Text style={[s.title, s.discardTitle]} numberOfLines={1} adjustsFontSizeToFit>
+              변경 사항을 저장하지 못했어요.
+            </Text>
+          </View>
+          <View style={s.insufficientNotice}>
+            <Bullet />
+            <Text style={s.copyRegular}>변경 상태를 확인한 뒤 다시 시도해 주세요.</Text>
+          </View>
+        </View>
+        <View style={s.actions}>
+          <DialogButton label="닫기" disabled={busy} style={s.buttonHalf} onPress={onClose} />
+          <DialogButton
+            label="다시 시도"
+            primary
+            disabled={busy}
+            style={s.buttonHalf}
+            onPress={onRetry}
+          />
+        </View>
+      </View>
+    </Frame>
+  );
+}
+
 const s = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -280,30 +321,8 @@ const s = StyleSheet.create({
     lineHeight: 18,
     includeFontPadding: false,
   },
-  // 구매: 묶음 간격 20, 가격 줄 폭 295(왼쪽 칸 192 · 간격 18)
+  // 구매: 묶음 간격 20
   purchase: { width: '100%', alignItems: 'center', gap: 20 },
-  priceRow: {
-    width: '100%',
-    maxWidth: 295,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 18,
-  },
-  priceLabel: {
-    width: 192,
-    flexShrink: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 7,
-    paddingLeft: 36,
-  },
-  price: { height: 20, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  priceText: {
-    color: color.base,
-    fontFamily: 'PretendardMedium',
-    fontSize: 16,
-    includeFontPadding: false,
-  },
   actions: { flexDirection: 'row', gap: 12, maxWidth: '100%' },
   button: {
     height: 48,
@@ -337,6 +356,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     gap: 7,
   },
+  saveFailed: { width: '100%', alignItems: 'center', gap: 28 },
   discard: { width: '100%', alignItems: 'center', gap: 40 },
   discardMessage: { width: '100%', gap: 28, alignItems: 'center' },
   discardHeading: { width: '100%', alignItems: 'center', paddingVertical: 10 },

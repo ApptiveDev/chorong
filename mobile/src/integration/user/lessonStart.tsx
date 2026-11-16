@@ -42,14 +42,14 @@ export function useLessonStart() {
     }
   };
 
-  // Figma 알림창_선택지 2개_가로(656:4286). 버튼 문구는 Figma 템플릿 문구 대신 '취소 / 학습하기'.
+  // Figma 알림창_선택지 2개_가로(656:4286). M02_4 에너지 소진.
   const modal = (
     <SessionConfirmModal
       visible={!!pending}
-      title="에너지가 모두 소진됐어요"
+      title="에너지가 모두 소진됐어요."
       notice={'학습은 계속할 수 있지만\n이번에는 별가루를 받을 수 없어요.'}
       arrowBullet
-      cancelLabel="취소"
+      cancelLabel="돌아가기"
       confirmLabel="학습하기"
       busy={false}
       onCancel={() => setPending(null)}

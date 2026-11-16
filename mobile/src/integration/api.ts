@@ -3,7 +3,22 @@ import * as m from './models';
 import * as contract from './contract';
 import { array, nullable, num, object, optional, str } from './schema';
 
+type OAuthProvider = Exclude<m.Provider, 'email'>;
+type OAuthRequest = m.OAuthCredential & { switchToExisting?: boolean };
+
 export function createIntegrationApi(client: IntegrationClient) {
+  const oauthLogin = async (provider: OAuthProvider, credentials: OAuthRequest) => {
+    let isNew = false;
+    await client.authenticate(async () => {
+      const data = await client.request('API-105', m.authResponse, {
+        path: { provider },
+        body: { ...credentials, deviceUuid: await client.deviceUuid() },
+      });
+      isNew = data.isNew;
+      return data;
+    });
+    return { isNew };
+  };
   const account = {
     guest: (platform: m.Platform) =>
       client.authenticate(async () =>
@@ -25,13 +40,13 @@ export function createIntegrationApi(client: IntegrationClient) {
           body: { email, password, deviceUuid: await client.deviceUuid() },
         }),
       ),
-    oauth: (provider: Exclude<m.Provider, 'email'>, credentials: m.OAuthCredential) =>
-      client.authenticate(async () =>
-        client.request('API-105', m.authResponse, {
-          path: { provider },
-          body: { ...credentials, deviceUuid: await client.deviceUuid() },
-        }),
-      ),
+    // switchToExisting(명세 0.4.1): 게스트 토큰으로 호출할 때 기존 회원 계정으로 로그인한다.
+    // 게스트 기록은 합치지 않는다. 서버는 아직 이 필드를 읽지 않아 ERR-14 를 그대로 돌려준다.
+    oauth: async (provider: OAuthProvider, credentials: OAuthRequest) => {
+      await oauthLogin(provider, credentials);
+    },
+    // oauth 와 같고 isNew 를 돌려준다. 기존 계정으로 들어오려다 새 회원이 만들어졌는지(M01_3) 본다.
+    oauthLogin,
     refresh: client.refresh,
     logout: (all: boolean) =>
       client.endSession(() => client.request('API-107', null, { body: { all } })),

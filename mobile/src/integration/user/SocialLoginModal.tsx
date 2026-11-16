@@ -6,12 +6,16 @@
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useIntegration, useTask } from '../hooks';
-import { continueWithSocial, type SocialProvider } from './SocialLoginScreen';
+import { type SocialProvider, useSocialLogin } from './SocialLoginScreen';
 
+// 애플·구글은 영어로 표기한다(Apple로·Google로 계속하기). 구글 글자 색은 Figma 구글 버튼 순서를 따른다.
 const googleLetters = [
-  ['구', '#0038df'],
-  ['글', '#ca1310'],
+  ['G', '#0038df'],
+  ['o', '#ca1310'],
+  ['o', '#f0a90e'],
+  ['g', '#0038df'],
+  ['l', '#009838'],
+  ['e', '#ca1310'],
   ['로', '#f0a90e'],
   [' ', '#000000'],
   ['계', '#0038df'],
@@ -83,17 +87,18 @@ function SocialLoginModal({
   titleSize?: number;
 }) {
   const router = useRouter();
-  const session = useIntegration();
-  const task = useTask();
   const leaving = useRef(false);
+  // 실패는 결과 모달(M02_7·M02_8·M02_9)로 띄운다. 이 모달은 비회원만 열어 M01_3 은 나오지 않는다.
+  const task = useSocialLogin({
+    onSignedIn: () => {
+      leaving.current = true;
+      onSignedIn();
+    },
+  });
 
   const signIn = (provider: SocialProvider) => {
     if (task.busy || leaving.current) return;
-    void task.run(async () => {
-      if (!(await continueWithSocial(provider, session.authenticated))) return;
-      leaving.current = true;
-      onSignedIn();
-    });
+    task.signIn(provider);
   };
   const later = () => {
     if (task.busy || leaving.current) return;
@@ -127,16 +132,16 @@ function SocialLoginModal({
             <View style={s.buttons}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="애플로 계속하기"
+                accessibilityLabel="Apple로 계속하기"
                 disabled={task.busy}
                 onPress={() => signIn('apple')}
                 style={[s.button, s.apple, task.busy && s.disabled]}
               >
-                <Text style={[s.buttonText, s.appleText]}>애플로 계속하기</Text>
+                <Text style={[s.buttonText, s.appleText]}>Apple로 계속하기</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="구글로 계속하기"
+                accessibilityLabel="Google로 계속하기"
                 disabled={task.busy}
                 onPress={() => signIn('google')}
                 style={[s.button, s.google, task.busy && s.disabled]}
@@ -174,13 +179,10 @@ function SocialLoginModal({
             {task.busy ? (
               <ActivityIndicator accessibilityLabel="로그인 중" color="#161616" />
             ) : null}
-            {task.error ? (
-              <Text accessibilityRole="alert" style={s.error}>
-                {task.error}
-              </Text>
-            ) : null}
           </View>
         </View>
+        {/* 결과 모달은 iOS 에서 겹쳐 띄울 수 있게 이 Modal 안에 둔다. */}
+        {task.modal}
       </View>
     </Modal>
   );
@@ -252,5 +254,4 @@ const s = StyleSheet.create({
   later: { color: '#747474', fontFamily: 'PretendardRegular', fontSize: 16, textAlign: 'center' },
   legal: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   legalText: { color: '#747474', fontFamily: 'PretendardLight', fontSize: 14 },
-  error: { color: '#b00030', fontFamily: 'PretendardRegular', fontSize: 13, textAlign: 'center' },
 });

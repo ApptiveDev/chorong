@@ -30,6 +30,7 @@ import {
   DiscardChangesModal,
   InsufficientStardustModal,
   PurchaseConfirmModal,
+  SaveFailedModal,
 } from './HousingConfirmModals';
 import { housingVisibility, useHousingVisibility } from '../housingVisibility';
 import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
@@ -131,6 +132,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
+  const [saveFailedOpen, setSaveFailedOpen] = useState(false);
   const [shortfall, setShortfall] = useState(0);
   const [notice, setNotice] = useState('');
   const [showEditHint, setShowEditHint] = useState(false);
@@ -579,59 +581,67 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   };
   const save = () => {
     setCheckoutOpen(false);
+    setSaveFailedOpen(false);
     void task.run(async () => {
-      let placements = draft;
-      if (pending.length) {
-        setPurchaseRetryOnly(true);
-        let result: Awaited<ReturnType<typeof api.room.purchase>>;
-        try {
-          result = await api.room.purchase(
-            pending.map((item) => ({ itemId: item.itemId, optionId: item.optionId })),
-            purchaseKey.current ?? (purchaseKey.current = randomUuid()),
-          );
-        } catch (error) {
-          if (!(error instanceof IntegrationError && error.code === 'INSUFFICIENT_BALANCE'))
-            throw error;
-          // 서버가 구매 전체를 거절했다(결제 없음). 키를 버리고 배치·구매 예정은 그대로 둔다.
+      try {
+        let placements = draft;
+        if (pending.length) {
+          setPurchaseRetryOnly(true);
+          let result: Awaited<ReturnType<typeof api.room.purchase>>;
+          try {
+            result = await api.room.purchase(
+              pending.map((item) => ({ itemId: item.itemId, optionId: item.optionId })),
+              purchaseKey.current ?? (purchaseKey.current = randomUuid()),
+            );
+          } catch (error) {
+            if (!(error instanceof IntegrationError && error.code === 'INSUFFICIENT_BALANCE'))
+              throw error;
+            // 서버가 구매 전체를 거절했다(결제 없음). 키를 버리고 배치·구매 예정은 그대로 둔다.
+            purchaseKey.current = null;
+            setPurchaseRetryOnly(false);
+            showInsufficient(await latestStardust());
+            return;
+          }
           purchaseKey.current = null;
           setPurchaseRetryOnly(false);
-          showInsufficient(await latestStardust());
-          return;
+          setWallet(result.wallet);
+          setInventory((items) => [...items, ...result.inventoryItems]);
+          const available = [...result.inventoryItems];
+          const purchased = pending.flatMap((item) => {
+            const index = available.findIndex(
+              (owned) => owned.itemId === item.itemId && owned.optionId === item.optionId,
+            );
+            if (index < 0) return [];
+            const [owned] = available.splice(index, 1);
+            return [
+              {
+                inventoryId: owned.inventoryId,
+                area: 'INTERIOR' as const,
+                transform: item.transform,
+              },
+            ];
+          });
+          placements = [...draft, ...purchased];
+          setDraft(placements);
+          setPending([]);
+          setSelectedKey(null);
+          if (purchased.length !== pending.length) {
+            setNotice('일부 아이템을 구매하지 못했습니다. 배치를 확인하세요.');
+            return result;
+          }
         }
-        purchaseKey.current = null;
-        setPurchaseRetryOnly(false);
-        setWallet(result.wallet);
-        setInventory((items) => [...items, ...result.inventoryItems]);
-        const available = [...result.inventoryItems];
-        const purchased = pending.flatMap((item) => {
-          const index = available.findIndex(
-            (owned) => owned.itemId === item.itemId && owned.optionId === item.optionId,
-          );
-          if (index < 0) return [];
-          const [owned] = available.splice(index, 1);
-          return [
-            {
-              inventoryId: owned.inventoryId,
-              area: 'INTERIOR' as const,
-              transform: item.transform,
-            },
-          ];
-        });
-        placements = [...draft, ...purchased];
-        setDraft(placements);
-        setPending([]);
-        setSelectedKey(null);
-        if (purchased.length !== pending.length) {
-          setNotice('일부 아이템을 구매하지 못했습니다. 배치를 확인하세요.');
-          return result;
-        }
+        const saved = await api.room.save(placements);
+        setRoom((current) => current && { ...current, placements: saved.placements });
+        setNotice('배치를 저장했습니다.');
+        leaveAllowed.current = true;
+        exit();
+        return saved;
+      } catch {
+        // M02_13: 별가루 부족 외 실패. 구매 키(purchaseKey)·구매 예정·배치를 그대로 두어
+        // '다시 시도'가 같은 키로 구매(API-903)를 다시 보내거나 배치(API-702)만 다시 저장한다.
+        setSaveFailedOpen(true);
+        return undefined;
       }
-      const saved = await api.room.save(placements);
-      setRoom((current) => current && { ...current, placements: saved.placements });
-      setNotice('배치를 저장했습니다.');
-      leaveAllowed.current = true;
-      exit();
-      return saved;
     });
   };
 
@@ -899,6 +909,12 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         visible={insufficientOpen}
         amount={shortfall}
         onClose={() => setInsufficientOpen(false)}
+      />
+      <SaveFailedModal
+        visible={saveFailedOpen}
+        busy={task.busy}
+        onClose={() => setSaveFailedOpen(false)}
+        onRetry={save}
       />
       <DiscardChangesModal
         visible={exitOpen}

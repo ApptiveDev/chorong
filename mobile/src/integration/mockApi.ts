@@ -1,5 +1,5 @@
 import type { EnabledApiId } from './catalog';
-import type { MockResponder } from './client';
+import { IntegrationError, type MockResponder } from './client';
 import type { Lesson } from './models';
 import {
   chosungCountMockQuizId,
@@ -438,13 +438,36 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-104':
       state.user = { ...state.user, status: 'ACTIVE', providers: ['EMAIL'] };
       return response(auth());
-    case 'API-105':
+    case 'API-105': {
+      // 소셜 로그인 결과 모달을 시험하는 시나리오(EXPO_PUBLIC_MOCK_SCENARIO).
+      // 서버처럼 switchToExisting 은 읽지 않는다. 게스트 여부는 목업 사용자 상태로 대신한다.
+      const guest = state.user.status === 'GUEST';
+      if (scenario === 'oauth-conflict' && guest)
+        throw new IntegrationError(
+          'ACCOUNT_EXISTS_FOR_PROVIDER: 이미 연결된 로그인 수단입니다. (HTTP 409)',
+          'ACCOUNT_EXISTS_FOR_PROVIDER',
+          409,
+        );
+      if (scenario === 'oauth-unauthorized')
+        throw new IntegrationError(
+          'UNAUTHORIZED: 인증이 필요합니다. (HTTP 401)',
+          'UNAUTHORIZED',
+          401,
+        );
+      if (scenario === 'oauth-server-error')
+        throw new IntegrationError(
+          'INTERNAL: 서버 오류가 발생했습니다. (HTTP 500)',
+          'INTERNAL',
+          500,
+        );
       state.user = {
         ...state.user,
         status: 'ACTIVE',
         providers: [String(options.path?.provider ?? '').toUpperCase()],
       };
-      return response(auth());
+      // oauth-new: 기존 계정 없이 새 회원이 만들어진 경우(M01_3). 게스트 전환은 새 회원이 아니다.
+      return response({ ...auth(), isNew: scenario === 'oauth-new' && !guest });
+    }
     case 'API-102':
       return response({ verificationId: 'mock-verification', expiresAt: '2026-11-03T00:00:00Z' });
     case 'API-106':

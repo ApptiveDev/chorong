@@ -28,7 +28,7 @@ export function ReviewEmptyModal({
           </View>
           <View style={s.notice}>
             <Bullet />
-            <Text style={s.copy}>새로운 내용을 배운 뒤 다시 확인해 주세요.</Text>
+            <Text style={s.copy}>오늘 풀 수 있는 문제가 충분하지 않아요.</Text>
           </View>
         </View>
         <DialogButton

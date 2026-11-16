@@ -82,52 +82,76 @@ function Study() {
   } | null>(null);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [exitOpen, setExitOpen] = useState(false);
+  // M03_1 나가기 저장 실패. 저장 API(API-409 PUT /lessons/{lessonId}/progress)가 서버에 아직 없어
+  // (catalog 'deferred') 지금은 저장 없이 바로 나가고 이 값은 늘 null 이다.
+  // API-409 가 생기면 '나가기'에서 저장을 부르고, 실패하면 이 값을 채워 '다시 시도'로 바꾼다.
+  const [exitSaveError, setExitSaveError] = useState<string | null>(null);
+  // M02_2 학습 불러오기 오류
+  const [loadError, setLoadError] = useState(false);
+  // M02_6 완료 결과 확인 실패. 마지막 콘텐츠 완료(API-405)나 레슨 완료(API-407)가 실패했을 때만 켠다.
+  const [finishError, setFinishError] = useState(false);
   const [resumePosition, setResumePosition] = useState(0);
   const [refreshNotice, setRefreshNotice] = useState(''),
     [wallet, setWallet] = useState<{ stardust: number } | null>(null);
   const replay = params.replay === 'true';
   const lessonId = positiveId(String(params.lessonId));
   const leaveStudy = () => router.replace('/');
-  useEffect(() => {
-    let active = true;
-    void task.run(async () => {
+  // 학습 불러오기(API-404). 실패하면 M02_2 를 띄우고 '다시 시도'로 같은 함수를 다시 부른다.
+  // loadSeq 로 레슨이 바뀌었거나 화면을 떠난 뒤 도착한 응답은 버린다.
+  const loadSeq = useRef(0);
+  const loadLesson = () => {
+    const seq = ++loadSeq.current;
+    const isCurrent = () => seq === loadSeq.current;
+    return task.run(async () => {
       try {
-        const balance = await api.benefits.wallet();
-        if (active && typeof balance.energy === 'number') setEnergyBefore(balance.energy);
-      } catch {
-        // 에너지 표시는 선택 정보라 조회 실패와 관계없이 학습을 시작한다.
+        return await fetchLesson(isCurrent);
+      } catch (error) {
+        if (isCurrent()) setLoadError(true);
+        throw error;
       }
-      const data = await api.learning.start(lessonId, replay);
-      if (!active) return data;
-      loadedLessonId.current = lessonId;
-      setStart(data);
-      setLessonDone(data.progress.status === 'COMPLETED' && !replay);
-      const index =
-        data.progress.resumeContentId === null
-          ? 0
-          : data.contents.findIndex((c) => c.contentId === data.progress.resumeContentId);
-      if (data.progress.resumeContentId !== null && index < 0)
-        throw new Error('이어하기 위치가 콘텐츠 목록에 없습니다.');
-      const lastIndex =
-        data.progress.lastContentId === null
-          ? -1
-          : data.contents.findIndex((c) => c.contentId === data.progress.lastContentId);
-      if (data.progress.lastContentId !== null && lastIndex < 0)
-        throw new Error('완료 위치가 콘텐츠 목록에 없습니다.');
-      setPosition(replay ? 0 : index);
-      setResumePosition(replay ? 0 : index);
-      // 완료한 레슨은 완료 화면을 보여 주므로 이어 하기 모달을 겹쳐 띄우지 않는다.
-      if (
-        !replay &&
-        data.progress.status !== 'COMPLETED' &&
-        (params.resume === 'true' || data.progress.lastContentId !== null)
-      )
-        setResumeOpen(true);
-      setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
-      return data;
     });
+  };
+  const fetchLesson = async (isCurrent: () => boolean) => {
+    try {
+      const balance = await api.benefits.wallet();
+      if (isCurrent() && typeof balance.energy === 'number') setEnergyBefore(balance.energy);
+    } catch {
+      // 에너지 표시는 선택 정보라 조회 실패와 관계없이 학습을 시작한다.
+    }
+    const data = await api.learning.start(lessonId, replay);
+    if (!isCurrent()) return data;
+    loadedLessonId.current = lessonId;
+    setStart(data);
+    setLessonDone(data.progress.status === 'COMPLETED' && !replay);
+    const index =
+      data.progress.resumeContentId === null
+        ? 0
+        : data.contents.findIndex((c) => c.contentId === data.progress.resumeContentId);
+    if (data.progress.resumeContentId !== null && index < 0)
+      throw new Error('이어하기 위치가 콘텐츠 목록에 없습니다.');
+    const lastIndex =
+      data.progress.lastContentId === null
+        ? -1
+        : data.contents.findIndex((c) => c.contentId === data.progress.lastContentId);
+    if (data.progress.lastContentId !== null && lastIndex < 0)
+      throw new Error('완료 위치가 콘텐츠 목록에 없습니다.');
+    setPosition(replay ? 0 : index);
+    setResumePosition(replay ? 0 : index);
+    // 완료한 레슨은 완료 화면을 보여 주므로 이어 하기 모달을 겹쳐 띄우지 않는다.
+    if (
+      !replay &&
+      data.progress.status !== 'COMPLETED' &&
+      (params.resume === 'true' || data.progress.lastContentId !== null)
+    )
+      setResumeOpen(true);
+    setCompleted(new Set(data.contents.slice(0, lastIndex + 1).map((c) => c.contentId)));
+    setLoadError(false);
+    return data;
+  };
+  useEffect(() => {
+    void loadLesson();
     return () => {
-      active = false;
+      loadSeq.current += 1;
     };
   }, [lessonId, replay]);
   useEffect(() => {
@@ -250,11 +274,20 @@ function Study() {
       );
     }
   };
-  const completeContent = (content: Content) =>
+  // final: 마지막 콘텐츠의 완료 보고. 이 호출이 레슨을 끝내므로 실패하면 M02_6 를 띄운다.
+  // 중간 콘텐츠 실패는 지금처럼 상단 오류 문구와 같은 화면 재시도로 둔다.
+  const completeContent = (content: Content, final: boolean) =>
     task.run(async () => {
-      const result = await api.learning.completeContent(content.contentId);
+      let result;
+      try {
+        result = await api.learning.completeContent(content.contentId);
+      } catch (error) {
+        if (final) setFinishError(true);
+        throw error;
+      }
       setCompleted((previous) => new Set(previous).add(content.contentId));
       if (result.lessonCompleted) {
+        setFinishError(false);
         setLessonDone(true);
         // 다시 하기는 completion 이 null(이미 받은 레슨)이거나 미지급 별가루 지급 결과다(API-405).
         setReward(result.completion ?? null);
@@ -262,9 +295,17 @@ function Study() {
       }
       return result;
     });
+  // API-407 은 같은 레슨에 같은 Idempotency-Key 를 다시 쓰므로(client.idempotencyKey) 재시도해도 두 번 지급되지 않는다.
   const completeLesson = () =>
     task.run(async () => {
-      const result = await api.learning.completeLesson(lessonId);
+      let result;
+      try {
+        result = await api.learning.completeLesson(lessonId);
+      } catch (error) {
+        setFinishError(true);
+        throw error;
+      }
+      setFinishError(false);
       setLessonDone(true);
       setReward(result);
       await refreshAfterDone(result);
@@ -282,7 +323,7 @@ function Study() {
       return;
     }
     if (!completed.has(current.contentId)) {
-      const result = await completeContent(current);
+      const result = await completeContent(current, position === contents.length - 1);
       if (!result) {
         if (justGraded) throw new Error('다음 콘텐츠로 이동하지 못했습니다.');
         return;
@@ -295,6 +336,16 @@ function Study() {
       const result = await completeLesson();
       if (!result && justGraded) throw new Error('레슨을 완료하지 못했습니다.');
     }
+  };
+  // M02_6 '다시 시도'. 실패한 완료 호출을 다시 보낸다. 마지막 콘텐츠 완료가 이미 기록됐으면 레슨 완료부터 한다.
+  const retryFinish = async () => {
+    if (!current || task.busy) return;
+    if (!completed.has(current.contentId)) {
+      const result = await completeContent(current, true);
+      if (!result || result.lessonCompleted) return;
+    }
+    if (replay) leaveStudy();
+    else await completeLesson();
   };
   const last = position === contents.length - 1;
   const advanceConcept = () => {
@@ -326,6 +377,8 @@ function Study() {
   );
   const completionScale = Math.min(Math.min(windowWidth, 480) / 402, windowHeight / 874, 1);
   const completionTop = (value: number) => Math.max(0, value * completionScale - insets.top);
+  // 오류 모달이 떠 있으면 같은 오류를 상단 문구로 한 번 더 보이지 않는다.
+  const statusTask = loadError || finishError ? { ...task, error: null } : task;
   return (
     <UserScreen
       title={params.title ?? '학습'}
@@ -397,11 +450,11 @@ function Study() {
       ) : null}
       {completionView ? (
         <View style={s.completionStatus}>
-          <UserStatus task={task} />
+          <UserStatus task={statusTask} />
         </View>
       ) : (
         // 콘텐츠 완료 보고 중 스피너가 흐름에 끼어 화면 전체가 내려갔다 올라오지 않게 띄워서 표시한다.
-        <UserStatus task={task} floatingBusy />
+        <UserStatus task={statusTask} floatingBusy />
       )}
       {start?.reviewRequired ? (
         <>
@@ -670,12 +723,44 @@ function Study() {
         arrowBullet
         centerNotice
         stacked
+        error={exitSaveError}
         confirmLabel="계속 학습"
-        cancelLabel="나가기"
+        cancelLabel={exitSaveError ? '다시 시도' : '나가기'}
         busy={false}
-        onConfirm={() => setExitOpen(false)}
+        onConfirm={() => {
+          setExitSaveError(null);
+          setExitOpen(false);
+        }}
+        // API-409 가 생기기 전까지 '나가기'와 '다시 시도' 모두 저장 없이 나간다.
         onCancel={leaveStudy}
-        onDismiss={() => setExitOpen(false)}
+        onDismiss={() => {
+          setExitSaveError(null);
+          setExitOpen(false);
+        }}
+      />
+      {/* M02_2 학습 불러오기 오류. Figma 알림창_선택지 2개_가로(656:4259) */}
+      <SessionConfirmModal
+        visible={loadError}
+        title="학습 정보를 불러오지 못했어요."
+        notice="연결 상태를 확인한 뒤 다시 시도해 주세요."
+        arrowBullet
+        cancelLabel="닫기"
+        confirmLabel="다시 시도"
+        busy={task.busy}
+        onCancel={leaveStudy}
+        onConfirm={() => void loadLesson()}
+      />
+      {/* M02_6 완료 결과 확인 실패. Figma 알림창_선택지 2개_가로(656:4259) */}
+      <SessionConfirmModal
+        visible={finishError}
+        title="완료 결과를 확인하지 못했어요."
+        notice="아직 완료 처리가 확인되지 않았어요. 결과를 다시 확인해 주세요."
+        arrowBullet
+        cancelLabel="닫기"
+        confirmLabel="다시 시도"
+        busy={task.busy}
+        onCancel={leaveStudy}
+        onConfirm={() => void retryFinish()}
       />
       {firstWelcomeStudy ? (
         <FirstStudyLoginModal
