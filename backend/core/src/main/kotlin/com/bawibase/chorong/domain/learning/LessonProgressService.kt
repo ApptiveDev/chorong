@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional
 class LessonProgressService(
     private val jdbc: JdbcTemplate,
     private val learning: LearningService,
-    private val reviewGate: ReviewGateService,
     private val lessonCompletion: LessonCompletionService,
     private val lessonReplay: LessonReplayService,
     private val wallets: UserWalletService,
@@ -32,17 +31,6 @@ class LessonProgressService(
         if (row.status == "COMPLETED" && !replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (row.status != "COMPLETED" && replay) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (row.status !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw locked()
-        val requiredReview = reviewGate.requiredSet(userId, lessonId)
-        if (requiredReview != null) {
-            return LessonStartResponse(
-                true,
-                requiredReview,
-                LessonProgressState(row.status, row.lastContentId, nextContentId(lessonId, row.lastContentId)),
-                emptyList(),
-                emptyList(),
-            )
-        }
-        reviewGate.markPassed(userId, lessonId)
         if (row.status == "UNLOCKED") {
             jdbc.update(
                 "UPDATE lesson_progress SET status='IN_PROGRESS', modified_at=now() WHERE user_id=? AND lesson_id=?",
@@ -56,7 +44,11 @@ class LessonProgressService(
         val lastContentId = if (replay) replayLastContentId else row.lastContentId
         val resumeId = nextContentId(lessonId, lastContentId)
         val status = if (row.status == "UNLOCKED") "IN_PROGRESS" else row.status
-        return LessonStartResponse(false, null, LessonProgressState(status, lastContentId, resumeId), detail.contents, detail.segments)
+        return LessonStartResponse(
+            progress = LessonProgressState(status, lastContentId, resumeId),
+            contents = detail.contents,
+            segments = detail.segments,
+        )
     }
 
     @Transactional
@@ -93,7 +85,6 @@ class LessonProgressService(
                     completion = lessonCompletion.completeFromProgress(userId, content.lessonId),
                 )
             }
-            reviewGate.enforce(userId, content.lessonId)
             val replayed =
                 lessonReplay.completeContent(
                     userId,
@@ -107,7 +98,6 @@ class LessonProgressService(
         }
         if (row.lastContentId == contentId) return result(content.lessonId, row)
         if (row.status !in setOf("UNLOCKED", "IN_PROGRESS")) throw locked()
-        reviewGate.enforce(userId, content.lessonId)
         if (nextContentId(content.lessonId, row.lastContentId) != contentId) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (content.type == "QUIZ" && !hasCompletedAttempt(userId, content.quizId)) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         jdbc.update(

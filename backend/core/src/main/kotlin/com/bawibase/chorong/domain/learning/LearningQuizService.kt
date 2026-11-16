@@ -34,7 +34,6 @@ data class AnswerResult(
 class LearningQuizService(
     private val jdbc: JdbcTemplate,
     private val quizzes: QuizService,
-    private val reviewGate: ReviewGateService,
     private val studyStreak: StudyStreakService,
     private val clock: Clock,
     private val unlocks: LessonUnlockService,
@@ -87,7 +86,6 @@ class LearningQuizService(
         if (replay && progress != "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (!replay && progress == "COMPLETED") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (progress !in setOf("UNLOCKED", "IN_PROGRESS", "COMPLETED")) throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
-        reviewGate.enforce(userId, lesson.lessonId)
 
         val result = quizzes.submitPublic(userId, quizId, answer, replay)
         if (replay) return result.toAnswerResult(studyStreak.current(userId))

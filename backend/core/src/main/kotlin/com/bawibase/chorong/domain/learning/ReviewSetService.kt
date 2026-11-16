@@ -21,11 +21,8 @@ class ReviewSetService(
     private val kst = ZoneId.of("Asia/Seoul")
 
     @Transactional
-    fun next(
-        userId: Long,
-        lessonId: Long?,
-    ): ReviewSetResponse {
-        if (userId <= 0 || (lessonId != null && lessonId <= 0)) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
+    fun next(userId: Long): ReviewSetResponse {
+        if (userId <= 0) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
         val today = LocalDate.ofInstant(clock.instant(), kst)
         val validUser =
             jdbc
@@ -35,9 +32,8 @@ class ReviewSetService(
                     userId,
                 ).firstOrNull()
         if (validUser == null) throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
-        if (lessonId != null && !lessonExists(lessonId)) throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
 
-        val existing = findOpenSession(userId, today, lessonId)
+        val existing = findOpenSession(userId, today)
         if (existing != null) return sessionResponse(existing, userId, today)
 
         val available = candidates(userId, today)
@@ -48,10 +44,9 @@ class ReviewSetService(
         val sessionId =
             checkNotNull(
                 jdbc.queryForObject(
-                    "INSERT INTO review_session(user_id, lesson_id, review_date) VALUES (?, ?, ?) RETURNING review_session_id",
+                    "INSERT INTO review_session(user_id, review_date) VALUES (?, ?) RETURNING review_session_id",
                     Long::class.java,
                     userId,
-                    lessonId,
                     Date.valueOf(today),
                 ),
             )
@@ -67,18 +62,17 @@ class ReviewSetService(
         return sessionResponse(sessionId, userId, today)
     }
 
+    // 레슨 전 필수 복습(lesson_id 있는 회차)은 없어졌다. 레슨과 무관한 회차만 이어 쓴다.
     private fun findOpenSession(
         userId: Long,
         today: LocalDate,
-        lessonId: Long?,
     ): Long? =
         jdbc
             .query(
-                "SELECT review_session_id FROM review_session WHERE user_id=? AND review_date=? AND lesson_id IS NOT DISTINCT FROM ? AND status='OPEN'",
+                "SELECT review_session_id FROM review_session WHERE user_id=? AND review_date=? AND lesson_id IS NULL AND status='OPEN'",
                 { rs, _ -> rs.getLong(1) },
                 userId,
                 Date.valueOf(today),
-                lessonId,
             ).firstOrNull()
 
     private fun sessionResponse(
@@ -128,9 +122,6 @@ class ReviewSetService(
                 Date.valueOf(today),
             ) ?: 0
         ) < DAILY_REWARD_LIMIT
-
-    private fun lessonExists(lessonId: Long): Boolean =
-        jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM lesson WHERE lesson_id=?)", Boolean::class.java, lessonId) ?: false
 
     private data class Candidate(
         val quizId: Long,

@@ -19,7 +19,6 @@ class LessonCompletionService(
     private val jdbc: JdbcTemplate,
     private val wallets: UserWalletService,
     private val idempotency: IdempotencyService,
-    private val reviewGate: ReviewGateService,
     private val studyStreak: StudyStreakService,
     private val artworks: LearningArtworkService,
     private val clock: Clock,
@@ -80,7 +79,6 @@ class LessonCompletionService(
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
         if (progress.status == "COMPLETED") return response(emptyList(), courseCompleted(userId, lesson.courseId), userId, lessonId)
         if (progress.status != "IN_PROGRESS") throw ApiV1Exception(ApiErrorCode.CONFLICT)
-        reviewGate.enforce(userId, lessonId)
         val lastContentId =
             jdbc
                 .query(
