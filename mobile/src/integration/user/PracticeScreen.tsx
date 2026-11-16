@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { integrationApi as api, client } from '../runtime';
@@ -24,6 +16,7 @@ import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStag
 import { AnimatedReveal } from './AnimatedReveal';
 import { UserScreen, UserStatus } from './Screen';
 import { CompletionResult } from './CompletionResult';
+import { SessionConfirmModal } from './SessionConfirmModal';
 
 export function ReviewScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -204,40 +197,25 @@ export function ReviewScreen() {
       {set?.reviewItems.length === 0 && !set.message ? (
         <Text style={styles.text}>복습할 문제가 없습니다.</Text>
       ) : null}
-      <Modal
+      {/* 복습은 이어 하기가 없다. 나가면 이번 회차는 저장되지 않고 다음에 처음부터 다시 시작한다.
+          학습의 '잠시 멈출까요?'(Figma 알림창_선택지 2개_세로 462:718)와 같은 모달을 쓴다. 이 경우의 시안은 없어 문구는 앱이 정했다. */}
+      <SessionConfirmModal
         visible={exitOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setExitOpen(false)}
-      >
-        <View style={reviewStyles.modalOverlay}>
-          <View style={reviewStyles.modalPanel}>
-            <Text style={reviewStyles.modalTitle}>복습을 나갈까요?</Text>
-            <Text style={reviewStyles.modalCopy}>
-              이번 복습의 맞힌 문제는 오늘 다시 나오지 않아요.
-            </Text>
-            <View style={reviewStyles.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={reviewStyles.modalSecondary}
-                onPress={() => setExitOpen(false)}
-              >
-                <Text style={reviewStyles.modalSecondaryText}>계속 풀기</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                style={reviewStyles.modalPrimary}
-                onPress={() => {
-                  setExitOpen(false);
-                  router.replace('/');
-                }}
-              >
-                <Text style={reviewStyles.modalPrimaryText}>나가기</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="복습을 그만둘까요?"
+        notice={'지금 나가면 이번 복습은 저장되지 않아요.\n다음 복습은 처음부터 다시 시작해요.'}
+        arrowBullet
+        centerNotice
+        stacked
+        confirmLabel="계속 복습"
+        cancelLabel="나가기"
+        busy={false}
+        onConfirm={() => setExitOpen(false)}
+        onCancel={() => {
+          setExitOpen(false);
+          router.replace('/');
+        }}
+        onDismiss={() => setExitOpen(false)}
+      />
     </UserScreen>
   );
 }
@@ -258,43 +236,6 @@ const reviewStyles = StyleSheet.create({
   quizCaption: { color: '#747474', textAlign: 'right', fontFamily: 'PretendardRegular' },
   advanceOverlay: { ...StyleSheet.absoluteFill, zIndex: 5 },
   stage: { flex: 1, minHeight: 0 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: '#34273c63',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalPanel: {
-    width: '100%',
-    maxWidth: 354,
-    borderRadius: 23,
-    backgroundColor: '#fff',
-    padding: 25,
-  },
-  modalTitle: { color: '#282636', fontSize: 20, fontWeight: '700', lineHeight: 30 },
-  modalCopy: { color: '#807188', fontSize: 13, lineHeight: 23, marginTop: 12 },
-  modalActions: { flexDirection: 'row', gap: 9, marginTop: 22 },
-  modalSecondary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#f3f1f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  modalSecondaryText: { color: '#655b76', fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  modalPrimary: {
-    flex: 1,
-    minHeight: 45,
-    borderRadius: 13,
-    backgroundColor: '#302b38',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  modalPrimaryText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 });
 
 export function OnboardingScreen() {
