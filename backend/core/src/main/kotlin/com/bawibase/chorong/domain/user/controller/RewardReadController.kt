@@ -3,7 +3,6 @@ package com.bawibase.chorong.domain.user.controller
 import com.bawibase.chorong.common.api.ApiResponse
 import com.bawibase.chorong.common.api.PagedResponse
 import com.bawibase.chorong.config.CurrentUserId
-import com.bawibase.chorong.domain.user.service.ArtworkPageData
 import com.bawibase.chorong.domain.user.service.ConstellationData
 import com.bawibase.chorong.domain.user.service.InventoryData
 import com.bawibase.chorong.domain.user.service.RewardPageData
@@ -19,14 +18,6 @@ import org.springframework.web.bind.annotation.RestController
 class RewardReadController(
     private val rewards: RewardReadService,
 ) {
-    @GetMapping("/users/me/artworks")
-    @Operation(operationId = "API-908", summary = "학습으로 획득한 그림")
-    fun getArtworks(
-        @CurrentUserId userId: Long,
-        @RequestParam(required = false) cursor: String?,
-        @RequestParam(required = false) size: Int?,
-    ): PagedResponse<ArtworkPageData> = rewards.artworks(userId, cursor, size)
-
     @GetMapping("/users/me/rewards")
     @Operation(operationId = "API-905", summary = "보상 지급 내역")
     fun getRewards(

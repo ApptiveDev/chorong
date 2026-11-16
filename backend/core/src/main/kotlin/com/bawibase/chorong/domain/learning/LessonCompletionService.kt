@@ -20,7 +20,7 @@ class LessonCompletionService(
     private val wallets: UserWalletService,
     private val idempotency: IdempotencyService,
     private val studyStreak: StudyStreakService,
-    private val artworks: LearningArtworkService,
+    private val unlocks: LessonUnlockService,
     private val clock: Clock,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -58,26 +58,24 @@ class LessonCompletionService(
         val lesson =
             jdbc
                 .query(
-                    "SELECT l.course_id, c.is_onboarding, l.artwork_image_url FROM lesson l JOIN course c ON c.course_id=l.course_id WHERE l.lesson_id=?",
-                    { rs, _ -> LessonRow(rs.getLong("course_id"), rs.getBoolean("is_onboarding"), rs.getString("artwork_image_url")) },
+                    "SELECT l.course_id, c.is_onboarding FROM lesson l JOIN course c ON c.course_id=l.course_id WHERE l.lesson_id=?",
+                    { rs, _ -> LessonRow(rs.getLong("course_id"), rs.getBoolean("is_onboarding")) },
                     lessonId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
         if (lesson.onboarding) throw ApiV1Exception(ApiErrorCode.CONFLICT)
         val progress =
             jdbc
                 .query(
-                    "SELECT status,last_content_id,energy_spent FROM lesson_progress WHERE user_id=? AND lesson_id=? FOR UPDATE",
-                    { rs, _ ->
-                        ProgressRow(
-                            rs.getString("status"),
-                            rs.getObject("last_content_id", java.lang.Long::class.java)?.toLong(),
-                            rs.getBoolean("energy_spent"),
-                        )
-                    },
+                    "SELECT status,last_content_id FROM lesson_progress WHERE user_id=? AND lesson_id=? FOR UPDATE",
+                    { rs, _ -> ProgressRow(rs.getString("status"), rs.getObject("last_content_id", java.lang.Long::class.java)?.toLong()) },
                     userId,
                     lessonId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.LESSON_LOCKED)
-        if (progress.status == "COMPLETED") return response(emptyList(), courseCompleted(userId, lesson.courseId), userId, lessonId)
+        // API-405 재시도처럼 이미 완료한 레슨이면 지급·차감 없이 현재 상태만 돌려준다.
+        if (progress.status == "COMPLETED") {
+            val status = if (stardustGranted(userId, lessonId)) LessonRewardStatus.ALREADY_GRANTED else LessonRewardStatus.NO_ENERGY
+            return response(emptyList(), status, userId, firstCompletion = false, courseCompleted = false)
+        }
         if (progress.status != "IN_PROGRESS") throw ApiV1Exception(ApiErrorCode.CONFLICT)
         val lastContentId =
             jdbc
@@ -87,30 +85,28 @@ class LessonCompletionService(
                     lessonId,
                 ).firstOrNull() ?: throw ApiV1Exception(ApiErrorCode.CONFLICT)
         if (progress.lastContentId != lastContentId || hasIncompleteQuiz(userId, lessonId)) throw ApiV1Exception(ApiErrorCode.CONFLICT)
-        val completedAt = clock.instant()
         jdbc.update(
             "UPDATE lesson_progress SET status='COMPLETED',completed_at=?,modified_at=now() WHERE user_id=? AND lesson_id=?",
-            Timestamp.from(completedAt),
+            Timestamp.from(clock.instant()),
             userId,
             lessonId,
         )
         studyStreak.recordCompletedStudy(userId)
-        return grantRewards(userId, lessonId, lesson.courseId, lesson.artworkImageUrl, completedAt, progress.energySpent)
+        return grantRewards(userId, lessonId, lesson.courseId, firstCompletion = true)
     }
 
+    /**
+     * 별(STAR) 뱃지는 레슨마다 한 번 기록한다. 별가루는 레슨마다 한 번, 에너지가 있을 때만 준다.
+     * 별자리 뱃지는 코스의 모든 레슨을 처음 완료했을 때 준다.
+     */
     private fun grantRewards(
         userId: Long,
         lessonId: Long,
         courseId: Long,
-        artworkImageUrl: String?,
-        completedAt: java.time.Instant,
-        energySpent: Boolean,
+        firstCompletion: Boolean,
     ): LessonCompleteResponse {
         val rewards = mutableListOf<LearningReward>()
-        val stardustSkipped = !grantStardust(userId, lessonId, energySpent, rewards)
-
-        if (artworkImageUrl != null) artworks.grant(userId, lessonId, completedAt)?.let(rewards::add)
-
+        val rewardStatus = grantStardust(userId, lessonId, rewards)
         val constellationId =
             jdbc
                 .query(
@@ -118,27 +114,23 @@ class LessonCompletionService(
                     { rs, _ -> rs.getLong("constellation_id").let { if (rs.wasNull()) null else it } },
                     courseId,
                 ).firstOrNull()
-        val courseCompleted = courseCompleted(userId, courseId)
+        val courseCompleted = firstCompletion && courseCompleted(userId, courseId)
         if (constellationId != null && insertStarBadgeReward(userId, lessonId, constellationId)) {
             rewards += LearningReward(type = "CONSTELLATION", badge = LearningRewardBadge("STAR", constellationId, lessonId))
         }
         if (courseCompleted && constellationId != null && insertBadgeReward(userId, courseId, constellationId)) {
-            rewards +=
-                LearningReward(
-                    type = "CONSTELLATION",
-                    badge = LearningRewardBadge("CONSTELLATION", constellationId),
-                )
+            rewards += LearningReward(type = "CONSTELLATION", badge = LearningRewardBadge("CONSTELLATION", constellationId))
         }
         log.info(
-            "learning.lesson.completed userId={} lessonId={} courseId={} courseCompleted={} rewards={} energySpent={}",
+            "learning.lesson.completed userId={} lessonId={} courseId={} rewardStatus={} firstCompletion={} courseCompleted={}",
             userId,
             lessonId,
             courseId,
+            rewardStatus,
+            firstCompletion,
             courseCompleted,
-            rewards.size,
-            energySpent,
         )
-        return response(rewards, courseCompleted, userId, lessonId, stardustSkipped)
+        return response(rewards, rewardStatus, userId, firstCompletion, courseCompleted)
     }
 
     fun stardustGranted(
@@ -152,46 +144,31 @@ class LessonCompletionService(
             stardustSource(lessonId),
         ) ?: false
 
-    /**
-     * 다시 보기를 마쳤을 때 호출한다. 처음 학습 때 에너지가 없어 별가루를 못 받은 레슨은
-     * 에너지를 쓰고 다시 학습하면 이때 받는다. 이미 별가루를 받은 레슨이면 null.
-     */
+    /** 다시 하기를 마쳤을 때 호출한다. 보상을 아직 받지 않은 레슨이면 이때 에너지를 써서 받는다. */
     @Transactional
     fun completeReplay(
         userId: Long,
         lessonId: Long,
-    ): LessonCompleteResponse? {
-        if (stardustGranted(userId, lessonId)) return null
+    ): LessonCompleteResponse {
         val courseId =
             jdbc.queryForObject("SELECT course_id FROM lesson WHERE lesson_id=?", Long::class.java, lessonId)
                 ?: throw ApiV1Exception(ApiErrorCode.NOT_FOUND)
-        val energySpent =
-            jdbc.queryForObject(
-                "SELECT energy_spent FROM lesson_replay_progress WHERE user_id=? AND lesson_id=? FOR UPDATE",
-                Boolean::class.java,
-                userId,
-                lessonId,
-            ) ?: false
-        val rewards = mutableListOf<LearningReward>()
-        val granted = grantStardust(userId, lessonId, energySpent, rewards)
-        if (granted) log.info("learning.lesson.replay_rewarded userId={} lessonId={}", userId, lessonId)
-        return response(rewards, courseCompleted(userId, courseId), userId, lessonId, stardustSkipped = !granted)
+        jdbc.query("SELECT 1 FROM lesson_progress WHERE user_id=? AND lesson_id=? FOR UPDATE", { _, _ -> }, userId, lessonId)
+        return grantRewards(userId, lessonId, courseId, firstCompletion = false)
     }
 
-    /** 에너지를 썼으면 레슨 별가루를 한 번만 준다. 이미 받았거나 지금 받으면 true. */
+    /** 레슨 별가루는 한 번만 준다. 에너지가 없으면 주지 않고 다음 완료 때 다시 확인한다. 호출 전에 lesson_progress 행을 잠근다. */
     private fun grantStardust(
         userId: Long,
         lessonId: Long,
-        energySpent: Boolean,
         rewards: MutableList<LearningReward>,
-    ): Boolean {
-        if (stardustGranted(userId, lessonId)) return true
-        if (!energySpent) return false
-        if (insertWalletReward(userId, "LESSON", lessonId, stardustSource(lessonId), "STARDUST", LESSON_STARDUST_REWARD)) {
-            wallets.credit(userId, WalletCurrency.STARDUST, LESSON_STARDUST_REWARD)
-            rewards += LearningReward("WALLET", "STARDUST", LESSON_STARDUST_REWARD)
-        }
-        return true
+    ): LessonRewardStatus {
+        if (stardustGranted(userId, lessonId)) return LessonRewardStatus.ALREADY_GRANTED
+        if (!wallets.spendEnergy(userId)) return LessonRewardStatus.NO_ENERGY
+        check(insertWalletReward(userId, "LESSON", lessonId, stardustSource(lessonId), "STARDUST", LESSON_STARDUST_REWARD))
+        wallets.credit(userId, WalletCurrency.STARDUST, LESSON_STARDUST_REWARD)
+        rewards += LearningReward("WALLET", "STARDUST", LESSON_STARDUST_REWARD)
+        return LessonRewardStatus.GRANTED
     }
 
     private fun stardustSource(lessonId: Long) = "LESSON:$lessonId:WALLET:STARDUST"
@@ -272,30 +249,29 @@ class LessonCompletionService(
 
     private fun response(
         rewards: List<LearningReward>,
-        courseCompleted: Boolean,
+        rewardStatus: LessonRewardStatus,
         userId: Long,
-        lessonId: Long,
-        stardustSkipped: Boolean = false,
+        firstCompletion: Boolean,
+        courseCompleted: Boolean,
     ): LessonCompleteResponse {
         val wallet = wallets.ensureWallet(userId)
-        val summary =
+        val completedLessons =
             jdbc.queryForObject(
-                """SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE attempt.correct)::int AS correct
-               FROM lesson_content lc
-               JOIN quiz_item qi ON qi.quiz_id=lc.quiz_id AND qi.explanation IS NOT NULL
-               JOIN lesson_progress lp ON lp.lesson_id=lc.lesson_id AND lp.user_id=?
-               JOIN LATERAL (
-                   SELECT qa.correct FROM quiz_attempt qa
-                   WHERE qa.quiz_id=lc.quiz_id AND qa.user_id=lp.user_id AND qa.graded AND qa.completed
-                     AND NOT qa.replay AND qa.submitted_at <= lp.completed_at
-                   ORDER BY qa.submitted_at DESC, qa.attempt_id DESC LIMIT 1
-               ) attempt ON true
-               WHERE lc.lesson_id=? AND lc.content_type='QUIZ'""",
-                { rs, _ -> QuizSummary(rs.getInt("correct"), rs.getInt("total")) },
+                """SELECT COUNT(*) FROM lesson_progress lp JOIN course c ON c.course_id=lp.course_id
+                   WHERE lp.user_id=? AND lp.status='COMPLETED' AND NOT c.is_onboarding""",
+                Int::class.java,
                 userId,
-                lessonId,
-            ) ?: QuizSummary(0, 0)
-        return LessonCompleteResponse(rewards, wallets.balances(wallet), courseCompleted, summary, stardustSkipped)
+            ) ?: 0
+        val next = unlocks.map(userId).current()?.let { NextLesson(it.lessonId, it.courseId, it.title) }
+        return LessonCompleteResponse(
+            rewards = rewards,
+            wallet = wallets.balances(wallet),
+            rewardStatus = rewardStatus,
+            firstLesson = firstCompletion && completedLessons == 1,
+            firstCompletion = firstCompletion,
+            courseCompleted = courseCompleted,
+            nextLesson = next,
+        )
     }
 
     private fun ensureUser(userId: Long) {
@@ -310,16 +286,14 @@ class LessonCompletionService(
     private data class LessonRow(
         val courseId: Long,
         val onboarding: Boolean,
-        val artworkImageUrl: String?,
     )
 
     private data class ProgressRow(
         val status: String,
         val lastContentId: Long?,
-        val energySpent: Boolean,
     )
 
     companion object {
-        private const val LESSON_STARDUST_REWARD = 1L
+        const val LESSON_STARDUST_REWARD = 10L
     }
 }
