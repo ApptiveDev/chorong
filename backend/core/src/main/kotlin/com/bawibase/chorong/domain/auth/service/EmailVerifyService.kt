@@ -4,7 +4,7 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.domain.auth.dto.GuestAuthData
 import com.bawibase.chorong.domain.auth.dto.UserBrief
 import com.bawibase.chorong.domain.user.AuthProvider
-import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.UserNicknameService
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserPasswordEntity
@@ -47,6 +47,7 @@ class EmailVerifyService(
     private val refreshTokens: UserRefreshTokenRepository,
     private val codeEncoder: PasswordEncoder,
     private val tokens: TokenService,
+    private val nicknames: UserNicknameService,
     private val clock: Clock,
     @Value("\${spring.flyway.default-schema}") schema: String,
 ) {
@@ -119,6 +120,7 @@ class EmailVerifyService(
         passwords.saveAndFlush(UserPasswordEntity(checkNotNull(auth.id), session.passwordHash, now))
         user.email = session.email
         user.status = UserStatus.ACTIVE
+        nicknames.assignDefaultIfMissing(user)
         jdbc.update("UPDATE $table SET consumed_at = ? WHERE verification_id = ?", now, verificationId)
         val token = tokens.issue(userId, device)
         log.info("auth.linked userId={} provider=PASSWORD", userId)
@@ -128,7 +130,7 @@ class EmailVerifyService(
                     token.accessToken,
                     token.refreshToken,
                     token.expiresIn,
-                    UserBrief(userId, UserNicknamePolicy.displayName(user.nickname, user.status), user.status),
+                    UserBrief.of(userId, user),
                     isNew = false,
                 ),
         )

@@ -161,6 +161,56 @@ class UserStateMigrationTest {
         }
     }
 
+    @Test fun `v53 backfills user codes by signup order and resolves duplicate nicknames`() {
+        val schema = "user_code_upgrade"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("52")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(postgres.jdbcUrl, postgres.username, postgres.password))
+        // user_id 순서와 가입일 순서를 일부러 다르게 둔다.
+        for ((id, created, nickname) in listOf(
+            Triple(10L, "2026-03-01", "초롱"),
+            Triple(20L, "2026-01-01", " 초롱 "),
+            Triple(30L, "2026-02-01", null),
+            Triple(40L, "2026-04-01", "   "),
+        )) {
+            jdbc.update(
+                "INSERT INTO $schema.app_user(user_id,nickname,created_at) VALUES (?,?,?::timestamptz)",
+                id,
+                nickname,
+                created,
+            )
+        }
+        migrate("53")
+        val rows =
+            jdbc
+                .queryForList("SELECT user_id, user_code, nickname FROM $schema.app_user ORDER BY user_id")
+                .associateBy { (it["user_id"] as Number).toLong() }
+        assertEquals("42001000", rows.getValue(20)["user_code"])
+        assertEquals("42001001", rows.getValue(30)["user_code"])
+        assertEquals("42001002", rows.getValue(10)["user_code"])
+        assertEquals("42001003", rows.getValue(40)["user_code"])
+        // 먼저 가입한 20번이 닉네임을 지키고, 10번은 기본값으로 바뀐다.
+        assertEquals("초롱", rows.getValue(20)["nickname"])
+        assertEquals("No. 42001002", rows.getValue(10)["nickname"])
+        assertEquals(null, rows.getValue(30)["nickname"])
+        assertEquals(null, rows.getValue(40)["nickname"])
+
+        jdbc.update("INSERT INTO $schema.app_user(user_id) VALUES (50)")
+        assertEquals("42001004", jdbc.queryForObject("SELECT user_code FROM $schema.app_user WHERE user_id=50", String::class.java))
+        assertFailsWith<DataIntegrityViolationException> {
+            jdbc.update("UPDATE $schema.app_user SET nickname='초롱' WHERE user_id=50")
+        }
+    }
+
     companion object {
         @Container
         @JvmField

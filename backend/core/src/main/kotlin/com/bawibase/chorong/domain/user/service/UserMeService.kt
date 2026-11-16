@@ -4,11 +4,13 @@ import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.UserNicknameService
 import com.bawibase.chorong.domain.user.controller.WalletBalancesResponse
 import com.bawibase.chorong.domain.user.entity.UserEntity
 import com.bawibase.chorong.domain.user.repository.UserAuthRepository
 import com.bawibase.chorong.domain.user.repository.UserRepository
 import com.fasterxml.jackson.databind.JsonNode
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -25,6 +27,7 @@ data class UserMeHousing(
 
 data class UserMeResponse(
     val userId: Long,
+    val userCode: String,
     val nickname: String,
     val status: String,
     val providers: List<String>,
@@ -43,6 +46,7 @@ class UserMeService(
     private val users: UserRepository,
     private val auths: UserAuthRepository,
     private val wallets: UserWalletService,
+    private val nicknames: UserNicknameService,
 ) {
     @Transactional
     fun get(userId: Long): UserMeResponse {
@@ -81,6 +85,7 @@ class UserMeService(
             ) ?: 0
         return UserMeResponse(
             userId = userId,
+            userCode = checkNotNull(user.userCode),
             nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             status = user.status.name,
             providers = providers,
@@ -117,9 +122,18 @@ class UserMeService(
         if (!updateNickname && pushEnabled == null) throw ApiV1Exception(ApiErrorCode.VALIDATION_FAILED)
 
         val user = findAvailableUserForUpdate(userId)
-        if (updateNickname) user.nickname = nickname
+        if (updateNickname && nickname != user.nickname) {
+            val value = checkNotNull(nickname)
+            nicknames.requireAvailable(value, userId)
+            user.nickname = value
+        }
         pushEnabled?.let { user.pushEnabled = it }
-        users.save(user)
+        try {
+            users.saveAndFlush(user)
+        } catch (e: DataIntegrityViolationException) {
+            // 동시에 같은 닉네임을 저장하면 유니크 인덱스가 막는다.
+            throw ApiV1Exception(ApiErrorCode.NICKNAME_TAKEN)
+        }
         return get(userId)
     }
 

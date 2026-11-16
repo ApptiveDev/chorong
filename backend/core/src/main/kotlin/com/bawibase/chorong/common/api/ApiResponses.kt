@@ -60,6 +60,7 @@ enum class ApiErrorCode(
     LAST_AUTH_METHOD(HttpStatus.BAD_REQUEST, "마지막 로그인 수단은 해제할 수 없습니다."),
     ACCOUNT_EXISTS_FOR_PROVIDER(HttpStatus.CONFLICT, "이미 연결된 로그인 수단입니다."),
     VERIFICATION_INVALID(HttpStatus.BAD_REQUEST, "인증코드가 만료되었거나 올바르지 않습니다."),
+    NICKNAME_TAKEN(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."),
     QUIZ_DATA_INVALID(HttpStatus.CONFLICT, "문제 설정이 올바르지 않습니다."),
     LESSON_LOCKED(HttpStatus.FORBIDDEN, "아직 해금되지 않은 학습입니다."),
     REVIEW_SESSION_CLOSED(HttpStatus.CONFLICT, "이미 끝난 복습입니다."),

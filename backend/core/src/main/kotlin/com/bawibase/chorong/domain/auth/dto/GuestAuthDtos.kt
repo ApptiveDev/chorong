@@ -1,6 +1,8 @@
 package com.bawibase.chorong.domain.auth.dto
 
+import com.bawibase.chorong.domain.user.UserNicknamePolicy
 import com.bawibase.chorong.domain.user.UserStatus
+import com.bawibase.chorong.domain.user.entity.UserEntity
 import jakarta.validation.constraints.Pattern
 
 enum class DevicePlatform { IOS, ANDROID }
@@ -25,6 +27,14 @@ data class GuestAuthData(
 
 data class UserBrief(
     val userId: Long,
+    val userCode: String,
     val nickname: String,
     val status: UserStatus,
-)
+) {
+    companion object {
+        fun of(
+            userId: Long,
+            user: UserEntity,
+        ) = UserBrief(userId, checkNotNull(user.userCode), UserNicknamePolicy.displayName(user.nickname, user.status), user.status)
+    }
+}

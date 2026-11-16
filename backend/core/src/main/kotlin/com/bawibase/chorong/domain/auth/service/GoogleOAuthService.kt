@@ -9,7 +9,7 @@ import com.bawibase.chorong.domain.auth.dto.UserBrief
 import com.bawibase.chorong.domain.housing.service.HousingCatalogService
 import com.bawibase.chorong.domain.housing.service.HousingService
 import com.bawibase.chorong.domain.user.AuthProvider
-import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.UserNicknameService
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
@@ -36,6 +36,7 @@ class GoogleOAuthService(
     private val housing: HousingService,
     private val wallets: UserWalletService,
     private val tokens: TokenService,
+    private val nicknames: UserNicknameService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -67,13 +68,14 @@ class GoogleOAuthService(
             }
             if (existing == null) addIdentity(currentUserId, provider, subject)
             user.status = UserStatus.ACTIVE
+            nicknames.assignDefaultIfMissing(user)
             created = false
         } else if (existing != null) {
             user = users.findByIdForUpdate(existing.userId) ?: throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
             if (user.status != UserStatus.ACTIVE) throw ApiV1Exception(ApiErrorCode.UNAUTHORIZED)
             created = false
         } else {
-            user = users.saveAndFlush(UserEntity().apply { status = UserStatus.ACTIVE })
+            user = users.saveAndFlush(UserEntity(nickname = nicknames.newDefault()).apply { status = UserStatus.ACTIVE })
             val id = checkNotNull(user.id)
             addIdentity(id, provider, subject)
             val snapshot = catalog.snapshot()
@@ -98,7 +100,7 @@ class GoogleOAuthService(
             token.accessToken,
             token.refreshToken,
             token.expiresIn,
-            UserBrief(id, UserNicknamePolicy.displayName(user.nickname, user.status), user.status),
+            UserBrief.of(id, user),
             created,
         )
     }
