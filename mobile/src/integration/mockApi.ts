@@ -1,5 +1,6 @@
 import type { EnabledApiId } from './catalog';
 import type { MockResponder } from './client';
+import type { Lesson } from './models';
 import {
   chosungCountMockQuizId,
   chosungMockQuizId,
@@ -142,7 +143,26 @@ const response = (data?: unknown, paged = false) => ({
 });
 const id = (options: { path?: Record<string, string | number> }, key: string) =>
   Number(options.path?.[key]);
-const lesson = (lessonId: number) => lessons.find((item) => item.lessonId === lessonId);
+// 서버처럼 학습 레슨의 첫 퀴즈는 채점하지 않는다(QuizPublic.graded=false, 0.4.1).
+// 목업 첫 레슨(lessons[0])의 퀴즈는 온보딩 퀴즈와 ID 가 같아 구분할 수 없으므로 두 번째 레슨부터 적용한다.
+const ungradedFirstQuizIds = new Set(
+  lessons
+    .slice(1)
+    .map((item) => item.contents.find((content) => content.quiz)?.quiz?.quizId)
+    .filter((quizId): quizId is number => quizId !== undefined),
+);
+const withUngradedFirstQuiz = (item: Lesson): Lesson => ({
+  ...item,
+  contents: item.contents.map((content) =>
+    content.quiz && ungradedFirstQuizIds.has(content.quiz.quizId)
+      ? { ...content, quiz: { ...content.quiz, graded: false } }
+      : content,
+  ),
+});
+const lesson = (lessonId: number) => {
+  const found = lessons.find((item) => item.lessonId === lessonId);
+  return found && withUngradedFirstQuiz(found);
+};
 const card = (housingId: number) => socialCards.find((item) => item.housingId === housingId);
 const courseDone = (courseId: number) =>
   courses
@@ -360,6 +380,8 @@ const presentedMockAnswers = new Map([
     inlineWordMockQuizId,
     {
       answer: 6,
+      // 틀린 낱말(산소) 자리에 들어갈 바른 낱말. 서버처럼 채점 결과로만 돌려준다.
+      correctWord: '헬륨',
       explanation: '수소 원자핵이 합쳐지는 일, 핵융합이에요.\n이때 줄어든 질량이 빛과 열이 돼요.',
     },
   ],
@@ -371,6 +393,7 @@ const scorePresentedAnswer = (quizId: number, raw: unknown) => {
     correct: body(raw).answer === expected.answer,
     expected: expected.answer,
     explanation: expected.explanation,
+    ...('correctWord' in expected ? { correctWord: expected.correctWord } : {}),
   };
 };
 // 서버 채점 대역. 명세대로 |answer - 정답| <= 허용 오차면 정답이고 closeness(0~100)를 돌려준다.
@@ -475,23 +498,14 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       return response({
         courses: empty
           ? []
-          : courses
-              .filter((item) => {
-                const query = options.query as { category?: string; topic?: string } | undefined;
-                return (
-                  (!query?.category || item.category === query.category) &&
-                  (!query?.topic || item.topic === query.topic)
-                );
-              })
-              .map(({ lessons, description, ...summary }) => ({
-                ...summary,
-                completedLessons:
-                  summary.completedLessons +
-                  lessons.filter(
-                    (item) =>
-                      item.status !== 'COMPLETED' && state.rewardedLessons.has(item.lessonId),
-                  ).length,
-              })),
+          : courses.map(({ lessons, description, ...summary }) => ({
+              ...summary,
+              completedLessons:
+                summary.completedLessons +
+                lessons.filter(
+                  (item) => item.status !== 'COMPLETED' && state.rewardedLessons.has(item.lessonId),
+                ).length,
+            })),
       });
     case 'API-402': {
       const selected =
@@ -677,10 +691,23 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         if (apiId === 'API-502' && scored.correct)
           state.reviewedToday.set(quizId, new Date().toISOString().slice(0, 10));
       }
+      // 채점하지 않는 첫 퀴즈: isCorrect=null, correctAnswer 없음(해설은 그대로).
+      if (apiId === 'API-406' && quizId && ungradedFirstQuizIds.has(quizId))
+        return response({
+          attemptId: 1,
+          graded: false,
+          isCorrect: null,
+          explanation: scored.explanation ?? '내용을 잘 이해했어요.',
+          streakDays: 2,
+        });
       return response({
         attemptId: 1,
+        graded: true,
         isCorrect: scored.correct,
         correctAnswer: { answer: scored.expected },
+        ...('correctWord' in scored && scored.correct !== undefined
+          ? { correctWord: scored.correctWord }
+          : {}),
         ...('closeness' in scored ? { closeness: scored.closeness } : {}),
         explanation: scored.explanation ?? '내용을 잘 이해했어요.',
         streakDays: 2,
@@ -1014,6 +1041,18 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
                 ).length,
               badgeEarned: state.completedConstellations.has(course.courseId),
               imageUrl: null,
+              // 완료하지 않은 별은 title=null(앱은 ??? 로 표시).
+              stars: course.lessons.map((item) => {
+                const completed =
+                  item.status === 'COMPLETED' || state.rewardedLessons.has(item.lessonId);
+                return {
+                  lessonId: item.lessonId,
+                  title: completed ? item.title : null,
+                  order: item.order,
+                  completed,
+                  completedAt: completed ? item.completedAt : null,
+                };
+              }),
             })),
       });
     case 'API-907':
@@ -1029,7 +1068,5 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
               ),
             ),
       });
-    case 'API-908':
-      return response({ artworks: [] }, true);
   }
 };

@@ -47,12 +47,19 @@ export function array<T>(schema: Schema<T>): Schema<T[]> {
     return v as T[];
   };
 }
-export function object<S extends Record<string, Schema<unknown>>>(
-  shape: S,
-): Schema<{ [K in keyof S]: Infer<S[K]> }> {
+// optional(...) 칸은 응답에서 생략될 수 있으므로 타입에서도 선택 키(?)로 둔다.
+type OptionalKeys<S> = {
+  [K in keyof S]: undefined extends Infer<S[K]> ? K : never;
+}[keyof S];
+type ObjectOf<S> = {
+  [K in Exclude<keyof S, OptionalKeys<S>>]: Infer<S[K]>;
+} & { [K in OptionalKeys<S>]?: Infer<S[K]> } extends infer T
+  ? { [K in keyof T]: T[K] }
+  : never;
+export function object<S extends Record<string, Schema<unknown>>>(shape: S): Schema<ObjectOf<S>> {
   return (v, p = '$') => {
     if (!objectValue(v)) throw new ContractError(p);
     for (const [key, schema] of Object.entries(shape)) schema(v[key], `${p}.${key}`);
-    return v as { [K in keyof S]: Infer<S[K]> };
+    return v as ObjectOf<S>;
   };
 }

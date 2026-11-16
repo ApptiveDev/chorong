@@ -13,8 +13,7 @@ export default function LearningScreen() {
 function LearningFlow() {
   const auth = useIntegration(),
     task = useTask();
-  const [category, setCategory] = useState(''),
-    [courses, setCourses] = useState<Course[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [course, setCourse] = useState<CourseDetail | null>(null),
     [lesson, setLesson] = useState<Lesson | null>(null);
   const [contents, setContents] = useState<Content[]>([]),
@@ -60,8 +59,8 @@ function LearningFlow() {
       const result = await api.learning.start(lesson.lessonId, isReplay);
       setAttempt((n) => n + 1);
       setReplay(isReplay);
-      setReviewRequired(result.reviewRequired);
-      setStarted(!result.reviewRequired);
+      setReviewRequired(result.reviewRequired === true);
+      setStarted(result.reviewRequired !== true);
       setContents(result.contents);
       setAnswered(new Set());
       setCompleted(new Set());
@@ -79,13 +78,12 @@ function LearningFlow() {
     <Page title="코스 → 레슨 → 콘텐츠 → 보상">
       <TaskStatus task={task} />
       <Card title="[API-401] 코스 목록">
-        <Field label="카테고리 (생략 시 전체)" value={category} onChange={setCategory} />
         <Button
           title="코스 조회"
           disabled={task.busy || !auth.authenticated}
           onPress={() =>
             void task.run(async () => {
-              const data = await api.learning.courses(category || undefined);
+              const data = await api.learning.courses();
               setCourses(data.courses);
               setCourse(null);
               resetLesson();
@@ -96,7 +94,7 @@ function LearningFlow() {
         {courses.map((c) => (
           <Button
             key={c.courseId}
-            title={`${c.title} · ${c.category} · ${c.completedLessons}/${c.totalLessons} · 선택`}
+            title={`${c.title} · ${c.completedLessons}/${c.totalLessons} · 선택`}
             disabled={task.busy}
             onPress={() =>
               void task.run(async () => {

@@ -59,13 +59,8 @@ export function createIntegrationApi(client: IntegrationClient) {
       client.request('API-302', null, { path: { deviceUuid: await client.deviceUuid() } }),
   };
   const learning = {
-    courses: (category?: string, topic?: string) =>
-      client.request('API-401', object({ courses: array(m.courseSummary) }), {
-        query:
-          category || topic
-            ? { ...(category ? { category } : {}), ...(topic ? { topic } : {}) }
-            : undefined,
-      }),
+    // 0.4.0 부터 분야·주제 필터가 없다. 서버는 별자리 order 순으로 돌려준다.
+    courses: () => client.request('API-401', object({ courses: array(m.courseSummary) })),
     course: (courseId: number) => client.request('API-402', m.courseDetail, { path: { courseId } }),
     lesson: (lessonId: number) =>
       client.request('API-403', contract.lesson, { path: { lessonId } }),

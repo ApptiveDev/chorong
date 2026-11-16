@@ -26,8 +26,11 @@ export function QuizFeedbackSheet({
   nextDisabled,
   onNext,
   correctNote,
+  ungraded = false,
 }: {
   result: AnswerResult;
+  // 채점하지 않는 문항(quizGrading.isUngraded). 정답·오답 줄 없이 해설과 [다음]만 보여 준다.
+  ungraded?: boolean;
   // 0 → 1 로 움직이면 시트가 아래에서 올라온다.
   progress: Animated.Value;
   nextDisabled: boolean;
@@ -37,7 +40,7 @@ export function QuizFeedbackSheet({
 }) {
   const resultColor = result.isCorrect ? color.correct : color.wrong;
   const explanation = result.explanation?.trim() ? result.explanation.trim().split(/\s*\n\s*/) : [];
-  if (result.isCorrect && correctNote) explanation.push(correctNote);
+  if (!ungraded && result.isCorrect && correctNote) explanation.push(correctNote);
   return (
     <Animated.View
       accessibilityLiveRegion="polite"
@@ -58,12 +61,14 @@ export function QuizFeedbackSheet({
     >
       <View style={s.handle} />
       <View style={s.feedback}>
-        <View style={s.feedbackTitleRow}>
-          {result.isCorrect ? <CorrectStarIcon /> : <WrongCrossIcon />}
-          <Text style={[s.feedbackTitle, { color: resultColor }]}>
-            {result.isCorrect ? '정답' : '오답'}
-          </Text>
-        </View>
+        {ungraded ? null : (
+          <View style={s.feedbackTitleRow}>
+            {result.isCorrect ? <CorrectStarIcon /> : <WrongCrossIcon />}
+            <Text style={[s.feedbackTitle, { color: resultColor }]}>
+              {result.isCorrect ? '정답' : '오답'}
+            </Text>
+          </View>
+        )}
         {explanation.length ? (
           <View style={s.explanation}>
             {explanation.map((line, index) => (

@@ -1,26 +1,31 @@
 // 축소 그림. SINGLE + config.presentation.type === 'ZOOM_OUT'.
 // Figma 축소 그림(740:1763)·정답(740:1817)을 따른다. 화면 틀은 PresentedChoiceQuiz 가 맡는다.
 //
-// 사진의 무작위 지점을 서버 stages(배율, 예: [6, 4, 2, 1])의 첫 배율로 크게 확대해 두고
-// 단계를 앞에서 뒤로 아주 천천히 지나 원본 크기(1배)로 줄인다. 단계 사이 칸은 같은 시간이다.
+// 사진의 무작위 지점을 서버 stages(배율, 예: [6, 4, 2, 1])의 첫 배율로 크게 확대해 둔다.
+// 사진을 누를 때마다 다음 배율로 짧게 줄어들고, 마지막은 원본 크기(1배)다. 보기는 언제든 고를 수 있다.
 // 그 지점을 화면에 고정한 채 확대·축소하므로(x' = s·x + p·(1 − s)) 지점이 사진 안이면
-// 어느 배율에서도 사진이 틀을 빈틈없이 채운다. 칸 안에서는 배율을 같은 비율씩 줄여 일정한 속도로 보인다.
-// 정답이면 해설 시트에 'n배 확대에서 맞췄어요.'를 덧붙인다(n: 보기를 고른 순간의 배율, 반올림).
-import { useState } from 'react';
-import { Animated, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+// 어느 배율에서도 사진이 틀을 빈틈없이 채운다. 채점 결과가 나오면 원본 크기까지 줄인다.
+// 정답이면 해설 시트에 'n배 확대에서 맞췄어요.'를 덧붙인다(n: 보기를 고른 순간의 배율).
+import { useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  StyleSheet,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { studyImageSource } from './lessonImagePreload';
 import { PresentedChoiceQuiz, type PresentedChoiceProps } from './PresentedChoiceQuiz';
 import { presentationImageUrl, presentationStages } from './presentationImage';
-import { useSlowReveal } from './slowReveal';
 
 // stages 가 없거나 규칙에 맞지 않을 때 쓰는 배율.
-export const ZOOM_OUT_DEFAULT_STAGES = [6, 1] as const;
-// 첫 배율에서 원본 크기가 될 때까지 걸리는 시간(단계 수와 관계없이 같다). 채점 뒤 마무리는 slowReveal 이 정한다.
-export const ZOOM_OUT_DURATION_MS = 36000;
+export const ZOOM_OUT_DEFAULT_STAGES = [6, 4, 2, 1] as const;
+// 한 번 눌렀을 때 다음 배율로 줄어드는 시간.
+export const ZOOM_OUT_STEP_MS = 350;
 // 확대 지점을 고르는 범위(사진 폭·높이 비율). 가장자리 빈 배경에 걸리는 일을 줄인다.
 export const ZOOM_OUT_FOCUS_RANGE = { min: 0.15, max: 0.85 } as const;
-// 단계 사이 칸 하나를 나누는 표본 수. 칸 안의 곡선을 구간별 직선으로 근사한다.
-const SAMPLES_PER_SPAN = 6;
 
 type Random = () => number;
 
@@ -31,26 +36,7 @@ export function randomZoomFocus(random: Random = Math.random) {
   return { x: pick(), y: pick() };
 }
 
-/** 진행 t(0~1)에 따른 배율. 단계 i → i+1 칸에서 stages[i]·(stages[i+1]/stages[i])^u 로 줄어든다. */
-export function zoomScaleAt(progress: number, stages: readonly number[]) {
-  const spans = stages.length - 1;
-  if (spans <= 0) return stages[0] ?? 1;
-  const position = Math.min(Math.max(progress, 0), 1) * spans;
-  const span = Math.min(Math.floor(position), spans - 1);
-  const from = stages[span];
-  const to = stages[span + 1];
-  return from * (to / from) ** (position - span);
-}
-
-/** 배율 곡선 표본(Animated interpolate 용). 단계 값에서 정확히 꺾이도록 칸마다 같은 수로 나눈다. */
-export function zoomScaleCurve(stages: readonly number[], samplesPerSpan = SAMPLES_PER_SPAN) {
-  const spans = Math.max(stages.length - 1, 1);
-  const count = spans * samplesPerSpan;
-  const input = Array.from({ length: count + 1 }, (_, i) => i / count);
-  return { input, scale: input.map((t) => zoomScaleAt(t, stages)) };
-}
-
-/** 정답 문구. 원본 크기(1배)까지 줄어든 뒤 맞혔으면 배율 대신 원본이라고 쓴다. */
+/** 정답 문구. 원본 크기(1배)에서 맞혔으면 배율 대신 원본이라고 쓴다. */
 export function zoomOutCorrectNote(scale: number) {
   const rounded = Math.round(scale);
   return rounded <= 1 ? '원본 크기에서 맞췄어요.' : `${rounded}배 확대에서 맞췄어요.`;
@@ -59,22 +45,23 @@ export function zoomOutCorrectNote(scale: number) {
 export function ZoomOutQuiz(props: PresentedChoiceProps) {
   const url = presentationImageUrl(props.quiz, 'ZOOM_OUT');
   const stages = presentationStages(props.quiz, 'ZOOM_OUT') ?? [...ZOOM_OUT_DEFAULT_STAGES];
-  const [answeredScale, setAnsweredScale] = useState<number | null>(null);
+  const last = stages.length - 1;
+  // 지금 보이는 단계. 보기를 고른 뒤에는 넘길 수 없어 이 값이 곧 답한 순간의 단계다.
+  const [stage, setStage] = useState(0);
   return (
     <PresentedChoiceQuiz
       {...props}
       topSpace={80}
       gap={20}
-      correctNote={answeredScale === null ? null : zoomOutCorrectNote(answeredScale)}
+      correctNote={zoomOutCorrectNote(stages[Math.min(stage, last)])}
       media={({ locked, graded }) =>
         url ? (
           <ZoomOutImage
             url={url}
-            stages={stages}
+            zoom={stages[graded ? last : Math.min(stage, last)]}
             scale={props.scale}
-            paused={locked}
-            finish={graded}
-            onAnswerScale={setAnsweredScale}
+            canAdvance={!locked && !props.disabled && stage < last}
+            onAdvance={() => setStage((value) => Math.min(value + 1, last))}
           />
         ) : null
       }
@@ -85,30 +72,46 @@ export function ZoomOutQuiz(props: PresentedChoiceProps) {
 // Figma 740:1768: 폭 전체(330)×260, 모서리 12, 사진 뒤 #D9D9D9.
 function ZoomOutImage({
   url,
-  stages,
+  zoom,
   scale,
-  paused,
-  finish,
-  onAnswerScale,
+  canAdvance,
+  onAdvance,
 }: {
   url: string;
-  // 배율. 마지막은 1(원본 크기).
-  stages: number[];
+  // 지금 보여 줄 배율. 1 이면 원본 크기.
+  zoom: number;
   scale: number;
-  paused: boolean;
-  finish: boolean;
-  onAnswerScale: (scale: number) => void;
+  // 눌러서 다음 배율로 갈 수 있는지(보기를 고르기 전이고 마지막 배율이 아닐 때).
+  canAdvance: boolean;
+  onAdvance: () => void;
 }) {
   const [focus] = useState(() => randomZoomFocus());
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const progress = useSlowReveal({
-    started: loaded && !!size,
-    paused,
-    finish,
-    durationMs: ZOOM_OUT_DURATION_MS,
-    onPause: (value) => onAnswerScale(zoomScaleAt(value, stages)),
-  });
+  const value = useRef(new Animated.Value(zoom)).current;
+  const reduceMotion = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active) reduceMotion.current = enabled;
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      value.stopAnimation();
+    };
+  }, [value]);
+
+  useEffect(() => {
+    if (reduceMotion.current) return value.setValue(zoom);
+    Animated.timing(value, {
+      toValue: zoom,
+      duration: ZOOM_OUT_STEP_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: Platform.OS !== 'web',
+    }).start();
+  }, [zoom, value]);
 
   const onLayout = ({ nativeEvent }: LayoutChangeEvent) => {
     const { width, height } = nativeEvent.layout;
@@ -118,38 +121,30 @@ function ZoomOutImage({
   // 확대 지점의 틀 가운데 기준 위치(px). 크기를 재기 전에는 가운데로 둔다.
   const px = size ? (focus.x - 0.5) * size.width : 0;
   const py = size ? (focus.y - 0.5) * size.height : 0;
-  const curve = zoomScaleCurve(stages);
+  const shrink = Animated.subtract(1, value);
   const transform = [
-    {
-      translateX: progress.interpolate({
-        inputRange: curve.input,
-        outputRange: curve.scale.map((s) => px * (1 - s)),
-      }),
-    },
-    {
-      translateY: progress.interpolate({
-        inputRange: curve.input,
-        outputRange: curve.scale.map((s) => py * (1 - s)),
-      }),
-    },
-    { scale: progress.interpolate({ inputRange: curve.input, outputRange: curve.scale }) },
+    { translateX: Animated.multiply(shrink, px) },
+    { translateY: Animated.multiply(shrink, py) },
+    { scale: value },
   ];
 
   return (
-    <View
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel="크게 확대했다가 점점 줄어드는 사진"
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="이미지 축소"
+      accessibilityValue={{ text: zoom > 1 ? `${zoom}배 확대` : '원본 크기' }}
+      accessibilityState={{ disabled: !canAdvance }}
+      disabled={!canAdvance}
+      onPress={onAdvance}
       onLayout={onLayout}
       style={[s.frame, { height: 260 * scale }]}
     >
       <Animated.Image
         source={studyImageSource(url)}
         resizeMode="cover"
-        onLoadEnd={() => setLoaded(true)}
         style={[s.photo, { transform }]}
       />
-    </View>
+    </Pressable>
   );
 }
 

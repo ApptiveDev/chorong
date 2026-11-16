@@ -67,8 +67,17 @@ export function quizStageKind(quiz: Quiz | null | undefined): QuizStageKind {
     chosung,
     slider,
     mockRange,
-    // CHOSUNG 은 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
-    selfAdvancing: fillBlank || matching || singleChoice || !!presented || multiChoice || chosung,
+    // 해설 시트의 '다음' 버튼과 여백 터치를 문항 컴포넌트가 함께 처리한다.
+    // 목업 range(HtmlLessonQuiz)만 부모 화면의 전체 터치 영역으로 넘어간다.
+    selfAdvancing:
+      ox ||
+      fillBlank ||
+      matching ||
+      singleChoice ||
+      !!presented ||
+      multiChoice ||
+      chosung ||
+      slider,
   };
 }
 
@@ -79,12 +88,8 @@ export function quizScrollContentStyle(kind: QuizStageKind, scale: number) {
   if (kind.multiChoice) return s.multiChoiceScrollContent;
   if (kind.slider || kind.mockRange) return s.sliderScrollContent;
   if (kind.chosung) return s.chosungScrollContent;
-  return [
-    s.quizScrollContent,
-    { paddingHorizontal: 36 * scale },
-    kind.ox && s.oxScrollContent,
-    kind.ox && { paddingTop: 200 * scale },
-  ];
+  if (kind.ox) return s.oxScrollContent;
+  return [s.quizScrollContent, { paddingHorizontal: 36 * scale }];
 }
 
 export function QuizStageQuiz({
@@ -142,7 +147,7 @@ export function QuizStageQuiz({
         submitChoiceIndex={useMockApi && quiz.options?.mockHtmlType === 'blank'}
         submit={submit}
         onGraded={onGraded}
-        onAdvance={() => onAdvance(false)}
+        onAdvance={() => onAdvance(true)}
       />
     );
   if (kind.matching)
@@ -211,11 +216,13 @@ export function QuizStageQuiz({
   if (!kind.ox) return <Text style={s.unsupported}>지원하지 않는 퀴즈 형식입니다.</Text>;
   return (
     <QuizCard
-      key={itemKey}
+      key={typedKey}
       quiz={quiz}
+      scale={scale}
       disabled={disabled}
       submit={submit}
       onGraded={onGraded}
+      onAdvance={() => onAdvance(true)}
       stage
     />
   );
@@ -229,7 +236,8 @@ const s = StyleSheet.create({
     paddingHorizontal: 7,
   },
   fillBlankScrollContent: { flexGrow: 1 },
-  matchingScrollContent: { flexGrow: 1, paddingHorizontal: 16 },
+  // 좌우 여백은 해설 시트가 폭 전체를 쓰도록 MatchingQuiz 본문이 정한다.
+  matchingScrollContent: { flexGrow: 1 },
   singleChoiceScrollContent: { flexGrow: 1 },
   multiChoiceScrollContent: { flexGrow: 1 },
   sliderScrollContent: { flexGrow: 1 },
@@ -241,5 +249,6 @@ const s = StyleSheet.create({
   },
   // 해설 시트가 화면 폭 전체를 쓰도록 안쪽 여백은 ChosungQuiz 가 정한다.
   chosungScrollContent: { flexGrow: 1 },
-  oxScrollContent: { justifyContent: 'flex-start', paddingBottom: 0 },
+  // OX 도 해설 시트가 폭 전체를 쓰도록 위·좌우 여백을 QuizCard(StageOxQuiz)가 정한다.
+  oxScrollContent: { flexGrow: 1 },
 });

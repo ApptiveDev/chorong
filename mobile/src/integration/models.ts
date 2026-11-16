@@ -28,7 +28,9 @@ export type QuizAnswer =
 export type PageQuery = { cursor?: string; size?: number };
 export type ReportReason = 'INAPPROPRIATE_NAME' | 'ABUSE' | 'SPAM' | 'OTHER';
 export const status = enumeration('GUEST', 'ACTIVE', 'WITHDRAWN');
-export const userBrief = object({ userId: num, nickname: str, status });
+// userCode: 42 로 시작하는 8자리 계정 고유번호(0.4.1). 서버가 아직 보내지 않으면 생략된다.
+const userCode = optional(str);
+export const userBrief = object({ userId: num, userCode, nickname: str, status });
 export const tokenPair = object({ accessToken: str, refreshToken: str, expiresIn: num });
 export const authResponse = object({
   accessToken: str,
@@ -47,6 +49,7 @@ export const providers = object({
 });
 export const me = object({
   userId: num,
+  userCode,
   nickname: str,
   status,
   providers: array(str),
@@ -64,33 +67,26 @@ export const lessonSummary = object({
   title: str,
   order: num,
   status: lessonStatus,
-  unlocksAt: nullable(str),
+  // 0.4.1 에서 하루 해금이 없어져 명세에서 빠졌다. 서버는 호환용으로 null 을 보낸다.
+  unlocksAt: optional(nullable(str)),
   completedAt: nullable(str),
 });
 const courseFields = {
   courseId: num,
   title: str,
-  category: str,
-  // topic 은 0.3.2 에서 추가된 선택 필드다. 이전 응답에는 없으므로 아래에서 선택값으로 따로 검사한다.
+  // 분야·주제는 0.4.0 에서 명세에서 빠졌다. 서버는 호환용으로 보내지만 가져오기로 넣은 별자리는 null 이다.
+  category: optional(nullable(str)),
+  topic: optional(nullable(str)),
   totalLessons: num,
   completedLessons: num,
   constellation: nullable(object({ constellationId: num, name: str })),
 };
-const courseBase = object(courseFields);
-export const courseSummary = (value: unknown, path = '$') => {
-  const course = courseBase(value, path);
-  optional(str)((value as Record<string, unknown>).topic, `${path}.topic`);
-  return course as typeof course & { topic?: string };
-};
-const courseDetailBase = object({
+export const courseSummary = object(courseFields);
+export const courseDetail = object({
   ...courseFields,
   description: str,
   lessons: array(lessonSummary),
 });
-export const courseDetail = (value: unknown, path = '$') => {
-  courseSummary(value, path);
-  return courseDetailBase(value, path) as Infer<typeof courseDetailBase> & { topic?: string };
-};
 export const quizInteractionType = enumeration(
   'OX',
   'SINGLE',
@@ -122,6 +118,8 @@ export const quizMetadata = object({
   difficulty: optional(str),
   quizOrder: optional(num),
   lessonId: optional(num),
+  // 학습 레슨의 첫 퀴즈만 false(0.4.1). 점수·복습에 넣지 않고 결과는 정답·오답 없이 보여 준다.
+  graded: optional(bool),
 });
 const quizBase = object({
   quizId: num,
@@ -145,7 +143,10 @@ const contentBase = object({
 // API v2 에서만 오는 선택 필드. TEXT 콘텐츠의 화자별 대사(배열 순서대로 표시)와 출처를
 // body 와 별도로 보존한다. 목업 콘텐츠는 생략할 수 있게 선택 속성으로 둔다.
 const contentExtra = object({
-  dialogue: optional(array(object({ speaker: str, text: str }))),
+  // speaker 는 0.4.1 부터 선택값이다. 화자 없는 해설 대사는 생략된다.
+  dialogue: optional(array(object({ speaker: optional(str), text: str }))),
+  // IMAGE(개념) 화면에서 그림과 함께 강조하는 개념 키워드. 값이 없으면 생략된다.
+  keyword: optional(nullable(str)),
   source: optional(str),
   segmentId: optional(str),
 });
@@ -188,9 +189,10 @@ export const reviewSet = object({
   message: nullable(str),
   rewardEligible: bool,
 });
+// 레슨 전 필수 복습이 없어졌다(develop #15). reviewRequired 는 항상 false, review 는 오지 않는다.
 const lessonStartBase = object({
-  reviewRequired: bool,
-  review: nullable(reviewSet),
+  reviewRequired: optional(bool),
+  review: optional(nullable(reviewSet)),
   progress,
   contents: array(content),
 });
@@ -201,21 +203,38 @@ export const lessonStart = (value: unknown, path = '$') => {
 };
 export const answerResult = object({
   attemptId: optional(num),
-  isCorrect: bool,
+  // graded=false(채점하지 않는 첫 퀴즈)면 isCorrect 는 null 이고 correctAnswer 는 오지 않는다(빈 객체로 받는다).
+  graded: optional(bool),
+  isCorrect: nullable(bool),
   completed: optional(bool),
   correctAnswer: unknownObject,
+  // 틀린 곳 찾기(INLINE_WORD)의 바른 낱말.
+  correctWord: optional(str),
   explanation: optional(str),
   closeness: optional(num),
   source: optional(str),
   streakDays: optional(num),
 });
+// ARTWORK 는 0.4.1 에서 없어졌지만 서버가 아직 지급·기록하므로 받아만 두고 화면에는 쓰지 않는다.
+const rewardType = enumeration(
+  'WALLET',
+  'UNLOCK',
+  'INVENTORY',
+  'CONSTELLATION',
+  'STORY',
+  'ARTWORK',
+);
 export const reward = object({
-  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION', 'ARTWORK'),
-  currency: optional(nullable(enumeration('STARDUST'))),
+  type: rewardType,
+  // ENERGY 는 보상 지급에만 쓴다. 상점 가격은 STARDUST 뿐이다.
+  currency: optional(nullable(enumeration('STARDUST', 'ENERGY'))),
   amount: optional(nullable(num)),
+  // 에너지가 가득 차 별가루로 바꿔 준 경우 넘친 에너지 개수.
+  convertedEnergy: optional(num),
   itemId: optional(nullable(num)),
+  optionId: optional(nullable(num)),
+  storyId: optional(nullable(num)),
   badge: optional(nullable(unknownObject)),
-  artwork: optional(unknownObject),
 });
 export const rewards = object({ rewards: array(reward), wallet });
 export const lessonComplete = object({
@@ -266,7 +285,8 @@ export const housingDetail = object({
     placementId: nullable(num),
   }),
 });
-export const itemType = enumeration('FURNITURE', 'OBJECT');
+// FLOOR 바닥, WALL 벽지(별자리 완성 보너스로 상점에서 해금).
+export const itemType = enumeration('FURNITURE', 'OBJECT', 'FLOOR', 'WALL');
 export const shopOption = object({
   optionId: num,
   option: unknownObject,
@@ -274,6 +294,9 @@ export const shopOption = object({
   price: num,
   previewAsset: str,
   owned: bool,
+  // 색상 옵션 잠금(0.4.1). 서버가 아직 보내지 않으면 생략되며 살 수 있는 것으로 본다.
+  unlocked: optional(bool),
+  unlockHint: optional(nullable(str)),
 });
 export const shopItem = object({
   itemId: num,
@@ -344,9 +367,21 @@ export const constellation = object({
   earnedStars: num,
   badgeEarned: bool,
   imageUrl: nullable(str),
+  // 별자리 상세의 별 목록(0.4.1). 완료하지 않은 별은 title 이 null 이며 앱은 ??? 로 표시한다.
+  stars: optional(
+    array(
+      object({
+        lessonId: num,
+        title: nullable(str),
+        order: num,
+        completed: bool,
+        completedAt: optional(nullable(str)),
+      }),
+    ),
+  ),
 });
 export const rewardRecord = object({
-  type: enumeration('WALLET', 'UNLOCK', 'INVENTORY', 'CONSTELLATION', 'ARTWORK'),
+  type: rewardType,
   source: unknownObject,
   grantedAt: str,
   badge: optional(nullable(unknownObject)),

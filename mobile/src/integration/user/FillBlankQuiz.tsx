@@ -1,11 +1,23 @@
+// BLANK(빈칸 채우기) 퀴즈. 보기를 고르면 바로 제출하고, 채점 뒤 해설은 하단 시트(QuizFeedbackSheet)로 보인다.
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer } from '../models';
+import { QuizFeedbackSheet } from './QuizFeedbackSheet';
 import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
+import { gradedAnnouncement, isUngraded } from './quizGrading';
 import { AnimatedReveal } from './AnimatedReveal';
 
 type Choice = { index: number; label: string };
-type Phase = 'UNANSWERED' | 'ANSWERED' | 'TRANSITIONING';
+type Phase = 'UNANSWERED' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
 
 function choicesFor(quiz: Quiz): Choice[] {
   const raw = quiz.options?.choices;
@@ -75,23 +87,28 @@ export function FillBlankQuiz({
   const { before, after } = sentenceFor(quiz);
   const [selected, setSelected] = useState<number | null>(null);
   const [phase, setPhase] = useState<Phase>('UNANSWERED');
+  const phaseRef = useRef<Phase>('UNANSWERED');
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [error, setError] = useState('');
-  const submitting = useRef(false);
-  const advancing = useRef(false);
-  const advanceReadyAt = useRef(0);
-  const advanceUnlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sheetProgress = useRef(new Animated.Value(0)).current;
+  const active = useRef(true);
 
-  useEffect(
-    () => () => {
-      if (advanceUnlockTimer.current) clearTimeout(advanceUnlockTimer.current);
-    },
-    [],
-  );
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      sheetProgress.stopAnimation();
+    };
+  }, [sheetProgress]);
+
+  const moveTo = (next: Phase) => {
+    phaseRef.current = next;
+    setPhase(next);
+  };
 
   const choose = async (index: number) => {
-    if (disabled || phase !== 'UNANSWERED' || submitting.current) return;
-    submitting.current = true;
+    if (disabled || phaseRef.current !== 'UNANSWERED') return;
+    moveTo('GRADING');
     setSelected(index);
     setError('');
     try {
@@ -99,51 +116,74 @@ export function FillBlankQuiz({
         ? { index }
         : { texts: [choices.find((choice) => choice.index === index)?.label ?? ''] };
       const graded = await submit(answer);
+      if (!active.current) return;
       setResult(graded);
-      setPhase('ANSWERED');
-      advanceReadyAt.current = Date.now() + 320;
       onGraded(graded);
+      moveTo('GRADED');
+      AccessibilityInfo.announceForAccessibility(gradedAnnouncement(quiz, graded));
+      sheetProgress.setValue(0);
+      const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
+      if (!active.current) return;
+      if (reduceMotion) sheetProgress.setValue(1);
+      else
+        Animated.timing(sheetProgress, {
+          toValue: 1,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: Platform.OS !== 'web',
+        }).start();
     } catch (cause) {
+      if (!active.current) return;
       setSelected(null);
+      moveTo('UNANSWERED');
       setError(cause instanceof Error ? cause.message : '답안을 확인하지 못했습니다.');
-    } finally {
-      submitting.current = false;
     }
   };
 
   const advance = () => {
-    if (phase !== 'ANSWERED' || advancing.current || Date.now() < advanceReadyAt.current) return;
-    advancing.current = true;
-    setPhase('TRANSITIONING');
+    if (phaseRef.current !== 'GRADED') return;
+    moveTo('TRANSITIONING');
     void Promise.resolve()
       .then(onAdvance)
       .catch((cause) => {
+        if (!active.current) return;
         setError(cause instanceof Error ? cause.message : '다음 콘텐츠로 이동하지 못했습니다.');
-      })
-      .finally(() => {
-        advanceUnlockTimer.current = setTimeout(() => {
-          advancing.current = false;
-          setPhase((current) => (current === 'TRANSITIONING' ? 'ANSWERED' : current));
-        }, 400);
+        moveTo('GRADED');
       });
   };
 
+  const graded = phase === 'GRADED' || phase === 'TRANSITIONING';
+  const locked = disabled || phase !== 'UNANSWERED';
+  const ungraded = isUngraded(quiz, result);
+  // 채점하지 않는 문항은 색을 바꾸지 않는다. null 은 오답이 아니다.
+  const correct = !!result && !ungraded && result.isCorrect === true;
+  const wrong = !!result && !ungraded && result.isCorrect === false;
   const selectedChoice = choices.find((choice) => choice.index === selected);
-  const expected = result && !result.isCorrect ? correctLabel(result, quiz, choices) : null;
+  const expected = wrong && result ? correctLabel(result, quiz, choices) : null;
+  // 오답이면 정답을 해설 시트 첫 줄에 붙인다.
+  const sheetResult =
+    result && expected
+      ? {
+          ...result,
+          explanation: [`정답: ${expected}`, result.explanation].filter(Boolean).join('\n'),
+        }
+      : result;
 
   return (
     <View style={s.stage}>
+      {/* 채점 뒤 여백 터치로 다음 콘텐츠로 간다(PresentedChoiceQuiz 와 같다). */}
       <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="다음 학습 콘텐츠로 이동"
-        disabled={phase !== 'ANSWERED'}
+        accessible={graded}
+        accessibilityRole={graded ? 'button' : undefined}
+        accessibilityLabel={graded ? '다음 학습 콘텐츠로 이동' : undefined}
+        disabled={!graded}
         onPress={advance}
-        style={{ height: 200 * scale }}
+        style={StyleSheet.absoluteFill}
       />
-      <View style={s.groupRow}>
-        <Pressable disabled={phase !== 'ANSWERED'} onPress={advance} style={s.sideSpace} />
-        <View style={[s.group, { width: 349 * scale }]}>
+      <View pointerEvents="box-none" style={[s.body, { paddingTop: 200 * scale }]}>
+        <View pointerEvents="box-none" style={[s.group, { width: 349 * scale }]}>
           <View
+            pointerEvents="none"
             style={[
               s.prompt,
               { minHeight: 150 * scale, paddingTop: 32 * scale, paddingHorizontal: 20 * scale },
@@ -159,12 +199,7 @@ export function FillBlankQuiz({
                     offsetY={4}
                     style={s.answerReveal}
                   >
-                    <Text
-                      style={[
-                        s.blankText,
-                        result && (result.isCorrect ? s.correctText : s.wrongText),
-                      ]}
-                    >
+                    <Text style={[s.blankText, correct && s.correctText, wrong && s.wrongText]}>
                       {selectedChoice.label}
                     </Text>
                   </AnimatedReveal>
@@ -176,79 +211,60 @@ export function FillBlankQuiz({
             </View>
           </View>
           <View style={s.options}>
-            {choices.map((choice, position) => (
-              <Pressable
-                key={choice.index}
-                accessibilityRole="button"
-                accessibilityState={{
-                  selected: selected === choice.index,
-                  disabled: disabled || phase !== 'UNANSWERED' || submitting.current,
-                }}
-                disabled={disabled || phase !== 'UNANSWERED' || submitting.current}
-                onPress={() => void choose(choice.index)}
-                style={({ pressed }) => [
-                  s.option,
-                  position > 0 && s.optionDivider,
-                  pressed && s.pressedOption,
-                  selected === choice.index &&
-                    result &&
-                    (result.isCorrect ? s.correctOption : s.wrongOption),
-                ]}
-              >
-                <Text
-                  style={[
-                    s.optionText,
-                    selected === choice.index &&
-                      result &&
-                      (result.isCorrect ? s.correctText : s.wrongText),
+            {choices.map((choice, position) => {
+              const picked = selected === choice.index;
+              return (
+                <Pressable
+                  key={choice.index}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: picked, disabled: locked }}
+                  disabled={locked}
+                  onPress={() => void choose(choice.index)}
+                  style={({ pressed }) => [
+                    s.option,
+                    position > 0 && s.optionDivider,
+                    pressed && s.pressedOption,
+                    picked && correct && s.correctOption,
+                    picked && wrong && s.wrongOption,
                   ]}
                 >
-                  {choice.label}
-                </Text>
-              </Pressable>
-            ))}
+                  <Text
+                    style={[
+                      s.optionText,
+                      picked && correct && s.correctText,
+                      picked && wrong && s.wrongText,
+                    ]}
+                  >
+                    {choice.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-          <View style={s.feedbackSlot}>
-            {result ? (
-              <AnimatedReveal
-                duration={280}
-                offsetY={8}
-                style={[s.feedback, result.isCorrect ? s.feedbackGood : s.feedbackWrong]}
-              >
-                <Text style={s.feedbackTitle}>
-                  {result.isCorrect ? '맞았어요!' : '다시 확인해 볼까요?'}
-                </Text>
-                {expected ? <Text style={s.feedbackText}>정답: {expected}</Text> : null}
-                {result.explanation?.trim() ? (
-                  <Text style={s.feedbackText}>{result.explanation}</Text>
-                ) : null}
-              </AnimatedReveal>
-            ) : null}
-            {error ? (
-              <Text accessibilityRole="alert" style={s.error}>
-                {error}
-              </Text>
-            ) : null}
-          </View>
+          {error ? (
+            <Text accessibilityRole="alert" style={s.error}>
+              {error}
+            </Text>
+          ) : null}
         </View>
-        <Pressable disabled={phase !== 'ANSWERED'} onPress={advance} style={s.sideSpace} />
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="다음 학습 콘텐츠로 이동"
-        disabled={phase !== 'ANSWERED'}
-        onPress={advance}
-        style={s.lowerSpace}
-      />
+      {sheetResult ? (
+        <QuizFeedbackSheet
+          result={sheetResult}
+          progress={sheetProgress}
+          nextDisabled={phase !== 'GRADED'}
+          onNext={advance}
+          ungraded={ungraded}
+        />
+      ) : null}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   stage: { flexGrow: 1, width: '100%' },
-  groupRow: { width: '100%', flexDirection: 'row' },
+  body: { alignItems: 'center' },
   group: { maxWidth: '100%' },
-  sideSpace: { flex: 1 },
   prompt: { paddingBottom: 32, borderTopLeftRadius: 8, borderTopRightRadius: 8 },
   sentence: { color: '#161616', fontSize: 20, lineHeight: 24, fontFamily: 'PretendardBold' },
   sentenceRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 20 },
@@ -292,12 +308,5 @@ const s = StyleSheet.create({
   wrongOption: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
   correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
   wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
-  feedbackSlot: { minHeight: 120, marginTop: 24 },
-  feedback: { borderRadius: 14, padding: 17, gap: 5 },
-  feedbackGood: { backgroundColor: QUIZ_FEEDBACK_COLORS.correct.background },
-  feedbackWrong: { backgroundColor: QUIZ_FEEDBACK_COLORS.incorrect.background },
-  feedbackTitle: { color: '#282636', fontSize: 13, fontFamily: 'PretendardBold' },
-  feedbackText: { color: '#282636', fontSize: 13, lineHeight: 20, fontFamily: 'PretendardRegular' },
-  error: { color: '#b56060', fontSize: 12, lineHeight: 18 },
-  lowerSpace: { flexGrow: 1, minHeight: 80 },
+  error: { marginTop: 24, color: '#b56060', fontSize: 12, lineHeight: 18 },
 });

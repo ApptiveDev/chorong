@@ -123,6 +123,8 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
     user && 'providers' in user ? user.providers.find((item) => item !== 'GUEST') : null;
   const loginMethod = provider ? (providerNames[provider] ?? provider) : '—';
   const nickname = user?.nickname?.trim() || '—';
+  // 계정 고유번호(userCode, 42 로 시작하는 8자리). 서버가 아직 보내지 않으면 — 로 둔다.
+  const userCode = user?.userCode?.trim() || null;
   const cardScale = Math.min(1, Math.max(0, (width - 64) / 332));
 
   return (
@@ -146,8 +148,13 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
               <View style={s.memberCard}>
                 <View style={[s.guestCardHeader, s.memberCardHeader]}>
                   <Text style={s.licenceTitle}>Astronaut Licence</Text>
-                  <Text style={s.licenceNumber} accessibilityLabel="회원증 번호 정보 없음">
-                    No. —
+                  <Text
+                    style={s.licenceNumber}
+                    accessibilityLabel={
+                      userCode ? `회원증 번호 ${userCode}` : '회원증 번호 정보 없음'
+                    }
+                  >
+                    No. {userCode ?? '—'}
                   </Text>
                 </View>
                 <Image

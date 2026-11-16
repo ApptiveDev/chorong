@@ -263,15 +263,24 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const stardustOptions = (item: ShopItem) =>
     item.options.filter((option) => option.currency === 'STARDUST');
   // 색상 필터가 있으면 그 색 옵션을, 없으면 첫 별가루 옵션을 고른다.
+  // 색상 필터에 맞는 옵션이 잠겨 있으면(ShopOption.unlocked=false) 그 옵션을 잠긴 채로 보여 준다.
+  // 필터가 없으면 살 수 있는 첫 옵션을 고른다.
   const shopChoice = (item: ShopItem) => {
     const options = stardustOptions(item);
     return (
       (colorFilter && options.find((option) => colorMatches(option.option, colorFilter))) ||
+      options.find((option) => option.unlocked !== false) ||
       options[0]
     );
   };
+  // 별자리 완성 보너스로 여는 색상 옵션은 해금 전 살 수 없다(0.4.1).
+  const lockedOptionNotice = (option: { unlockHint?: string | null }) =>
+    option.unlockHint ?? '아직 잠긴 색상이에요.';
+  // 바닥(FLOOR)·벽지(WALL)는 방에 놓는 가구가 아니다. 적용 방식은 하우징 꾸미기 명세가 정해지면 붙인다.
+  const placeable = (item: { itemType: string }) =>
+    item.itemType !== 'FLOOR' && item.itemType !== 'WALL';
   const visibleOwned = inventory.filter(
-    (item) => filter === 'ALL' || furnitureKind(item.name) === filter,
+    (item) => placeable(item) && (filter === 'ALL' || furnitureKind(item.name) === filter),
   );
   // 같은 아이템·옵션 사본을 한 칸으로 묶어 '배치 수/보유 수'로 보여준다.
   const ownedGroups = visibleOwned.reduce<OwnedGroup[]>((groups, item) => {
@@ -288,6 +297,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   }, []);
   const visibleShop = shopItems.filter(
     (item) =>
+      placeable(item) &&
       (filter === 'ALL' || furnitureKind(item.name) === filter) &&
       stardustOptions(item).some(
         (option) => !colorFilter || colorMatches(option.option, colorFilter),
@@ -370,6 +380,10 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     if (!item.unlocked || !item.options.length) return;
     const choice = shopChoice(item);
     if (!choice) return;
+    if (choice.unlocked === false) {
+      setNotice(lockedOptionNotice(choice));
+      return;
+    }
     const alreadyPending = pending.find((entry) => entry.optionId === choice.optionId);
     if (alreadyPending) {
       setSelectedKey(alreadyPending.key);
@@ -464,6 +478,10 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       (item) => item.optionId === optionId && item.currency === 'STARDUST',
     );
     if (!choice) return;
+    if (choice.unlocked === false) {
+      setNotice(lockedOptionNotice(choice));
+      return;
+    }
     const duplicate = pending.find(
       (item) => item.optionId === optionId && item.key !== selectedKey,
     );
@@ -786,23 +804,25 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
               })
             : visibleShop.map((item) => {
                 const choice = shopChoice(item);
+                // 아이템 전체 잠금(ShopItem.unlocked)과 고른 색상 옵션 잠금(ShopOption.unlocked)을 같이 본다.
+                const lockHint = !item.unlocked
+                  ? (item.unlockHint ?? '잠김')
+                  : choice?.unlocked === false
+                    ? (choice.unlockHint ?? '잠김')
+                    : null;
                 return (
                   <Product
                     key={item.itemId}
                     width={cardWidth}
                     name={item.name}
                     color={optionColor(choice?.option ?? {})}
-                    price={item.unlocked ? choice?.price : undefined}
-                    caption={
-                      item.unlocked ? (choice?.owned ? '보유' : '') : (item.unlockHint ?? '잠김')
-                    }
+                    price={lockHint === null ? choice?.price : undefined}
+                    caption={lockHint ?? (choice?.owned ? '보유' : '')}
                     accessibilityCaption={
-                      item.unlocked
-                        ? `별가루 ${choice?.price ?? 0}${choice?.owned ? ', 보유' : ''}`
-                        : (item.unlockHint ?? '잠김')
+                      lockHint ?? `별가루 ${choice?.price ?? 0}${choice?.owned ? ', 보유' : ''}`
                     }
                     disabled={
-                      !item.unlocked || !item.options.length || purchaseRetryOnly || task.busy
+                      lockHint !== null || !item.options.length || purchaseRetryOnly || task.busy
                     }
                     onPress={() => addShop(item)}
                   />

@@ -154,7 +154,7 @@ export function HtmlLessonQuiz({
       >
         {result ? (
           <SliderFeedback
-            correct={result.isCorrect}
+            correct={result.isCorrect === true}
             title="태양이 바꾸는 질량은 약 400만 톤이에요."
             lines={[result.explanation]}
           />

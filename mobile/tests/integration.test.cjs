@@ -104,20 +104,7 @@ test('mock API renders linked data without using the HTTP adapter', async () => 
   await api.account.login('test@example.com', 'test');
   const user = await api.account.me();
   const { courses } = await api.learning.courses();
-  assert.equal(typeof courses[0].topic, 'string');
-  const { courses: byTopic } = await api.learning.courses(undefined, courses[0].topic);
-  const { courses: byCategoryAndTopic } = await api.learning.courses(
-    courses[1].category,
-    courses[1].topic,
-  );
-  assert.deepEqual(
-    byTopic.map((course) => course.title),
-    [courses[0].title],
-  );
-  assert.deepEqual(
-    byCategoryAndTopic.map((course) => course.title),
-    [courses[1].title],
-  );
+  assert.ok(courses.length > 1);
   const detail = await api.learning.course(courses[0].courseId);
   const lesson = await api.learning.lesson(detail.lessons[0].lessonId);
   const start = await api.learning.start(lesson.lessonId, false);
@@ -254,8 +241,8 @@ test('base URL keeps a single version prefix and rejects credential URLs', () =>
   assert.equal(integrationBaseURL('https://test.invalid/api/v1/'), 'https://test.invalid/api/v1');
   assert.throws(() => integrationBaseURL('https://password@test.invalid'));
 });
-test('all 47 APIs are inventoried; unused avatar API remains deferred', async () => {
-  assert.equal(Object.keys(catalog).length, 47);
+test('all 49 APIs are inventoried; unused and server-missing APIs remain deferred', async () => {
+  assert.equal(Object.keys(catalog).length, 49);
   const { c } = setup();
   let sent = 0;
   c.http.defaults.adapter = async (config) => {
@@ -263,7 +250,7 @@ test('all 47 APIs are inventoried; unused avatar API remains deferred', async ()
     return respond(config, {});
   };
   const deferred = Object.keys(catalog).filter((id) => catalog[id][3] === 'deferred');
-  assert.deepEqual(deferred, ['API-704']);
+  assert.deepEqual(deferred, ['API-409', 'API-504', 'API-505', 'API-704']);
   for (const id of deferred) await assert.rejects(c.request(id, null), /사용하지 않는 API/);
   assert.equal(sent, 0);
 });
@@ -835,18 +822,22 @@ test('HTML 첫 학습 목업은 14단계와 채점 결과를 복습 5문제에 �
     true,
   );
 });
-test('달의 모양 목업은 맞아요만 정답으로 채점한다', () => {
+test('달의 모양 목업의 첫 퀴즈는 채점하지 않고, 복습에서는 맞아요만 정답으로 채점한다', () => {
   const moon = mockApi('API-403', { path: { lessonId: 12 } }).data.data;
   const quiz = moon.contents.find((content) => content.quiz)?.quiz;
   assert.ok(quiz);
+  assert.equal(quiz.graded, false);
   const grade = (index) =>
     mockApi('API-406', {
       path: { quizId: quiz.quizId },
       body: { answer: { index } },
     }).data.data;
-  assert.equal(grade(0).isCorrect, true);
-  assert.equal(grade(1).isCorrect, false);
-  assert.deepEqual(grade(1).correctAnswer, { answer: [0] });
+  for (const index of [0, 1]) {
+    const result = grade(index);
+    assert.equal(result.graded, false);
+    assert.equal(result.isCorrect, null);
+    assert.equal(result.correctAnswer, undefined);
+  }
   mockApi('API-501', { query: { lessonId: 12 } });
   const review = mockApi('API-502', {
     path: { reviewItemId: 1 },
@@ -1818,34 +1809,72 @@ test('0.3.2 MATCH learning and review encode the actual right-column selection',
   assert.equal(sent.length, 2);
 });
 
-test('0.3.2 topic filters work together and old course responses remain valid', async () => {
-  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
-  const mock = new IntegrationClient(
-    'https://mock.invalid/api/v1',
-    storage,
-    () => uuid,
-    false,
-    mockApi,
-  );
-  const api = createIntegrationApi(mock);
-  await api.account.guest('ANDROID');
-  const all = (await api.learning.courses()).courses;
-  assert.equal(all.length, 4);
-  assert.ok(all.every((item) => typeof item.topic === 'string'));
-  const first = all[0];
-  assert.deepEqual((await api.learning.courses(undefined, first.topic)).courses, [first]);
-  assert.deepEqual((await api.learning.courses(first.category, first.topic)).courses, [first]);
-  assert.deepEqual((await api.learning.courses('없는 분야', first.topic)).courses, []);
-  assert.equal((await api.learning.course(first.courseId)).topic, first.topic);
-  const { c, api: real } = setup();
+test('0.4.x courses without category or topic and dialogue without speaker stay valid', async () => {
+  const { c, api } = setup();
   await c.authenticate(async () => ({ ...tokens, user, isNew: false }));
-  const { topic, ...legacy } = first;
-  c.http.defaults.adapter = async (config) => {
-    assert.deepEqual(config.params, { category: first.category, topic });
-    return respond(config, { data: { courses: [legacy] } });
+  const course = {
+    courseId: 45,
+    slug: 'firefly',
+    title: '반딧불자리',
+    description: '빛과 색',
+    order: 1,
+    category: null,
+    topic: null,
+    locked: false,
+    totalLessons: 1,
+    completedLessons: 0,
+    constellation: null,
   };
-  const response = await real.learning.courses(first.category, topic);
-  assert.equal(response.courses[0].topic, undefined);
+  const lesson = {
+    lessonId: 4500,
+    slug: 'firefly/blue-pigment',
+    title: '파란 물감',
+    keyword: '청금석',
+    order: 1,
+    status: 'UNLOCKED',
+    unlocksAt: null,
+    completedAt: null,
+  };
+  const { unlocksAt, ...lessonWithoutUnlock } = lesson;
+  c.http.defaults.adapter = async (config) => {
+    if (config.url.endsWith('/courses')) {
+      assert.equal(config.params, undefined);
+      const { category, topic, ...withoutLegacy } = course;
+      return respond(config, { data: { courses: [course, withoutLegacy] } });
+    }
+    if (config.url.endsWith('/courses/45'))
+      return respond(config, { data: { ...course, lessons: [lesson, lessonWithoutUnlock] } });
+    return respond(config, {
+      data: {
+        lessonId: 4500,
+        courseId: 45,
+        title: '파란 물감',
+        description: '',
+        contents: [
+          {
+            contentId: 45001,
+            order: 1,
+            segmentId: 'first',
+            contentType: 'TEXT',
+            body: null,
+            mediaUrl: null,
+            quiz: null,
+            dialogue: [{ speaker: '별지기', text: '첫 대사' }, { text: '해설 대사' }],
+          },
+        ],
+      },
+    });
+  };
+  const { courses } = await api.learning.courses();
+  assert.equal(courses.length, 2);
+  assert.equal(courses[0].category, null);
+  assert.equal(courses[1].category, undefined);
+  assert.equal((await api.learning.course(45)).lessons.length, 2);
+  const detail = await api.learning.lesson(4500);
+  assert.deepEqual(detail.contents[0].dialogue, [
+    { speaker: '별지기', text: '첫 대사' },
+    { text: '해설 대사' },
+  ]);
 });
 
 test('0.3.2 segments and all SINGLE presentation metadata survive without changing UI choices', () => {
@@ -2118,6 +2147,7 @@ test('mock replay completion keeps saved progress, rewards and wallet unchanged'
 });
 
 const {
+  constellationBonusLines,
   grantedStardust,
   replayCompletion,
   reviewCompletion,
@@ -2620,4 +2650,106 @@ test('목업: 코스의 레슨을 모두 마치면 완성 별자리 목록에 �
   } finally {
     restoreMockSnapshot(original);
   }
+});
+
+test('0.4.1 response fields: ungraded answers, correctWord, userCode, new rewards, star titles and option locks', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({
+    ...tokens,
+    user: { ...user, userCode: '42001000' },
+    isNew: false,
+  }));
+  const progress = { status: 'IN_PROGRESS', lastContentId: null, resumeContentId: null };
+  const responses = {
+    'post /lessons/4500/start': { reviewRequired: false, progress, contents: [] },
+    'post /quizzes/1/answer': {
+      graded: false,
+      isCorrect: null,
+      completed: true,
+      explanation: '해설',
+    },
+    'post /quizzes/2/answer': {
+      graded: true,
+      isCorrect: false,
+      completed: true,
+      correctAnswer: { answer: 6 },
+      correctWord: '헬륨',
+    },
+    'post /lessons/4500/complete': {
+      rewards: [
+        { type: 'WALLET', currency: 'STARDUST', amount: 10 },
+        { type: 'WALLET', currency: 'ENERGY', amount: 1 },
+        { type: 'WALLET', currency: 'STARDUST', amount: 20, convertedEnergy: 2 },
+        { type: 'UNLOCK', itemId: 3, optionId: 31 },
+        { type: 'STORY', storyId: 7 },
+        { type: 'CONSTELLATION', badge: { badgeType: 'CONSTELLATION' } },
+      ],
+      wallet: { stardust: 30, energy: 5 },
+      courseCompleted: true,
+    },
+    'get /constellations': {
+      constellations: [
+        {
+          constellationId: 1,
+          courseId: 45,
+          name: '반딧불자리',
+          starCount: 2,
+          earnedStars: 1,
+          badgeEarned: false,
+          imageUrl: null,
+          stars: [
+            { lessonId: 4500, title: '파란 물감', order: 1, completed: true, completedAt: null },
+            { lessonId: 4501, title: null, order: 2, completed: false, completedAt: null },
+          ],
+        },
+      ],
+    },
+    'get /shop/items': {
+      items: [
+        {
+          itemId: 3,
+          name: '벽지',
+          itemType: 'WALL',
+          unlocked: true,
+          unlockHint: null,
+          minPrice: { currency: 'STARDUST', amount: 100 },
+          options: [
+            {
+              optionId: 31,
+              option: { color: 'blue' },
+              currency: 'STARDUST',
+              price: 100,
+              previewAsset: 'wall.png',
+              ownedCount: 0,
+              unlocked: false,
+              unlockHint: '반딧불자리 완성 보상',
+            },
+          ],
+        },
+      ],
+    },
+  };
+  c.http.defaults.adapter = async (config) => {
+    const key = `${config.method} ${config.url.replace(/^.*\/api\/v1/, '')}`;
+    assert.ok(key in responses, key);
+    return respond(config, { data: responses[key] });
+  };
+  const start = await api.learning.start(4500, false);
+  assert.equal(start.review, undefined);
+  const ungraded = await api.learning.answer(1, { index: 0 });
+  assert.equal(ungraded.isCorrect, null);
+  assert.deepEqual(ungraded.correctAnswer, {});
+  assert.equal((await api.learning.answer(2, { index: 1 })).correctWord, '헬륨');
+  const completion = await api.learning.completeLesson(4500);
+  assert.deepEqual(constellationBonusLines(completion.rewards, true), [
+    '에너지 +1',
+    '별가루 +20 (넘친 에너지 2개)',
+    '상점 새 색상 해금',
+    '세계관 이야기 해금',
+  ]);
+  const { constellations } = await api.benefits.constellations();
+  assert.equal(constellations[0].stars[1].title, null);
+  const { items } = await api.room.shop();
+  assert.equal(items[0].options[0].unlocked, false);
+  assert.equal(c.getSnapshot().user.userCode, '42001000');
 });

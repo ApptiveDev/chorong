@@ -110,6 +110,8 @@ export type CompletedConstellation = {
   points: StarPoint[];
   // 'YYYY. MM. DD'. 완성 기록(API-905 별자리 뱃지)이 없으면 null.
   completedOn: string | null;
+  // 별자리를 완성했는지. 지도는 완성하지 않은 별자리도 흐리게 함께 보여 준다.
+  completed: boolean;
 };
 
 // 완성한 별자리 목록. 순서는 서버 코스 순서(API-401)를 따른다.
@@ -119,7 +121,17 @@ export function completedConstellations(
   constellations: readonly ConstellationLike[] | null,
   completedOn: Readonly<Record<number, string>>,
 ): CompletedConstellation[] {
-  return courses.filter(isConstellationComplete).map((course) => {
+  return allConstellations(courses, constellations, completedOn).filter((item) => item.completed);
+}
+
+// 별자리 지도: 완성하지 않은 별자리까지 모든 별자리를 서버 코스 순서대로 돌려준다.
+// 누르면 별자리 상세로 가고, 학습하지 않은 별은 제목 대신 ??? 로 보인다(unlearnedStarTitle).
+export function allConstellations(
+  courses: readonly CourseLike[],
+  constellations: readonly ConstellationLike[] | null,
+  completedOn: Readonly<Record<number, string>>,
+): CompletedConstellation[] {
+  return courses.map((course) => {
     const record = constellations?.find((item) => item.courseId === course.courseId);
     const constellationId =
       record?.constellationId ?? course.constellation?.constellationId ?? null;
@@ -130,9 +142,17 @@ export function completedConstellations(
       image: constellationImage(constellationId, record?.imageUrl),
       points: starLayout(constellationId, course.totalLessons),
       completedOn: completedOn[course.courseId] ?? null,
+      completed: isConstellationComplete(course),
     };
   });
 }
+
+// 완료하지 않은 별의 제목. API-906 stars[].title 이 null 인 별과 같은 규칙이다(0.4.1).
+export const UNLEARNED_STAR_TITLE = '???';
+export const starTitle = (lesson: { title: string | null; status?: LessonStatus }) =>
+  lesson.title === null || (lesson.status !== undefined && lesson.status !== 'COMPLETED')
+    ? UNLEARNED_STAR_TITLE
+    : lesson.title;
 
 // Figma 표기 'YYYY. MM. DD'(한국시간 기준 날짜).
 export function formatDotDate(timestamp: string): string {

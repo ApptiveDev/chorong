@@ -65,7 +65,9 @@ export function ReviewScreen() {
     setDone((old) => [...old, reviewItemId]);
     if (result)
       setGraded((old) =>
-        old[reviewItemId] === undefined ? { ...old, [reviewItemId]: result.isCorrect } : old,
+        old[reviewItemId] === undefined
+          ? { ...old, [reviewItemId]: result.isCorrect === true }
+          : old,
       );
   };
   useEffect(() => {

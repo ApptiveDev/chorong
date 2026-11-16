@@ -50,3 +50,34 @@ export function reviewScore(
     total: reviewItemIds.length,
   };
 }
+
+// 별자리 완성 화면의 '완성 보너스' 줄(0.4.1). 별자리마다 보너스가 다르며 다음 형식의 조합이다.
+// - WALLET STARDUST: 별가루. 레슨 보상 별가루(첫 STARDUST)는 lessonStardustGranted 일 때 빼고 센다.
+// - WALLET STARDUST + convertedEnergy: 에너지가 가득 차 별가루로 바꿔 준 몫
+// - WALLET ENERGY, UNLOCK(가구 또는 optionId 가 있으면 색상), STORY, INVENTORY
+// 이름·내용은 응답에 없으므로 종류만 적는다. 실제 보너스 데이터는 기획 확정 후 문구를 다듬는다.
+export function constellationBonusLines(
+  rewards: readonly Reward[] | null | undefined,
+  lessonStardustGranted: boolean,
+): string[] {
+  const lines: string[] = [];
+  let lessonStardustSkipped = !lessonStardustGranted;
+  let stardust = 0;
+  for (const reward of rewards ?? []) {
+    const amount = typeof reward.amount === 'number' && reward.amount > 0 ? reward.amount : 0;
+    if (reward.type === 'WALLET' && reward.currency === 'STARDUST') {
+      if (reward.convertedEnergy) {
+        lines.push(`별가루 +${amount} (넘친 에너지 ${reward.convertedEnergy}개)`);
+      } else if (!lessonStardustSkipped) {
+        lessonStardustSkipped = true;
+      } else stardust += amount;
+    } else if (reward.type === 'WALLET' && reward.currency === 'ENERGY' && amount)
+      lines.push(`에너지 +${amount}`);
+    else if (reward.type === 'UNLOCK')
+      lines.push(reward.optionId != null ? '상점 새 색상 해금' : '상점 새 아이템 해금');
+    else if (reward.type === 'STORY') lines.push('세계관 이야기 해금');
+    else if (reward.type === 'INVENTORY') lines.push('아이템 지급');
+  }
+  if (stardust) lines.unshift(`별가루 +${stardust}`);
+  return lines;
+}

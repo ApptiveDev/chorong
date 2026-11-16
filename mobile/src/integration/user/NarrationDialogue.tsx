@@ -59,10 +59,15 @@ function NarrationLine({
   );
 }
 
-function NarrationCopy({ message }: { message: NarrationMessage }) {
+// 개념 화면(ConceptIllustration)도 같은 대사 글자 스타일을 쓴다.
+export function NarrationCopy({ message }: { message: NarrationMessage }) {
   return (
     <View style={s.line}>
-      <Text style={[s.speaker, message.speaker === '초롱이' && s.catText]}>{message.speaker}</Text>
+      {message.speaker ? (
+        <Text style={[s.speaker, message.speaker === '초롱이' && s.catText]}>
+          {message.speaker}
+        </Text>
+      ) : null}
       <Text style={[s.body, message.speaker === '초롱이' && s.catText]}>{message.text}</Text>
     </View>
   );

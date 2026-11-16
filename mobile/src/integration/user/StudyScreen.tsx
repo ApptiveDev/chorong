@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Content, LessonStartResponse, LessonCompleteResponse } from '../models';
 import { integrationApi as api } from '../runtime';
 import { isConstellationReward } from '../contract';
-import { replayCompletion } from '../completionResult';
+import { constellationBonusLines, replayCompletion } from '../completionResult';
 import { useTask, useIntegration } from '../hooks';
 import { positiveId, styles } from '../ui';
 import { UserScreen, UserStatus } from './Screen';
@@ -28,7 +28,7 @@ import { QuizBackdrop, QuizBackIcon } from './QuizBackdrop';
 import { QuizStageQuiz, quizScrollContentStyle, quizStageKind } from './QuizStage';
 import { AnimatedReveal } from './AnimatedReveal';
 import { NarrationDialogue } from './NarrationDialogue';
-import { toNarrationContent } from './narrationContent';
+import { sourceLabel, toNarrationContent } from './narrationContent';
 import { ConceptIllustration } from './ConceptIllustration';
 import { localStudyImages, prefetchLessonImages } from './lessonImagePreload';
 import { prefetchLessonAudio } from './quizAudio';
@@ -190,12 +190,17 @@ function Study() {
           ? '핵융합'
           : '줄어든 질량'
         : (params.title ?? '학습');
-  const dialogue = current?.contentType === 'TEXT' ? toNarrationContent(current) : null;
+  // 개념(IMAGE) 화면도 dialogue 가 있으면 나레이션처럼 탭마다 대사를 드러낸다(body 파싱은 하지 않는다).
+  const dialogue =
+    current?.contentType === 'TEXT' ||
+    (current?.contentType === 'IMAGE' && current.dialogue?.length)
+      ? toNarrationContent(current)
+      : null;
   const visibleDialogueCount =
     dialogueReveal.contentId === current?.contentId ? dialogueReveal.count : 1;
   // 이어지는 대화(TEXT) 콘텐츠는 한 대화로 이어 쌓는다. 앞 콘텐츠 대사는 모두 본 상태로 위에 남는다.
   const dialogueRun = (() => {
-    if (!dialogue) return null;
+    if (!dialogue || current?.contentType !== 'TEXT') return null;
     let first = position;
     while (first > 0 && contents[first - 1]?.contentType === 'TEXT') first -= 1;
     let last = position;
@@ -317,9 +322,8 @@ function Study() {
   const constellationCompleted =
     reward?.courseCompleted && reward.rewards.some(isConstellationReward);
   const constellationBonus = constellationCompleted
-    ? (reward?.rewards.filter((item) => item.type === 'WALLET' && item.currency === 'STARDUST')[1]
-        ?.amount ?? 0)
-    : 0;
+    ? constellationBonusLines(reward?.rewards, reward?.stardustSkipped !== true)
+    : [];
   const firstWelcomeStudy = params.fromWelcome === 'true' && user?.status === 'GUEST';
   // 명세 LessonCompleteResponse.stardustSkipped: 에너지가 없어 이번 학습에서 별가루를 주지 않았으면 true.
   const stardustSkipped = reward?.stardustSkipped === true;
@@ -544,7 +548,11 @@ function Study() {
               <AnimatedReveal key={current.contentId} style={s.content}>
                 <ConceptIllustration
                   mediaUrl={current.mediaUrl}
+                  keyword={current.keyword}
                   body={current.body}
+                  messages={dialogue?.messages}
+                  visibleCount={visibleDialogueCount}
+                  source={dialogue?.source ?? sourceLabel(current.source)}
                   scale={quizScale}
                   disabled={task.busy}
                   onAdvance={advanceConcept}

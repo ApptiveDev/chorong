@@ -20,7 +20,7 @@ import { UserStatus } from './Screen';
 import { SessionConfirmModal } from './SessionConfirmModal';
 import { useLessonStart } from './lessonStart';
 import { artColor as color, SparkStar } from './constellationArt';
-import { constellationCompletedOn, nextLessonOf } from './constellationRecord';
+import { constellationCompletedOn, nextLessonOf, starTitle } from './constellationRecord';
 import { loadConstellationDates } from './constellationDates';
 
 type Lesson = CourseDetail['lessons'][number];
@@ -121,7 +121,7 @@ export default function CourseScreen() {
                 <Pressable
                   key={lesson.lessonId}
                   accessibilityRole="button"
-                  accessibilityLabel={`${lesson.title} ${status}`}
+                  accessibilityLabel={`${lesson.status === 'COMPLETED' ? lesson.title : '아직 학습하지 않은 별'} ${status}`}
                   accessibilityState={{ disabled: locked }}
                   disabled={locked}
                   onPress={() => openLesson(lesson)}
@@ -129,8 +129,9 @@ export default function CourseScreen() {
                 >
                   <View style={s.rowTitle}>
                     <SparkStar filled={lesson.status === 'COMPLETED'} />
+                    {/* 학습하지 않은 별은 제목 대신 ??? (API-906 stars[].title=null 과 같은 규칙) */}
                     <Text style={s.lessonTitle} numberOfLines={1}>
-                      {lesson.title}
+                      {starTitle(lesson)}
                     </Text>
                   </View>
                   <Text style={s.chevron}>›</Text>

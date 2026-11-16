@@ -1,34 +1,16 @@
-// 타일 벗기기(SINGLE + config.presentation.type === 'TILE') 공개 규칙.
-// 사진을 8×6 으로 덮고, 처음에 무작위 3~5칸을 열어 둔 뒤 일정 간격마다 무작위 2~4칸씩 더 연다.
-// 서버의 rows·columns·stages 는 아직 쓰지 않는다(화면 규칙을 앱이 정한다).
+// 타일 벗기기(SINGLE + config.presentation.type === 'TILE') 규칙.
+// 사진을 서버 rows×columns 칸으로 모두 덮고, 사용자가 누른 칸만 하나씩 벗긴다(순서·개수는 사용자가 정한다).
+// 채점 결과가 나오면 남은 칸을 모두 벗긴다.
 
-export const TILE_COLUMNS = 8;
-export const TILE_ROWS = 6;
-export const TILE_COUNT = TILE_COLUMNS * TILE_ROWS;
-export const TILE_INITIAL_REVEAL = { min: 3, max: 5 } as const;
-export const TILE_STEP_REVEAL = { min: 2, max: 4 } as const;
-export const TILE_STEP_INTERVAL_MS = 2000;
-export const TILE_FADE_MS = 600;
+// rows·columns 가 없거나 범위 밖일 때 쓰는 칸 수. 320×240 틀에서 40×40 정사각형이 된다.
+export const TILE_DEFAULT_GRID = { rows: 6, columns: 8 } as const;
+// 칸 하나가 사라지는 시간. 누른 뒤 바로 반응이 보이도록 짧게 둔다.
+export const TILE_FADE_MS = 250;
 
-type Random = () => number;
-
-export function randomCount(range: { min: number; max: number }, random: Random = Math.random) {
-  return range.min + Math.floor(random() * (range.max - range.min + 1));
-}
-
-/** 아직 덮인 칸 중 count 개를 무작위로 고른다. 남은 칸보다 많이 달라면 남은 칸을 모두 준다. */
-export function pickHiddenTiles(
-  revealed: ReadonlySet<number>,
-  count: number,
-  random: Random = Math.random,
-): number[] {
-  const hidden: number[] = [];
-  for (let index = 0; index < TILE_COUNT; index++) if (!revealed.has(index)) hidden.push(index);
-  // 부분 Fisher–Yates: 앞에서부터 count 칸만 섞는다.
-  const take = Math.min(count, hidden.length);
-  for (let i = 0; i < take; i++) {
-    const j = i + Math.floor(random() * (hidden.length - i));
-    [hidden[i], hidden[j]] = [hidden[j], hidden[i]];
-  }
-  return hidden.slice(0, take);
+/** 정답 문구. revealedCount: 보기를 고른 순간 벗긴 칸 수, total: 전체 칸 수. */
+export function tileCorrectNote(revealedCount: number, total: number) {
+  if (revealedCount <= 0) return '타일을 벗기지 않고 맞췄어요.';
+  return revealedCount >= total
+    ? '타일을 모두 벗기고 맞췄어요.'
+    : `타일 ${revealedCount}개만 벗기고 맞췄어요.`;
 }

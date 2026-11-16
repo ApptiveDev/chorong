@@ -23,6 +23,7 @@ import {
   isChosungInputFilled,
 } from './chosungInput';
 import { FEEDBACK_SHEET_COLORS, QuizFeedbackSheet } from './QuizFeedbackSheet';
+import { gradedAnnouncement, isUngraded } from './quizGrading';
 
 export function isChosungQuiz(quiz: Quiz | null | undefined): boolean {
   return quiz?.type === 'CHOSUNG' && typeof quiz.options?.hint === 'string';
@@ -94,7 +95,7 @@ export function ChosungQuiz({
       setResult(graded);
       onGraded(graded);
       moveTo('GRADED');
-      AccessibilityInfo.announceForAccessibility(graded.isCorrect ? '정답' : '오답');
+      AccessibilityInfo.announceForAccessibility(gradedAnnouncement(quiz, graded));
       sheetProgress.setValue(0);
       const reduceMotion = await AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
       if (!active.current) return;
@@ -139,11 +140,14 @@ export function ChosungQuiz({
 
   const graded = phase === 'GRADED' || phase === 'TRANSITIONING';
   const locked = disabled || phase !== 'INPUT';
+  // 채점하지 않는 문항은 정답·오답 색과 정답 표시 없이 입력한 그대로 둔다.
+  const ungraded = isUngraded(quiz, result);
   const expected =
-    result && !result.isCorrect && typeof result.correctAnswer.answer === 'string'
+    result && !ungraded && !result.isCorrect && typeof result.correctAnswer.answer === 'string'
       ? result.correctAnswer.answer
       : null;
-  const resultColor = result ? (result.isCorrect ? color.correct : color.wrong) : color.base;
+  const resultColor =
+    result && !ungraded ? (result.isCorrect ? color.correct : color.wrong) : color.base;
 
   return (
     <View style={s.stage}>
@@ -212,6 +216,7 @@ export function ChosungQuiz({
           progress={sheetProgress}
           nextDisabled={phase !== 'GRADED'}
           onNext={advance}
+          ungraded={ungraded}
         />
       ) : null}
     </View>

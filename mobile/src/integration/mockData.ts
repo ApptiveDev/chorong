@@ -387,7 +387,13 @@ const firstLessonSteps = [
   {
     label: '핵융합',
     image: 'fusion',
-    body: '태양 한가운데서는 수소 원자핵 넷이 부딪쳐 헬륨 하나로 합쳐져요. 이게 핵융합이에요.',
+    // 0.4.1 개념 화면 형식: 키워드와 대사. 화자 없는 해설 대사도 섞는다.
+    keyword: '핵융합',
+    dialogue: [
+      { speaker: '별지기', text: '태양 한가운데서는 수소 원자핵 넷이 부딪쳐요.' },
+      { text: '부딪친 원자핵 넷은 헬륨 하나로 합쳐진다.' },
+      { speaker: '별지기', text: '이게 핵융합이에요.' },
+    ],
   },
   { quiz: 1 },
   { quiz: 2 },
@@ -422,6 +428,14 @@ export const firstLessonContents: Content[] = firstLessonSteps.map((step, index)
     order: index + 1,
     contentType: question ? 'QUIZ' : 'image' in step ? 'IMAGE' : 'TEXT',
     body: 'body' in step ? step.body : null,
+    ...('keyword' in step ? { keyword: step.keyword } : {}),
+    ...('dialogue' in step
+      ? {
+          dialogue: step.dialogue.map((line) =>
+            'speaker' in line ? { speaker: line.speaker, text: line.text } : { text: line.text },
+          ) as { speaker: string | undefined; text: string }[],
+        }
+      : {}),
     mediaUrl: question ? null : 'image' in step ? `mock-study-${step.image}` : null,
     quiz: question
       ? {
@@ -528,7 +542,6 @@ const tileMockContent = {
         mediaUrl: 'mock-study-fusion',
         rows: 6,
         columns: 8,
-        stages: [4, 8, 16, 32, 48],
       },
     },
   },
@@ -688,6 +701,7 @@ export const lessons: Lesson[] = [
 
 export const me: Me = {
   userId: 1,
+  userCode: '42001000',
   nickname: '초롱이',
   status: 'ACTIVE',
   providers: ['EMAIL'],

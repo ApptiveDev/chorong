@@ -8,6 +8,7 @@ import { UserScreen } from './Screen';
 import { LearningHome } from './LearningHome';
 import { useLessonStart } from './lessonStart';
 import {
+  allConstellations,
   completedConstellations,
   constellationImage,
   litStars,
@@ -196,7 +197,11 @@ function Courses() {
       <>
         <ConstellationRecordView
           mode={mapTab}
-          items={completedConstellations(courses, constellations, recordDates)}
+          items={
+            mapTab === 'map'
+              ? allConstellations(courses, constellations, recordDates)
+              : completedConstellations(courses, constellations, recordDates)
+          }
           task={task}
           onToggleMode={() => setMapTab((value) => (value === 'map' ? 'record' : 'map'))}
           onHome={() => setSection('home')}

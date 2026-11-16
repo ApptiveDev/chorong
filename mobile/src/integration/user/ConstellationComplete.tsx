@@ -20,8 +20,8 @@ export function ConstellationComplete({
   name: string;
   // 'YYYY. MM. DD'
   completedOn: string;
-  // 완성 보너스 별가루. 0 이면 보너스 줄을 그리지 않는다.
-  bonus: number;
+  // 완성 보너스 줄(completionResult.constellationBonusLines). 비어 있으면 보너스 줄을 그리지 않는다.
+  bonus: readonly string[];
   points: StarPoint[];
   image: ConstellationImage | null;
   onRecord: () => void;
@@ -65,10 +65,15 @@ export function ConstellationComplete({
       <View style={[s.dateLine, { top: top(479) }]}>
         <Text style={s.date}>{completedOn} 완성</Text>
       </View>
-      {bonus > 0 ? (
+      {bonus.length ? (
         <>
           <Text style={[s.bonusLabel, { top: top(529) }]}>완성 보너스</Text>
-          <Text style={[s.bonusAmount, { top: top(555) }]}>별가루 +{bonus}</Text>
+          {/* Figma 는 별가루 한 줄(555). 보너스가 여러 개면 24 간격으로 잇는다. */}
+          {bonus.map((line, index) => (
+            <Text key={index} style={[s.bonusAmount, { top: top(555 + index * 24) }]}>
+              {line}
+            </Text>
+          ))}
         </>
       ) : null}
       <View style={[s.actions, { bottom }]}>
