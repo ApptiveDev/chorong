@@ -82,6 +82,10 @@ class ContentImportServiceTest {
         val result = import(example())
         val lesson = result.lessons.single()
         assertEquals(LessonImportStatus.NEW, lesson.status)
+        assertEquals(
+            result.courseId,
+            jdbc.queryForObject("SELECT constellation_id FROM course WHERE course_id=?", Long::class.java, result.courseId),
+        )
 
         mvc.get("/api/v1/courses/${result.courseId}") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
             status { isOk() }

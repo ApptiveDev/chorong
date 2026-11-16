@@ -1001,6 +1001,70 @@ class LearningApiTest {
     }
 
     @Test
+    fun `constellations count completed lessons as stars even without energy`() {
+        val first = createCourse("별자리 A", 2)
+        val second = createCourse("별자리 B", 2)
+        val third = createCourse("별자리 C", 1)
+        onlyCourses(first, second, third)
+        listOf(first, second, third).forEach { jdbc.update("UPDATE course SET constellation_id=course_id WHERE course_id=?", it) }
+        jdbc.update("UPDATE course SET description='첫 별자리' WHERE course_id=?", first)
+        val (a1, a2) = lessonIds(first)
+        val (b1, b2) = lessonIds(second)
+        jdbc.update(
+            "INSERT INTO user_wallet(user_id,energy,energy_date) VALUES (?,0,?) ON CONFLICT (user_id) DO UPDATE SET energy=0, energy_date=?",
+            userId,
+            java.sql.Date.valueOf(today()),
+            java.sql.Date.valueOf(today()),
+        )
+        val contentId =
+            checkNotNull(
+                jdbc.queryForObject(
+                    "INSERT INTO lesson_content(lesson_id,content_order,content_type,body) VALUES (?,0,'TEXT','본문') RETURNING content_id",
+                    Long::class.java,
+                    a1,
+                ),
+            )
+        mvc.post("/api/v1/lessons/$a1/start") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect { status { isOk() } }
+        mvc.post("/api/v1/contents/$contentId/complete") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.completion.rewardStatus") { value("NO_ENERGY") }
+        }
+        complete(a2, first)
+        complete(b1, second)
+
+        mvc.get("/api/v1/constellations") { header(HttpHeaders.AUTHORIZATION, auth) }.andExpect {
+            status { isOk() }
+            jsonPath("$.data.constellations.length()") { value(3) }
+            jsonPath("$.data.constellations[0].courseId") { value(first) }
+            jsonPath("$.data.constellations[0].order") { value(1) }
+            jsonPath("$.data.constellations[0].description") { value("첫 별자리") }
+            jsonPath("$.data.constellations[0].status") { value("COMPLETED") }
+            jsonPath("$.data.constellations[0].starCount") { value(2) }
+            jsonPath("$.data.constellations[0].earnedStars") { value(2) }
+            jsonPath("$.data.constellations[0].completedAt") { exists() }
+            jsonPath("$.data.constellations[0].stars[0].lessonId") { value(a1) }
+            jsonPath("$.data.constellations[0].stars[0].title") { value("레슨 1") }
+            jsonPath("$.data.constellations[0].stars[0].completed") { value(true) }
+            jsonPath("$.data.constellations[1].order") { value(2) }
+            jsonPath("$.data.constellations[1].status") { value("IN_PROGRESS") }
+            jsonPath("$.data.constellations[1].earnedStars") { value(1) }
+            jsonPath("$.data.constellations[1].completedAt") { value(null) }
+            jsonPath("$.data.constellations[1].stars[0].title") { value("레슨 1") }
+            jsonPath("$.data.constellations[1].stars[1].lessonId") { value(b2) }
+            jsonPath("$.data.constellations[1].stars[1].order") { value(2) }
+            jsonPath("$.data.constellations[1].stars[1].title") { value(null) }
+            jsonPath("$.data.constellations[1].stars[1].completed") { value(false) }
+            jsonPath("$.data.constellations[1].stars[1].completedAt") { value(null) }
+            jsonPath("$.data.constellations[2].status") { value("LOCKED") }
+            jsonPath("$.data.constellations[2].earnedStars") { value(0) }
+        }
+        assertEquals(
+            0,
+            jdbc.queryForObject("SELECT COUNT(*) FROM reward_ledger WHERE user_id=? AND currency='STARDUST'", Int::class.java, userId),
+        )
+    }
+
+    @Test
     fun `review candidates never block starting or finishing a lesson`() {
         val (_, reviewLessonId) = createUnlockedLesson("복습 후보")
         val today = java.sql.Date.valueOf(java.time.LocalDate.ofInstant(clock.instant(), java.time.ZoneId.of("Asia/Seoul")))
