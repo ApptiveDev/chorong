@@ -19,14 +19,15 @@ import { positiveId } from '../ui';
 import { UserStatus } from './Screen';
 import { SessionConfirmModal } from './SessionConfirmModal';
 import { artColor as color, SparkStar } from './constellationArt';
-import { constellationCompletedOn, starTitle } from './constellationRecord';
+import { constellationCompletedOn, nextLessonOf, starTitle } from './constellationRecord';
+import { useLessonStart } from './lessonStart';
 import { loadConstellationDates } from './constellationDates';
 
 type Lesson = CourseDetail['lessons'][number];
 
 // Figma L03_1 별자리 상세 / 완료한 별 목록(342:577).
 // 별자리(코스)의 레슨을 순서대로 보여 주고, 누르면 기존 학습 진입을 그대로 쓴다.
-// 완료한 레슨은 확인 모달 뒤 다시 하기(replay), 열린 레슨은 바로 학습 화면으로 간다.
+// 완료한 레슨은 확인 모달 뒤 다시 하기(replay), 다음 학습 레슨은 학습 홈과 같은 진입(useLessonStart)으로 간다.
 export default function CourseScreen() {
   const { courseId, completedOn: passedCompletedOn } = useLocalSearchParams<{
       courseId: string;
@@ -79,10 +80,13 @@ export default function CourseScreen() {
       params: { lessonId: String(lesson.lessonId), title: lesson.title, replay: 'true' },
     });
   };
-  // 완료한 별만 누를 수 있다(다시 학습). 완료하지 않은 별은 ??? 로 보이며 여기서는 진행하지 않는다.
-  // 새 레슨 학습은 학습 홈의 다음 학습(이어하기)·? 별로 들어간다.
+  // 완료한 별은 다시 학습. 다음 학습(처음 나오는 IN_PROGRESS·UNLOCKED, 학습 홈과 같은 규칙)은 제목을 보여 주고
+  // 학습 홈과 같은 진입으로 시작·이어 한다. 그 밖의 완료하지 않은 별은 ??? 로 보이며 누를 수 없다.
+  const lessonStart = useLessonStart();
+  const nextLessonId = course ? (nextLessonOf(course.lessons)?.lessonId ?? null) : null;
   const openLesson = (lesson: Lesson) => {
     if (lesson.status === 'COMPLETED') setReplayTarget(lesson);
+    else if (lesson.lessonId === nextLessonId) void lessonStart.start(lesson);
   };
   const rowWidth = Math.min(332, width - 70);
   return (
@@ -105,23 +109,25 @@ export default function CourseScreen() {
         {course ? (
           <View style={[s.lessons, { width: rowWidth }]}>
             {course.lessons.map((lesson) => {
-              const locked = lesson.status !== 'COMPLETED';
-              const status = locked ? '진행할 수 없음' : '완료, 다시 학습';
+              const done = lesson.status === 'COMPLETED';
+              const next = !done && lesson.lessonId === nextLessonId;
+              const locked = !done && !next;
+              const status = done ? '완료, 다시 학습' : next ? '다음 학습' : '진행할 수 없음';
               return (
                 <Pressable
                   key={lesson.lessonId}
                   accessibilityRole="button"
-                  accessibilityLabel={`${lesson.status === 'COMPLETED' ? lesson.title : '아직 학습하지 않은 별'} ${status}`}
+                  accessibilityLabel={`${locked ? '아직 학습하지 않은 별' : lesson.title} ${status}`}
                   accessibilityState={{ disabled: locked }}
                   disabled={locked}
                   onPress={() => openLesson(lesson)}
                   style={[s.row, locked && s.rowLocked]}
                 >
                   <View style={s.rowTitle}>
-                    <SparkStar filled={lesson.status === 'COMPLETED'} />
-                    {/* 학습하지 않은 별은 제목 대신 ??? (API-906 stars[].title=null 과 같은 규칙) */}
+                    <SparkStar filled={done} />
+                    {/* 학습하지 않은 별은 제목 대신 ??? (API-906 stars[].title=null 과 같은 규칙). 다음 학습은 제목을 보여 준다. */}
                     <Text style={s.lessonTitle} numberOfLines={1}>
-                      {starTitle(lesson)}
+                      {next ? lesson.title : starTitle(lesson)}
                     </Text>
                   </View>
                   {locked ? null : <Text style={s.chevron}>›</Text>}
@@ -149,6 +155,7 @@ export default function CourseScreen() {
         onCancel={() => setReplayTarget(null)}
         onConfirm={startReplay}
       />
+      {lessonStart.modal}
     </SafeAreaView>
   );
 }
