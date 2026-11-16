@@ -605,17 +605,7 @@ const inlineWordMockContent = {
     instruction: '틀린 낱말을 누르세요.',
     quizOrder: 5,
     config: {
-      options: [
-        '태양',
-        '한가운데서',
-        '수소',
-        '원자핵',
-        '넷이',
-        '합쳐져',
-        '산소',
-        '하나가',
-        '돼요',
-      ],
+      options: ['태양', '한가운데서', '수소', '원자핵', '넷이', '합쳐져', '산소', '하나가', '돼요'],
       presentation: { type: 'INLINE_WORD' },
     },
   },

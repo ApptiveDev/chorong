@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { FontDisplay, useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
+import { useWebHangulFonts } from '../src/lib/webHangulFonts';
 import { AuthProvider } from '../src/providers/AuthProvider';
 import { WebFrame } from '../src/components/WebFrame';
 
@@ -41,8 +42,11 @@ export default function RootLayout() {
     },
   });
 
+  // 웹은 한글 글자로 Pretendard 를 한 번 더 불러 둔다(글꼴이 준비되기 전 글자가 비어 보이는 것을 막는다).
+  const hangulReady = useWebHangulFonts(fontsLoaded);
+
   if (fontError) throw fontError;
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded || !hangulReady) return null;
 
   return (
     <AuthProvider>
