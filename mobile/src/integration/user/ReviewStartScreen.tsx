@@ -1,8 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, Pressable, StyleSheet, Text, type TextStyle, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  type TextStyle,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient, Stop } from 'react-native-svg';
 import { integrationApi as api } from '../runtime';
@@ -12,35 +22,257 @@ import { UserScreen, UserStatus } from './Screen';
 import { ReviewEmptyModal } from './ReviewEmptyModal';
 import { checkReviewStart, reviewRewardNotice } from './reviewStart';
 
-const orbitStars = [
-  { x: 301, y: 538, radius: 23, glow: 24 },
-  { x: 20, y: 595, radius: 4, glow: 16 },
-  { x: 280, y: 18, radius: 2, glow: 16 },
-  { x: 292, y: 826, radius: 6, glow: 18 },
-  { x: 146, y: 143, radius: 9, glow: 24 },
-  { x: 99, y: 473, radius: 4, glow: 12 },
+// 배경 좌표계(viewBox 679×848). Figma 413:617.
+const VIEW_W = 679;
+const VIEW_H = 848;
+
+type Star = { x: number; y: number; radius: number; glow: number };
+
+// 궤도와 상관없는 배경 별. 제자리에서 은은하게 반짝인다(주기와 시작 시점을 다르게).
+const twinklingStars: (Star & { duration: number; delay: number })[] = [
+  { x: 20, y: 595, radius: 4, glow: 16, duration: 2600, delay: 0 },
+  { x: 280, y: 18, radius: 2, glow: 16, duration: 3400, delay: 900 },
+  { x: 292, y: 826, radius: 6, glow: 18, duration: 4200, delay: 1800 },
+  // Figma 에 없는 추가 별. 작게, 카드·제목·버튼과 겹치지 않고 궤도선에서 75 이상 떨어진 자리.
+  { x: -10, y: 200, radius: 2, glow: 10, duration: 3000, delay: 400 }, // 바깥 원 밖 ~98
+  { x: 330, y: 260, radius: 1.5, glow: 8, duration: 3800, delay: 1300 }, // 안쪽 원 안 ~75
+  { x: 100, y: 700, radius: 2.5, glow: 10, duration: 2200, delay: 2400 }, // 바깥 원 밖 ~113
 ];
 
-function ReviewOrbits() {
+// 궤도. 원 중심(cx, cy)을 축으로 돈다. 안쪽일수록 빠르다.
+// direction 1 은 시계 방향, -1 은 반시계 방향(가운데 원만 거꾸로 돈다).
+// main 은 Figma 의 별. extras 는 main 에서 angle(도)만큼 떨어진 추가 별이고 scale 은 main 대비 크기.
+// 화면에는 원의 왼쪽 절반만 보이므로, 별 사이 간격이 모두 180° 보다 작게 두어 항상 하나 이상 보이게 한다.
+type Orbit = {
+  cx: number;
+  cy: number;
+  duration: number;
+  direction: 1 | -1;
+  main: Star;
+  extras: { angle: number; scale: number }[];
+};
+
+const orbits: Orbit[] = [
+  // r 187
+  {
+    cx: 365.5,
+    cy: 366.5,
+    duration: 60000,
+    direction: 1,
+    main: { x: 301, y: 538, radius: 23, glow: 24 },
+    extras: [
+      { angle: 150, scale: 0.6 },
+      { angle: 250, scale: 0.4 },
+    ],
+  },
+  // r 288
+  {
+    cx: 366.5,
+    cy: 365.5,
+    duration: 90000,
+    direction: -1,
+    main: { x: 99, y: 473, radius: 4, glow: 12 },
+    extras: [
+      { angle: 130, scale: 0.6 },
+      { angle: 230, scale: 0.4 },
+    ],
+  },
+  // r 313
+  {
+    cx: 365.5,
+    cy: 366.5,
+    duration: 120000,
+    direction: 1,
+    main: { x: 146, y: 143, radius: 9, glow: 24 },
+    extras: [
+      { angle: 165, scale: 0.6 },
+      { angle: 265, scale: 0.4 },
+    ],
+  },
+];
+
+// main 을 중심 기준으로 회전시킨 자리에 크기를 줄인 별을 만든다.
+function orbitStars({ cx, cy, main, extras }: Orbit): Star[] {
+  return [
+    main,
+    ...extras.map(({ angle, scale }) => {
+      const rad = (angle * Math.PI) / 180;
+      const dx = main.x - cx;
+      const dy = main.y - cy;
+      return {
+        x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
+        y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
+        radius: Math.max(2, main.radius * scale),
+        glow: Math.max(8, main.glow * scale),
+      };
+    }),
+  ];
+}
+
+// 배경 좌표계의 정사각형 영역을 부모 비율(%)로 놓는다. 화면 배율(scale)을 따로 넘기지 않는다.
+function squareLayout(cx: number, cy: number, half: number) {
+  const size = half * 2;
+  return {
+    position: 'absolute' as const,
+    left: `${((cx - half) / VIEW_W) * 100}%` as const,
+    top: `${((cy - half) / VIEW_H) * 100}%` as const,
+    width: `${(size / VIEW_W) * 100}%` as const,
+    height: `${(size / VIEW_H) * 100}%` as const,
+  };
+}
+
+function StarGlowDefs({ id }: { id: string }) {
   return (
-    <Svg width="100%" height="100%" viewBox="0 0 679 848" fill="none">
-      <Defs>
-        <RadialGradient id="reviewStarGlow">
-          <Stop offset="0" stopColor="#f1f1f1" stopOpacity="0.5" />
-          <Stop offset="0.35" stopColor="#f1f1f1" stopOpacity="0.2" />
-          <Stop offset="1" stopColor="#f1f1f1" stopOpacity="0" />
-        </RadialGradient>
-      </Defs>
-      <Circle cx={366.5} cy={365.5} r={288} stroke="#f1f1f1" strokeWidth={1} />
-      <Circle cx={365.5} cy={366.5} r={313} stroke="#f1f1f1" strokeWidth={1} />
-      <Circle cx={365.5} cy={366.5} r={187} stroke="#f1f1f1" strokeWidth={1} />
-      {orbitStars.map(({ x, y, radius, glow }) => (
-        <G key={`${x}-${y}`}>
-          <Circle cx={x} cy={y} r={radius + glow} fill="url(#reviewStarGlow)" />
-          <Circle cx={x} cy={y} r={radius} fill="#f1f1f1" />
-        </G>
+    <Defs>
+      <RadialGradient id={id}>
+        <Stop offset="0" stopColor="#f1f1f1" stopOpacity="0.5" />
+        <Stop offset="0.35" stopColor="#f1f1f1" stopOpacity="0.2" />
+        <Stop offset="1" stopColor="#f1f1f1" stopOpacity="0" />
+      </RadialGradient>
+    </Defs>
+  );
+}
+
+function StarShape({ x, y, radius, glow, glowId }: Star & { glowId: string }) {
+  return (
+    <G>
+      <Circle cx={x} cy={y} r={radius + glow} fill={`url(#${glowId})`} />
+      <Circle cx={x} cy={y} r={radius} fill="#f1f1f1" />
+    </G>
+  );
+}
+
+// 원 중심을 가운데로 둔 정사각형 레이어 하나에 궤도의 별을 모두 그리고, 레이어를 돌린다.
+function OrbitLayer({
+  orbit,
+  index,
+  reduceMotion,
+}: {
+  orbit: Orbit;
+  index: number;
+  reduceMotion: boolean;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reduceMotion) return;
+    const loop = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: orbit.duration,
+        easing: Easing.linear,
+        useNativeDriver: Platform.OS !== 'web',
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [progress, reduceMotion, orbit.duration]);
+
+  const { cx, cy, main } = orbit;
+  const stars = orbitStars(orbit);
+  const half = Math.hypot(main.x - cx, main.y - cy) + main.radius + main.glow;
+  const glowId = `reviewOrbitGlow${index}`;
+  const rotate = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', `${360 * orbit.direction}deg`],
+  });
+
+  return (
+    <Animated.View style={[squareLayout(cx, cy, half), { transform: [{ rotate }] }]}>
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox={`${cx - half} ${cy - half} ${half * 2} ${half * 2}`}
+      >
+        <StarGlowDefs id={glowId} />
+        {stars.map((star, i) => (
+          <StarShape key={i} {...star} glowId={glowId} />
+        ))}
+      </Svg>
+    </Animated.View>
+  );
+}
+
+function TwinklingStar({
+  star,
+  index,
+  reduceMotion,
+}: {
+  star: (typeof twinklingStars)[number];
+  index: number;
+  reduceMotion: boolean;
+}) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      opacity.setValue(1);
+      return;
+    }
+    const half = star.duration / 2;
+    const ease = Easing.inOut(Easing.sin);
+    const useNativeDriver = Platform.OS !== 'web';
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.35, duration: half, easing: ease, useNativeDriver }),
+        Animated.timing(opacity, { toValue: 1, duration: half, easing: ease, useNativeDriver }),
+      ]),
+    );
+    const timer = setTimeout(() => loop.start(), star.delay);
+    return () => {
+      clearTimeout(timer);
+      loop.stop();
+    };
+  }, [opacity, reduceMotion, star.delay, star.duration]);
+
+  const { x, y, radius, glow } = star;
+  const half = radius + glow;
+  const glowId = `reviewTwinkleGlow${index}`;
+
+  return (
+    <Animated.View style={[squareLayout(x, y, half), { opacity }]}>
+      <Svg width="100%" height="100%" viewBox={`${x - half} ${y - half} ${half * 2} ${half * 2}`}>
+        <StarGlowDefs id={glowId} />
+        <StarShape {...star} glowId={glowId} />
+      </Svg>
+    </Animated.View>
+  );
+}
+
+function ReviewOrbits() {
+  // 동작 줄이기 설정이면 별을 Figma 자리에 멈춰 두고 반짝임도 끈다.
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => {
+        if (active) setReduceMotion(value);
+      })
+      .catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => {
+      active = false;
+      sub.remove();
+    };
+  }, []);
+
+  return (
+    <>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} fill="none">
+        <Circle cx={366.5} cy={365.5} r={288} stroke="#f1f1f1" strokeWidth={1} />
+        <Circle cx={365.5} cy={366.5} r={313} stroke="#f1f1f1" strokeWidth={1} />
+        <Circle cx={365.5} cy={366.5} r={187} stroke="#f1f1f1" strokeWidth={1} />
+      </Svg>
+      {twinklingStars.map((star, index) => (
+        <TwinklingStar
+          key={`${star.x}-${star.y}`}
+          star={star}
+          index={index}
+          reduceMotion={reduceMotion}
+        />
       ))}
-    </Svg>
+      {orbits.map((orbit, index) => (
+        <OrbitLayer key={index} orbit={orbit} index={index} reduceMotion={reduceMotion} />
+      ))}
+    </>
   );
 }
 
