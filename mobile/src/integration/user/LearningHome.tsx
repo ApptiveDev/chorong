@@ -1,5 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
   Image,
   Platform,
   Pressable,
@@ -10,8 +12,17 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Defs, G, Line, Path } from 'react-native-svg';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, {
+  Circle,
+  Defs,
+  G,
+  Line,
+  type LineProps,
+  Path,
+  RadialGradient,
+  Stop,
+} from 'react-native-svg';
 import type { useTask } from '../hooks';
 import type { ConstellationImage, StarLine } from './constellationLayouts';
 import { segmentStyle, type RecordStar, type StarState } from './constellationRecord';
@@ -20,6 +31,7 @@ import { DotTabsHeader, StarIcon } from './ShipStatus';
 import { UserStatus } from './Screen';
 import { WalletPopover, type PopoverAnchor } from './WalletPopover';
 import { GlowFilter, HUD_CORNER, HUD_DOTTED, HUD_RULER } from './constellationArt';
+import { useDrift, useReduceMotion, useTwinkle } from './twinkle';
 
 // Figma L01-01 학습 홈(757:3107). 표시할 값은 모두 CoursesScreen 이 서버 응답에서 읽어 넘긴다.
 const color = { base: '#161616', fale: '#f1f1f1', yellow: '#ffde23' };
@@ -80,6 +92,7 @@ export function LearningHome({
   // 좌우 37(Figma) 여백을 두고 328 까지. 별자리 칸 안 좌표는 이 비율로 줄인다.
   const panelWidth = Math.min(CANVAS.width, width - 74);
   const k = panelWidth / CANVAS.width;
+  const reduceMotion = useReduceMotion();
   const chipRef = useRef<View>(null);
   const [popover, setPopover] = useState<PopoverAnchor | null>(null);
   const openPopover = () =>
@@ -87,6 +100,8 @@ export function LearningHome({
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
+      {/* 화면 전체에 깔리는 배경 별·먼지. 맨 앞 자식이라 내용 뒤에 그려지고, 스크롤해도 움직이지 않는다. */}
+      <ScreenBackground reduceMotion={reduceMotion} />
       <UserStatus task={task} floatingBusy />
       <ScrollView contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
         <DotTabsHeader
@@ -106,6 +121,7 @@ export function LearningHome({
                 lines={constellation.lines}
                 image={constellation.image}
                 nextResume={nextResume}
+                reduceMotion={reduceMotion}
                 onStar={onStar}
               />
               <View style={s.titleRow}>
@@ -162,8 +178,6 @@ export function LearningHome({
             </Pressable>
           ) : null}
         </View>
-        {/* 마지막 자식으로 두어 웹에서도 다른 View 아래에 깔려 가려지지 않게 한다. 터치는 받지 않는다. */}
-        <ScreenDots width={width} />
       </ScrollView>
       <WalletPopover anchor={popover} onClose={() => setPopover(null)} />
     </SafeAreaView>
@@ -179,6 +193,7 @@ function ConstellationCanvas({
   lines,
   image,
   nextResume,
+  reduceMotion,
   onStar,
 }: {
   k: number;
@@ -186,6 +201,7 @@ function ConstellationCanvas({
   lines: readonly StarLine[];
   image: ConstellationImage | null;
   nextResume: boolean;
+  reduceMotion: boolean;
   onStar: (star: RecordStar) => void;
 }) {
   const at = (star: RecordStar) => ({
@@ -215,6 +231,7 @@ function ConstellationCanvas({
         visible: length > startTrim + endTrim,
       };
     });
+  const dashOffset = useDashFlow(reduceMotion);
   return (
     <>
       {image ? (
@@ -240,10 +257,8 @@ function ConstellationCanvas({
           <GlowFilter id="glow4" blur={4} {...CANVAS} />
           <GlowFilter id="glow2" blur={2} {...CANVAS} />
         </Defs>
-        {/* 배경 별(757:3160 · 757:3161 · 757:3162) */}
-        <Circle cx={30} cy={119} r={2} fill={color.fale} filter="url(#dot)" />
+        {/* 배경 별(757:3161). 작고 흐린 757:3160 · 757:3162 는 아래에서 먼지로 떠다닌다. */}
         <Circle cx={280} cy={176} r={4} fill={color.fale} filter="url(#dot)" />
-        <Circle cx={163} cy={301} r={1} fill={color.fale} filter="url(#dot)" />
         {/* HUD(757:3131): 네 모서리, 위 점선, 아래 눈금 */}
         <G stroke={color.fale} fill="none">
           <Path d={HUD_CORNER} transform="translate(-0.5 42.5587)" />
@@ -259,7 +274,7 @@ function ConstellationCanvas({
           />
         </G>
         {segments.map((segment) =>
-          segment.visible ? (
+          !segment.visible ? null : segment.style === 'solid' ? (
             <Line
               key={segment.key}
               x1={segment.x1}
@@ -268,27 +283,26 @@ function ConstellationCanvas({
               y2={segment.y2}
               stroke={color.fale}
               strokeWidth={1}
-              {...(segment.style === 'solid'
-                ? { filter: 'url(#glow2)' }
-                : { strokeDasharray: '3 3' })}
+              filter="url(#glow2)"
             />
-          ) : null,
+          ) : (
+            // 아직 안 밝힌 구간의 점선은 앞 별 → 뒤 별 방향으로 천천히 흐른다(학습 진행 방향).
+            <AnimatedLine
+              key={segment.key}
+              x1={segment.x1}
+              y1={segment.y1}
+              x2={segment.x2}
+              y2={segment.y2}
+              stroke={color.fale}
+              strokeWidth={1}
+              strokeDasharray="3 3"
+              strokeDashoffset={dashOffset}
+            />
+          ),
         )}
         {stars.map((star) => {
           const { x, y } = at(star);
-          if (star.state === 'done')
-            return (
-              <G key={star.lessonId}>
-                <Circle cx={x} cy={y} r={12.0687} fill={color.fale} filter="url(#glow4)" />
-                <Circle
-                  cx={x}
-                  cy={y}
-                  r={STAR_RADIUS.done}
-                  fill={color.fale}
-                  filter="url(#glow12)"
-                />
-              </G>
-            );
+          // 밝힌 별(done)은 반짝이도록 아래에서 별도 레이어로 그린다.
           if (star.state === 'todo')
             return (
               <Circle
@@ -303,6 +317,38 @@ function ConstellationCanvas({
           return null;
         })}
       </Svg>
+      {canvasDust.map((dust, index) => (
+        <Dust
+          key={index}
+          id={`canvasDust${index}`}
+          {...dust}
+          k={k}
+          area={CANVAS}
+          reduceMotion={reduceMotion}
+        />
+      ))}
+      {stars
+        .filter((star) => star.state === 'done')
+        .map((star, index) => (
+          <DoneStar
+            key={star.lessonId}
+            id={star.lessonId}
+            {...at(star)}
+            k={k}
+            index={index}
+            reduceMotion={reduceMotion}
+          />
+        ))}
+      {stars
+        .filter((star) => star.state === 'next')
+        .map((star) => (
+          <NextStarRipple
+            key={`ripple-${star.lessonId}`}
+            {...at(star)}
+            k={k}
+            reduceMotion={reduceMotion}
+          />
+        ))}
       {stars
         .filter((star) => star.state === 'next')
         .map((star) => {
@@ -358,19 +404,385 @@ function ConstellationCanvas({
   );
 }
 
-// 화면 배경 별(757:3114 · 757:3169 · 757:3166). Figma 402 폭 기준 좌표.
-const SCREEN = { width: 402, height: 720 };
-function ScreenDots({ width }: { width: number }) {
+// 점선 흐름. 점선 한 주기(3 + 3)만큼 offset 을 줄여 무늬가 선의 끝 쪽으로 이동하게 한다.
+// SVG 속성이라 네이티브 드라이버를 쓸 수 없지만 선이 몇 개뿐이라 부담이 작다.
+// Animated 는 감싼 컴포넌트에 collapsable={false} 를 넘기는데, 웹에서 svg Line 은 이를 DOM 속성으로
+// 그대로 내보내 React 경고가 난다. collapsable 만 걸러서 Line 에 넘긴다.
+function DashLine({ collapsable: _collapsable, ...props }: LineProps & { collapsable?: boolean }) {
+  return <Line {...props} />;
+}
+const AnimatedLine = Animated.createAnimatedComponent(DashLine);
+const DASH_PERIOD = 6;
+function useDashFlow(reduceMotion: boolean) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      progress.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [progress, reduceMotion]);
+  return progress.interpolate({ inputRange: [0, 1], outputRange: [0, -DASH_PERIOD] });
+}
+
+// ? 별(다음 학습) 뒤에서 얇은 고리가 바깥으로 퍼지며 사라진다. '여기를 누르세요' 신호.
+// 화면이 산만하지 않게 옅고(최대 0.5) 느리게(퍼지는 1.8초 + 쉬는 1.2초) 한다.
+const RIPPLE_MAX = 1.9;
+function NextStarRipple({
+  x,
+  y,
+  k,
+  reduceMotion,
+}: {
+  x: number;
+  y: number;
+  k: number;
+  reduceMotion: boolean;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      progress.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+        Animated.delay(1200),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [progress, reduceMotion]);
+  const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [1, RIPPLE_MAX] });
+  const opacity = progress.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] });
+  const r = STAR_RADIUS.next;
+  const half = r + 1; // 고리 선 두께 여유. 크기는 scale 로 키운다.
   return (
-    <View pointerEvents="none" style={[s.screenDots, { left: (width - SCREEN.width) / 2 }]}>
-      <Svg width={SCREEN.width} height={SCREEN.height} viewBox="0 0 402 720">
-        <Defs>
-          <GlowFilter id="screenDot" blur={12} soften={2} {...SCREEN} />
-        </Defs>
-        <Circle cx={346} cy={81} r={2} fill={color.fale} filter="url(#screenDot)" />
-        <Circle cx={306} cy={38} r={6} fill={color.fale} filter="url(#screenDot)" />
-        <Circle cx={57} cy={668} r={4} fill={color.fale} filter="url(#screenDot)" />
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        s.layer,
+        {
+          left: (x - half) * k,
+          top: (y - half) * k,
+          width: half * 2 * k,
+          height: half * 2 * k,
+          opacity,
+          transform: [{ scale }],
+        },
+      ]}
+    >
+      <Svg width="100%" height="100%" viewBox={`0 0 ${half * 2} ${half * 2}`}>
+        {/* 크게 퍼질수록 선도 같이 굵어지므로 처음엔 가늘게 둔다. */}
+        <Circle cx={half} cy={half} r={r} stroke={color.fale} strokeWidth={0.7} fill="none" />
       </Svg>
+    </Animated.View>
+  );
+}
+
+// 밝힌 별(757:3155). 별 자체는 항상 최대 밝기로 두고, 둘레의 빛무리만 숨 쉬듯 커졌다 작아진다.
+// 빛무리 주기와 시작 시점은 순서대로 엇갈려 별자리 전체가 한꺼번에 움직이지 않는다.
+const DONE_HALF = 52; // 반지름 12 + 빛 번짐(blur 12) 여유. 빛무리 최대(44 × 1.15)도 이 안에 든다.
+const DONE_HALO = 44;
+function DoneStar({
+  id,
+  x,
+  y,
+  k,
+  index,
+  reduceMotion,
+}: {
+  id: string | number;
+  x: number;
+  y: number;
+  k: number;
+  index: number;
+  reduceMotion: boolean;
+}) {
+  // 1 → 0 → 1 로 오가는 값. 빛무리 크기·밝기로 바꿔 쓴다(별 자체 밝기는 건드리지 않는다).
+  const breath = useTwinkle({
+    duration: 3000 + (index % 3) * 800,
+    delay: (index * 530) % 3000,
+    min: 0,
+    reduceMotion,
+  });
+  const haloOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] });
+  const haloScale = breath.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] });
+  const half = DONE_HALF;
+  const viewBox = `${x - half} ${y - half} ${half * 2} ${half * 2}`;
+  const glow4 = `doneGlow4-${id}`;
+  const glow12 = `doneGlow12-${id}`;
+  const halo = `doneHalo-${id}`;
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        s.layer,
+        { left: (x - half) * k, top: (y - half) * k, width: half * 2 * k, height: half * 2 * k },
+      ]}
+    >
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          { opacity: haloOpacity, transform: [{ scale: haloScale }] },
+        ]}
+      >
+        <Svg width="100%" height="100%" viewBox={viewBox}>
+          <Defs>
+            <RadialGradient id={halo}>
+              <Stop offset="0" stopColor={color.fale} stopOpacity="0.7" />
+              <Stop offset="0.3" stopColor={color.fale} stopOpacity="0.35" />
+              <Stop offset="0.6" stopColor={color.fale} stopOpacity="0.1" />
+              <Stop offset="1" stopColor={color.fale} stopOpacity="0" />
+            </RadialGradient>
+          </Defs>
+          <Circle cx={x} cy={y} r={DONE_HALO} fill={`url(#${halo})`} />
+        </Svg>
+      </Animated.View>
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" viewBox={viewBox}>
+        <Defs>
+          <GlowFilter id={glow4} blur={4} {...CANVAS} />
+          <GlowFilter id={glow12} blur={12} {...CANVAS} />
+        </Defs>
+        <Circle cx={x} cy={y} r={12.0687} fill={color.fale} filter={`url(#${glow4})`} />
+        <Circle cx={x} cy={y} r={STAR_RADIUS.done} fill={color.fale} filter={`url(#${glow12})`} />
+      </Svg>
+    </View>
+  );
+}
+
+// 먼지. 아주 작고 흐린 점은 별이 아니라 먼지로 보고 천천히 떠다니게 한다(배경이 정적이지 않게).
+// 좌표는 놓이는 영역(별자리 칸 CANVAS 또는 화면 SCREEN) 기준이고, 생김새는 Figma 배경 점과 같다.
+type DustSpec = {
+  x: number;
+  y: number;
+  r: number;
+  dx: number;
+  dy: number;
+  durationX: number;
+  durationY: number;
+};
+const DUST_HALF = 40; // 반지름 + 빛 번짐(blur 12) 여유
+
+// 별자리 칸의 먼지(757:3160 · 757:3162)
+const canvasDust: DustSpec[] = [
+  { x: 30, y: 119, r: 2, dx: 12, dy: 8, durationX: 14000, durationY: 11000 },
+  { x: 163, y: 301, r: 1, dx: 10, dy: 7, durationX: 12000, durationY: 16000 },
+];
+
+function Dust({
+  id,
+  x,
+  y,
+  r,
+  dx,
+  dy,
+  durationX,
+  durationY,
+  k = 1,
+  area,
+  reduceMotion,
+}: DustSpec & {
+  id: string;
+  k?: number;
+  area: { width: number; height: number };
+  reduceMotion: boolean;
+}) {
+  const { translateX, translateY } = useDrift({
+    dx: dx * k,
+    dy: dy * k,
+    durationX,
+    durationY,
+    reduceMotion,
+  });
+  const half = DUST_HALF;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        s.layer,
+        {
+          left: (x - half) * k,
+          top: (y - half) * k,
+          width: half * 2 * k,
+          height: half * 2 * k,
+          transform: [{ translateX }, { translateY }],
+        },
+      ]}
+    >
+      <Svg width="100%" height="100%" viewBox={`${x - half} ${y - half} ${half * 2} ${half * 2}`}>
+        <Defs>
+          <GlowFilter id={id} blur={12} soften={2} {...area} />
+        </Defs>
+        <Circle cx={x} cy={y} r={r} fill={color.fale} filter={`url(#${id})`} />
+      </Svg>
+    </Animated.View>
+  );
+}
+
+// 화면 배경(별·먼지). 학습 홈 Figma(757:3107) 402 폭 좌표를 쓰되 실제 화면 크기에 맞춰 놓는다.
+// - 가로: 402 대비 비율. 넓은 화면에서도 양옆 여백까지 고르게 퍼진다.
+// - 세로: 내용(별자리 칸·버튼)과 겹치지 않게, 내용이 있는 구간(복습하기 버튼까지, ~690)은 Figma 값 그대로,
+//   그 아래 빈 구간은 fy(0~1) 비율로 놓아 화면이 길어질수록 아래까지 채운다.
+// 좌표 0 은 안전 영역 위쪽(Figma 의 상태 표시줄 아래)과 같다.
+const FIGMA_W = 402;
+const CONTENT_BOTTOM = 690;
+type Place = { x: number; y: number } | { x: number; fy: number };
+
+function placeOf(place: Place, w: number, h: number) {
+  return {
+    x: (place.x / FIGMA_W) * w,
+    y: 'y' in place ? place.y : CONTENT_BOTTOM + place.fy * Math.max(60, h - CONTENT_BOTTOM),
+  };
+}
+
+// Figma 배경 별(757:3169 · 757:3166). 반짝이지 않는다.
+const figmaScreenStars: (Place & { r: number })[] = [
+  { x: 306, y: 38, r: 6 },
+  { x: 57, y: 668, r: 4 },
+];
+
+// Figma 에 없는 추가 배경 별. 빈 곳 위주로, 별자리 칸·글자·버튼과 겹치지 않게 둔다.
+// 아주 작은 원에 흐림 필터를 걸면 다 번져서 안 보이므로, 선명한 몸체에 부드러운 빛무리를 두른다.
+const extraScreenStars: (Place & { r: number; duration: number; delay: number })[] = [
+  // Figma 별(오른쪽 위 · 왼쪽 아래)과 겹치지 않는 오른쪽 아래 빈 구간에 하나만 둔다.
+  { x: 330, fy: 0.55, r: 1.8, duration: 3600, delay: 300 }, // 복습하기 아래 오른쪽
+];
+const EXTRA_STAR_GLOW = 10;
+
+// 화면의 먼지 3개. 별자리 칸 안 먼지 2개(왼쪽 위 · 가운데)와 합쳐 모두 5개가
+// 오른쪽 위 → 왼쪽 위 → 가운데 → 오른쪽 아래 → 왼쪽 맨 아래로 화면 전체에 흩어지게 둔다.
+const screenDust: (Place & Omit<DustSpec, 'x' | 'y'>)[] = [
+  { x: 346, y: 81, r: 2, dx: 10, dy: 8, durationX: 13000, durationY: 17000 }, // 757:3114 오른쪽 위
+  { x: 388, y: 560, r: 1.5, dx: 8, dy: 12, durationX: 12000, durationY: 15000 }, // 오른쪽 여백 아래
+  { x: 120, fy: 0.6, r: 1.5, dx: 12, dy: 8, durationX: 15000, durationY: 13000 }, // 복습하기 아래 왼쪽
+];
+
+function ExtraScreenStar({
+  x,
+  y,
+  r,
+  duration,
+  delay,
+  index,
+  reduceMotion,
+}: {
+  x: number;
+  y: number;
+  r: number;
+  duration: number;
+  delay: number;
+  index: number;
+  reduceMotion: boolean;
+}) {
+  const opacity = useTwinkle({ duration, delay, min: 0.3, reduceMotion });
+  const half = r + EXTRA_STAR_GLOW;
+  const glowId = `screenExtraGlow${index}`;
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        left: x - half,
+        top: y - half,
+        width: half * 2,
+        height: half * 2,
+        opacity,
+      }}
+    >
+      <Svg width={half * 2} height={half * 2} viewBox={`0 0 ${half * 2} ${half * 2}`}>
+        <Defs>
+          <RadialGradient id={glowId}>
+            <Stop offset="0" stopColor={color.fale} stopOpacity="0.6" />
+            <Stop offset="0.35" stopColor={color.fale} stopOpacity="0.2" />
+            <Stop offset="1" stopColor={color.fale} stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Circle cx={half} cy={half} r={half} fill={`url(#${glowId})`} />
+        <Circle cx={half} cy={half} r={r} fill={color.fale} />
+      </Svg>
+    </Animated.View>
+  );
+}
+
+// 안전 영역 전체를 덮는 배경 레이어. 실제 크기를 재서 별을 놓는다(창 폭이 아니라 이 화면 크기 기준).
+function ScreenBackground({ reduceMotion }: { reduceMotion: boolean }) {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  // 절대 위치는 SafeAreaView 의 안쪽 여백을 무시하므로 직접 안전 영역만큼 띄운다.
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top: insets.top,
+        left: insets.left,
+        right: insets.right,
+        bottom: 0,
+      }}
+      onLayout={({ nativeEvent: { layout } }) =>
+        setSize((previous) =>
+          previous?.w === layout.width && previous.h === layout.height
+            ? previous
+            : { w: layout.width, h: layout.height },
+        )
+      }
+    >
+      {size ? (
+        <>
+          <Svg width={size.w} height={size.h} style={StyleSheet.absoluteFill}>
+            <Defs>
+              <GlowFilter id="screenDot" blur={12} soften={2} width={size.w} height={size.h} />
+            </Defs>
+            {figmaScreenStars.map((star, index) => {
+              const { x, y } = placeOf(star, size.w, size.h);
+              return (
+                <Circle
+                  key={index}
+                  cx={x}
+                  cy={y}
+                  r={star.r}
+                  fill={color.fale}
+                  filter="url(#screenDot)"
+                />
+              );
+            })}
+          </Svg>
+          {screenDust.map((dust, index) => (
+            <Dust
+              key={`dust-${index}`}
+              id={`screenDust${index}`}
+              {...dust}
+              {...placeOf(dust, size.w, size.h)}
+              area={{ width: size.w, height: size.h }}
+              reduceMotion={reduceMotion}
+            />
+          ))}
+          {extraScreenStars.map((star, index) => (
+            <ExtraScreenStar
+              key={`star-${index}`}
+              {...star}
+              {...placeOf(star, size.w, size.h)}
+              index={index}
+              reduceMotion={reduceMotion}
+            />
+          ))}
+        </>
+      ) : null}
     </View>
   );
 }
@@ -409,7 +821,6 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: color.base },
   // Figma: 위 32, 헤더와 별자리 묶음 사이 52
   page: { flexGrow: 1, paddingTop: 32, paddingBottom: 32, gap: 52 },
-  screenDots: { position: 'absolute', top: 0, width: 402, height: 720 },
   error: { color: '#b91c1c', paddingHorizontal: 24 },
   column: { alignSelf: 'center' },
   // Frame 57 전체 불투명도 80%

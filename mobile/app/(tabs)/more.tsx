@@ -14,9 +14,9 @@ import { useIntegration, useTask } from '../../src/integration/hooks';
 import { integrationApi as api } from '../../src/integration/runtime';
 import {
   MemberLicenceBarcode,
+  MemberLicencePaw,
   MemberLicenceSignatureOne,
   MemberLicenceSignatureTwo,
-  MemberLicenceStar,
 } from '../../src/components/MemberLicenceArt';
 import { SaveRecordLoginModal } from '../../src/integration/user/SocialLoginModal';
 const providerNames: Record<string, string> = {
@@ -190,10 +190,11 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
                   <Text style={s.memberFieldLabel}>Date of Issue</Text>
                   <Text style={s.memberFieldValue}>—</Text>
                 </View>
-                <MemberLicenceStar style={s.memberStar} />
                 <MemberLicenceSignatureOne style={s.memberSignatureOne} />
                 <MemberLicenceSignatureTwo style={s.memberSignatureTwo} />
                 <MemberLicenceBarcode style={s.memberBarcode} />
+                {/* Figma 최상단 레이어 */}
+                <MemberLicencePaw style={s.memberPaw} />
               </View>
             </View>
           </View>
@@ -345,7 +346,8 @@ const s = StyleSheet.create({
     lineHeight: 18,
     includeFontPadding: false,
   },
-  memberStar: { position: 'absolute', left: 235, top: 70, width: 83, height: 59 },
+  // SVG에 1px 여백이 있어 Figma(255, 77) - 테두리 1 - 여백 1.
+  memberPaw: { position: 'absolute', left: 253, top: 75, width: 49, height: 45, zIndex: 1 },
   memberSignatureOne: { position: 'absolute', left: 139, top: 112, width: 89, height: 23 },
   memberSignatureTwo: { position: 'absolute', left: 170, top: 129, width: 129, height: 23 },
   memberBarcode: { position: 'absolute', right: 0, top: 44, width: 13, height: 106 },
