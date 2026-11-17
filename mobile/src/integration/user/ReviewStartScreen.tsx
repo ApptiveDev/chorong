@@ -3,7 +3,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
-  AccessibilityInfo,
   Animated,
   Easing,
   Platform,
@@ -17,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, RadialGradient, Stop } from 'react-native-svg';
 import { integrationApi as api } from '../runtime';
 import { useTask } from '../hooks';
+import { useReduceMotion, useTwinkle } from './twinkle';
 import type { ReviewStatus } from '../models';
 import { UserScreen, UserStatus } from './Screen';
 import { ReviewEmptyModal } from './ReviewEmptyModal';
@@ -178,11 +178,7 @@ function OrbitLayer({
 
   return (
     <Animated.View style={[squareLayout(cx, cy, half), { transform: [{ rotate }] }]}>
-      <Svg
-        width="100%"
-        height="100%"
-        viewBox={`${cx - half} ${cy - half} ${half * 2} ${half * 2}`}
-      >
+      <Svg width="100%" height="100%" viewBox={`${cx - half} ${cy - half} ${half * 2} ${half * 2}`}>
         <StarGlowDefs id={glowId} />
         {stars.map((star, i) => (
           <StarShape key={i} {...star} glowId={glowId} />
@@ -201,27 +197,7 @@ function TwinklingStar({
   index: number;
   reduceMotion: boolean;
 }) {
-  const opacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (reduceMotion) {
-      opacity.setValue(1);
-      return;
-    }
-    const half = star.duration / 2;
-    const ease = Easing.inOut(Easing.sin);
-    const useNativeDriver = Platform.OS !== 'web';
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.35, duration: half, easing: ease, useNativeDriver }),
-        Animated.timing(opacity, { toValue: 1, duration: half, easing: ease, useNativeDriver }),
-      ]),
-    );
-    const timer = setTimeout(() => loop.start(), star.delay);
-    return () => {
-      clearTimeout(timer);
-      loop.stop();
-    };
-  }, [opacity, reduceMotion, star.delay, star.duration]);
+  const opacity = useTwinkle({ duration: star.duration, delay: star.delay, reduceMotion });
 
   const { x, y, radius, glow } = star;
   const half = radius + glow;
@@ -239,20 +215,7 @@ function TwinklingStar({
 
 function ReviewOrbits() {
   // 동작 줄이기 설정이면 별을 Figma 자리에 멈춰 두고 반짝임도 끈다.
-  const [reduceMotion, setReduceMotion] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (active) setReduceMotion(value);
-      })
-      .catch(() => {});
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => {
-      active = false;
-      sub.remove();
-    };
-  }, []);
+  const reduceMotion = useReduceMotion();
 
   return (
     <>
