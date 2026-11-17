@@ -3,7 +3,11 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
   ActivityIndicator,
+  Animated,
   Image,
+  type ImageSourcePropType,
+  type ImageStyle,
+  type StyleProp,
   Platform,
   Pressable,
   ScrollView,
@@ -18,6 +22,27 @@ import Svg, { Path } from 'react-native-svg';
 import { useIntegration, useTask } from '../hooks';
 import { integrationApi as api, useMockApi } from '../runtime';
 import { firstStudyRoute } from './welcomeFlow';
+import { useReduceMotion, useTwinkle } from './twinkle';
+
+// 배경 별 이미지. 주기와 시작 시점을 별마다 달리 해 은은하게 반짝인다(동시에 깜빡이지 않게).
+function TwinklingStar({
+  source,
+  style,
+  duration,
+  delay,
+  reduceMotion,
+  onLoadEnd,
+}: {
+  source: ImageSourcePropType;
+  style: StyleProp<ImageStyle>;
+  duration: number;
+  delay: number;
+  reduceMotion: boolean;
+  onLoadEnd: () => void;
+}) {
+  const opacity = useTwinkle({ duration, delay, min: 0.35, reduceMotion });
+  return <Animated.Image source={source} style={[style, { opacity }]} onLoadEnd={onLoadEnd} />;
+}
 
 export function WelcomeCat({ size = 120 }: { size?: number }) {
   return (
@@ -44,6 +69,7 @@ export function WelcomeCat({ size = 120 }: { size?: number }) {
 
 export default function WelcomeScreen() {
   const router = useRouter();
+  const reduceMotion = useReduceMotion();
   const { height } = useWindowDimensions();
   const native = Platform.OS !== 'web';
   const orbitSize = native && height < 700 ? Math.max(112, Math.round((144 * height) / 874)) : 144;
@@ -88,39 +114,60 @@ export default function WelcomeScreen() {
           resizeMode="stretch"
           onLoadEnd={() => markImageLoaded(0)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-small.png')}
           style={s.starTop}
+          duration={2800}
+          delay={0}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(1)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-large.png')}
           style={s.starRight}
+          duration={3600}
+          delay={700}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(2)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-medium.png')}
           style={s.starLeft}
+          duration={3200}
+          delay={1500}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(3)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-small-alt.png')}
           style={s.starMid}
+          duration={2600}
+          delay={400}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(4)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-large.png')}
           style={s.starLowerLeft}
+          duration={4000}
+          delay={2100}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(5)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-small.png')}
           style={s.starLowerSmall}
+          duration={3000}
+          delay={1100}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(6)}
         />
-        <Image
+        <TwinklingStar
           source={require('../../../assets/onboarding/star-footer.png')}
           style={s.starFooter}
+          duration={3800}
+          delay={1800}
+          reduceMotion={reduceMotion}
           onLoadEnd={() => markImageLoaded(7)}
         />
         <ScrollView
