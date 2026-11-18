@@ -38,6 +38,8 @@ export function QuizFeedbackSheet({
   // 정답일 때 해설 다음 줄에 붙이는 앱 문구. 예: '1단계에서 맞췄어요.'(Figma 740:1392)
   correctNote?: string | null;
 }) {
+  // 채점하지 않는 문항은 시트를 띄우지 않는다. 고른 표시만 남기고 QuizStage 가 자동으로 넘긴다.
+  if (ungraded) return null;
   const resultColor = result.isCorrect ? color.correct : color.wrong;
   const explanation = result.explanation?.trim() ? result.explanation.trim().split(/\s*\n\s*/) : [];
   if (!ungraded && result.isCorrect && correctNote) explanation.push(correctNote);

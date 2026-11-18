@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import type { AnswerResult, Quiz, QuizAnswer, SinglePresentation } from '../models';
 import { useMockApi } from '../runtime';
@@ -16,6 +17,10 @@ import { MultiChoiceQuiz, hasMultiChoiceOptions } from './MultiChoiceQuiz';
 import { ChosungQuiz, isChosungQuiz } from './ChosungQuiz';
 import { type ChosungDraftInput, chosungDraftInput, chosungDraftText } from './chosungInput';
 import { SliderQuiz, isSliderQuiz } from './SliderQuiz';
+import { isUngraded } from './quizGrading';
+
+// 채점하지 않는 문항(레슨 첫 퀴즈)은 해설 시트 없이, 고른 표시를 이 시간만큼 보여 준 뒤 넘어간다.
+export const UNGRADED_ADVANCE_MS = 600;
 
 // SINGLE 표시 방식별 전용 화면. 표시 방식이 없으면 일반 SINGLE 화면으로 보인다.
 const PRESENTED_SCREENS = {
@@ -122,6 +127,35 @@ export function QuizStageQuiz({
 }) {
   const kind = quizStageKind(quiz);
   const typedKey = `${itemKey}:${quiz.quizId}`;
+  // 한 문항에서 두 번 넘어가지 않게 막는다(자동 넘김 대기 중 여백 터치 등).
+  const advancedKey = useRef<string | null>(null);
+  const latestAdvance = useRef(onAdvance);
+  latestAdvance.current = onAdvance;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const advanceOnce = async () => {
+    if (advancedKey.current === typedKey) return;
+    advancedKey.current = typedKey;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    try {
+      await latestAdvance.current(true);
+    } catch (cause) {
+      advancedKey.current = null;
+      throw cause;
+    }
+  };
+  const graded = (result: AnswerResult | undefined) => {
+    onGraded(result);
+    if (!result || !isUngraded(quiz, result)) return;
+    // 넘어가지 못하면 문항 화면의 여백 터치로 다시 넘어갈 수 있다.
+    timer.current = setTimeout(() => void advanceOnce().catch(() => {}), UNGRADED_ADVANCE_MS);
+  };
   if (kind.slider)
     return (
       <SliderQuiz
@@ -129,8 +163,8 @@ export function QuizStageQuiz({
         quiz={quiz}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
       />
     );
   if (kind.chosung)
@@ -141,8 +175,8 @@ export function QuizStageQuiz({
         scale={scale}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
         initialText={chosungDraftText(draftInput, quiz.quizId)}
         onTextChange={
           onDraftInput ? (text) => onDraftInput(chosungDraftInput(quiz.quizId, text)) : undefined
@@ -158,8 +192,8 @@ export function QuizStageQuiz({
         disabled={disabled}
         submitChoiceIndex={useMockApi && quiz.options?.mockHtmlType === 'blank'}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
       />
     );
   if (kind.matching)
@@ -170,8 +204,8 @@ export function QuizStageQuiz({
         scale={scale}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
       />
     );
   if (kind.singleChoice)
@@ -182,8 +216,8 @@ export function QuizStageQuiz({
         scale={scale}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
       />
     );
   if (kind.presented) {
@@ -195,8 +229,8 @@ export function QuizStageQuiz({
         scale={scale}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
       />
     );
   }
@@ -208,8 +242,8 @@ export function QuizStageQuiz({
         scale={scale}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
-        onAdvance={() => onAdvance(true)}
+        onGraded={graded}
+        onAdvance={advanceOnce}
       />
     );
   if (useMockApi && isHtmlLessonQuiz(quiz) && quiz.type !== 'OX')
@@ -219,7 +253,7 @@ export function QuizStageQuiz({
         quiz={quiz}
         disabled={disabled}
         submit={submit}
-        onGraded={onGraded}
+        onGraded={graded}
       />
     );
   // 디자인된 문항 화면만 쓴다. 문항 유형(type·interactionType)으로 고르고, 레슨·데이터 출처로 고르지 않는다.
@@ -233,8 +267,8 @@ export function QuizStageQuiz({
       scale={scale}
       disabled={disabled}
       submit={submit}
-      onGraded={onGraded}
-      onAdvance={() => onAdvance(true)}
+      onGraded={graded}
+      onAdvance={advanceOnce}
       stage
     />
   );

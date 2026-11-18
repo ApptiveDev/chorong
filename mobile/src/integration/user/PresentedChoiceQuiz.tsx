@@ -180,7 +180,7 @@ export function PresentedChoiceQuiz({
               choose: (index) => void choose(index),
             })
           ) : (
-            <View style={[s.options, { width: 320 * scale }]}>
+            <View style={s.options}>
               {choices.map((choice) => {
                 // 채점하지 않는 문항은 색을 바꾸지 않는다.
                 const correct =
@@ -189,6 +189,8 @@ export function PresentedChoiceQuiz({
                   (result.isCorrect ? selected === choice.index : correctIndex === choice.index);
                 const wrong =
                   !!result && !ungraded && !result.isCorrect && selected === choice.index;
+                // 채점 중이거나 채점하지 않는 문항이면 고른 보기를 중립색으로 눌린 듯 보인다.
+                const picked = selected === choice.index && (!result || ungraded);
                 return (
                   <Pressable
                     key={choice.index}
@@ -196,7 +198,7 @@ export function PresentedChoiceQuiz({
                     accessibilityState={{ selected: selected === choice.index, disabled: locked }}
                     disabled={locked}
                     onPress={() => void choose(choice.index)}
-                    style={s.option}
+                    style={({ pressed }) => [s.option, (pressed || picked) && s.pickedOption]}
                   >
                     {(correct || wrong) && (
                       <Animated.View
@@ -208,7 +210,14 @@ export function PresentedChoiceQuiz({
                         ]}
                       />
                     )}
-                    <Text style={[s.optionText, correct && s.correctText, wrong && s.wrongText]}>
+                    <Text
+                      style={[
+                        s.optionText,
+                        picked && s.pickedText,
+                        correct && s.correctText,
+                        wrong && s.wrongText,
+                      ]}
+                    >
                       {choice.label}
                     </Text>
                   </Pressable>
@@ -251,7 +260,8 @@ const s = StyleSheet.create({
     includeFontPadding: false,
     ...(Platform.OS === 'web' ? ({ wordBreak: 'keep-all' } as object) : null),
   },
-  options: { maxWidth: '100%', alignItems: 'stretch' },
+  // 보기 줄은 질문 칸 폭 전체를 쓴다. 화면 좌우 끝과 36(디자인 폭 기준) 간격을 지킨다.
+  options: { width: '100%', alignItems: 'stretch' },
   // SingleChoiceQuiz 와 같은 button_선택지 고르기
   option: {
     justifyContent: 'center',
@@ -273,6 +283,8 @@ const s = StyleSheet.create({
     lineHeight: 20,
     includeFontPadding: false,
   },
+  pickedOption: { backgroundColor: 'rgba(22, 22, 22, 0.08)' },
+  pickedText: { color: color.base },
   correctText: { color: QUIZ_FEEDBACK_COLORS.correct.text },
   wrongText: { color: QUIZ_FEEDBACK_COLORS.incorrect.text },
   error: { color: '#b56060', fontFamily: 'PretendardMedium', fontSize: 12, lineHeight: 18 },
