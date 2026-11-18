@@ -14,7 +14,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { studyImageSource } from './lessonImagePreload';
+import { useStudyImageSource } from './lessonImagePreload';
 import { PresentedChoiceQuiz, type PresentedChoiceProps } from './PresentedChoiceQuiz';
 import { presentationGrid, presentationImageUrl } from './presentationImage';
 import { TILE_DEFAULT_GRID, TILE_FADE_MS, tileCorrectNote } from './tileReveal';
@@ -70,6 +70,7 @@ function TileBoard({
   onReveal: (count: number) => void;
 }) {
   const count = rows * columns;
+  const { source } = useStudyImageSource(url);
   const [opacities] = useState(() => Array.from({ length: count }, () => new Animated.Value(1)));
   const revealed = useRef(new Set<number>());
   // revealed 는 ref 라 칸을 벗길 때 다시 그리도록 센다.
@@ -128,7 +129,7 @@ function TileBoard({
       accessibilityLabel={locked ? '타일에 가려진 사진' : undefined}
       style={[s.board, { width: 320 * scale, height: 240 * scale }]}
     >
-      <Image source={studyImageSource(url)} resizeMode="cover" style={s.photo} />
+      {source ? <Image source={source} resizeMode="cover" style={s.photo} /> : null}
       {opacities.map((opacity, tile) => {
         const open = revealed.current.has(tile);
         const row = Math.floor(tile / columns);

@@ -216,7 +216,7 @@ export function MultiChoiceQuiz({
       >
         <View pointerEvents="box-none" style={[s.group, { gap: 40 * scale }]}>
           <Text style={[s.question, { maxWidth: 303 * scale }]}>{question}</Text>
-          <View style={[s.options, { width: 320 * scale }]}>
+          <View style={s.options}>
             {data.choices.map((choice) => {
               const picked = selected.has(choice.index);
               const isAnswer = data.answers.has(choice.index);
@@ -287,7 +287,8 @@ const s = StyleSheet.create({
     lineHeight: 26,
     includeFontPadding: false,
   },
-  options: { maxWidth: '100%', alignItems: 'stretch' },
+  // 보기 줄은 질문 칸 폭 전체를 쓴다. 화면 좌우 끝과 36(디자인 폭 기준) 간격을 지킨다.
+  options: { width: '100%', alignItems: 'stretch' },
   option: {
     justifyContent: 'center',
     minHeight: 52,

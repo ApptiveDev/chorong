@@ -4,6 +4,7 @@ import { integrationApi as api, client } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Content, Course, CourseDetail, Lesson } from '../models';
 import { Button, Card, Field, Json, Nav, Page, styles, TaskStatus } from '../ui';
+import { useImageSource } from '../../lib/svgRaster';
 import { QuizInput } from './QuizInput';
 
 export default function LearningScreen() {
@@ -260,16 +261,22 @@ export function ContentView({ content }: { content: Content }) {
       if (['http:', 'https:'].includes(url.protocol)) media = url.href;
     } catch {}
   }
+  const image = useImageSource(content.contentType === 'IMAGE' ? media : null, (uri) => ({ uri }));
   return (
     <>
       <Text style={styles.text}>
         {content.contentType} · contentId={content.contentId}
       </Text>
       {content.body ? <Text style={styles.text}>{content.body}</Text> : null}
-      {content.contentType === 'IMAGE' && media ? (
+      {image.failed ? (
+        <Text style={styles.error}>
+          학습 이미지(SVG)를 변환하지 못했습니다. mediaUrl을 확인하세요.
+        </Text>
+      ) : null}
+      {image.source ? (
         <Image
           accessibilityLabel={content.body ?? '학습 이미지'}
-          source={{ uri: media }}
+          source={image.source}
           style={{ height: 220, width: '100%' }}
           resizeMode="contain"
           onError={() =>

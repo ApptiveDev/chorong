@@ -314,9 +314,6 @@ export default function ReviewStartScreen() {
         >
           <ReviewOrbits />
         </View>
-        <View style={[s.titleRule, { top: top(89), width: 152 * scale }]}>
-          <View style={s.titleDot} />
-        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="복습 시작 화면 나가기"
@@ -343,7 +340,10 @@ export default function ReviewStartScreen() {
           <View style={[s.cardTitleWrap, { width: 214 * scale, height: 32 * scale }]}>
             <Text style={[s.cardTitle, { fontSize: 16 * scale }]}>배운 내용을 다시 확인해요</Text>
           </View>
-          <View style={[s.cardLine, { width: 214 * scale, height: 14 * scale }]}>
+          {/* Figma 656:3910 은 한 줄이다. 글꼴 폭 차이로 214 를 살짝 넘어도 줄바꿈하지 않게
+              카드 안쪽 폭(테두리 안 278)까지 쓰고 가운데 정렬한다. Figma 칸 높이 14 는 글자(14px)보다
+              낮아 Android 가 받침을 자르므로 높이를 고정하지 않는다. 카드 높이 148 안에 들어간다. */}
+          <View style={[s.cardLine, { width: 278 * scale }]}>
             <Text style={[s.cardDescription, { fontSize: 14 * scale }]}>
               학습한 퀴즈 5개를 통해 복습해봐요!
             </Text>
@@ -390,21 +390,6 @@ export default function ReviewStartScreen() {
 const s = StyleSheet.create({
   canvas: { flex: 1, minHeight: 0, backgroundColor: '#161616', overflow: 'hidden' },
   orbits: { position: 'absolute' },
-  titleRule: {
-    position: 'absolute',
-    left: 0,
-    height: 1,
-    backgroundColor: '#f1f1f1',
-  },
-  titleDot: {
-    position: 'absolute',
-    right: -3,
-    top: -2,
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#f1f1f1',
-  },
   back: { position: 'absolute', flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 34 },
   heading: {
     color: '#f1f1f1',
@@ -440,12 +425,16 @@ const s = StyleSheet.create({
     includeFontPadding: false,
   },
   // Figma 텍스트 칸 높이 14. 글자는 칸 위에서 시작한다.
-  cardLine: { alignItems: 'center' },
+  // Android 는 칸 밖 글자를 자르므로 줄 높이(normal)가 칸 높이 14 를 넘어도 보이게 둔다.
+  cardLine: { alignItems: 'center', overflow: 'visible' },
   cardDescription: {
     color: '#161616',
     fontFamily: 'PretendardMedium',
     textAlign: 'center',
     includeFontPadding: false,
+    // 칸 높이(14)에 눌리지 않고 글자 높이만큼 그대로 그린다. 넘친 부분은 cardLine 이 보이게 둔다.
+    flexShrink: 0,
+    ...(Platform.OS === 'web' ? ({ whiteSpace: 'nowrap' } as TextStyle) : null),
   },
   cardReward: {
     color: '#161616',

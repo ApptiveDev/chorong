@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { FontDisplay, useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
+import { SvgRasterHost } from '../src/lib/svgRaster';
 import { useWebHangulFonts } from '../src/lib/webHangulFonts';
 import { AuthProvider } from '../src/providers/AuthProvider';
 import { WebFrame } from '../src/components/WebFrame';
@@ -50,6 +51,8 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
+      {/* 화면 뒤에서 SVG 그림을 PNG 로 바꾼다(휴대폰 Image 는 SVG 를 그리지 못한다). */}
+      <SvgRasterHost />
       <WebFrame>
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

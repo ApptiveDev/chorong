@@ -45,10 +45,12 @@ export function hasFillBlankChoices(quiz: Quiz): boolean {
 
 function sentenceFor(quiz: Quiz) {
   const question = quiz.question.trim();
+  // 문장 안 줄바꿈은 화면 폭에 맞춰 다시 감싸므로 공백 하나로 바꾼다.
+  const flat = (text: string) => text.replace(/\s*\n\s*/g, ' ').trim();
   const marker = /\[\[blank\]\]|\{blank\}|_{2,}/i.exec(question);
   if (marker) {
-    const before = question.slice(0, marker.index).trim();
-    const after = question.slice(marker.index + marker[0].length).trim();
+    const before = flat(question.slice(0, marker.index));
+    const after = flat(question.slice(marker.index + marker[0].length));
     return { before, after };
   }
   if (quiz.options?.mockHtmlType === 'blank') {
@@ -267,7 +269,16 @@ const s = StyleSheet.create({
   group: { maxWidth: '100%' },
   prompt: { paddingBottom: 32, borderTopLeftRadius: 8, borderTopRightRadius: 8 },
   sentence: { color: '#161616', fontSize: 20, lineHeight: 24, fontFamily: 'PretendardBold' },
-  sentenceRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 20 },
+  // 빈칸 뒤 문장이 남은 폭에 안 들어가면 낱말 중간에서 끊지 않고 통째로 다음 줄로 보낸다.
+  sentenceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: 16,
+    // 아래 줄로 내려가도 첫 줄과 빈칸 줄 사이(marginTop 20)와 같은 간격을 둔다.
+    rowGap: 20,
+    marginTop: 20,
+  },
   blank: {
     minHeight: 29,
     borderBottomWidth: 1.6,
@@ -284,7 +295,11 @@ const s = StyleSheet.create({
   },
   answerReveal: { maxWidth: '100%' },
   placeholder: { color: '#aaa', fontSize: 20, lineHeight: 24, fontFamily: 'PretendardMedium' },
-  suffix: { flex: 1 },
+  suffix: {
+    flexShrink: 1,
+    maxWidth: '100%',
+    ...(Platform.OS === 'web' ? ({ wordBreak: 'keep-all' } as object) : null),
+  },
   options: { flexDirection: 'row', marginTop: 12, minHeight: 32 },
   option: {
     flex: 1,
