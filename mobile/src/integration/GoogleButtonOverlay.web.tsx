@@ -29,9 +29,7 @@ export function GoogleButtonOverlay({
           width={width}
           size="large"
           onSuccess={({ credential }) =>
-            credential
-              ? onIdToken(credential)
-              : onError('Google 에서 인증 토큰을 받지 못했습니다.')
+            credential ? onIdToken(credential) : onError('Google 에서 인증 토큰을 받지 못했습니다.')
           }
           onError={() => onError('Google 로그인에 실패했습니다.')}
         />
