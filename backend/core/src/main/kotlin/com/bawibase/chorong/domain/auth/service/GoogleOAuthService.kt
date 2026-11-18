@@ -1,7 +1,5 @@
 package com.bawibase.chorong.domain.auth.service
 
-import com.bawibase.chorong.common.ApiException
-import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.domain.auth.dto.GuestAuthData
@@ -86,14 +84,7 @@ class GoogleOAuthService(
             user = users.saveAndFlush(UserEntity(nickname = nicknames.newDefault()).apply { status = UserStatus.ACTIVE })
             val id = checkNotNull(user.id)
             addIdentity(id, provider, subject)
-            val snapshot = catalog.snapshot()
-            if (!snapshot.rooms.any { it.isDefault } || !snapshot.backgrounds.any { it.isDefault } ||
-                !snapshot.avatars.any { it.isDefault } || !snapshot.walls.any { it.isDefault } ||
-                !snapshot.floors.any { it.isDefault }
-            ) {
-                throw ApiException(ErrorCode.CATALOG_DEFAULT_MISSING)
-            }
-            housing.ensureProfile(id, snapshot, logCreated = false)
+            housing.ensureProfile(id, catalog.snapshot(), logCreated = false)
             wallets.ensureWallet(id)
             created = true
         }

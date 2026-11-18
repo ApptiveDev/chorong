@@ -1,7 +1,5 @@
 package com.bawibase.chorong.domain.auth.service
 
-import com.bawibase.chorong.common.ApiException
-import com.bawibase.chorong.common.ErrorCode
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
 import com.bawibase.chorong.common.api.FieldViolation
@@ -66,14 +64,7 @@ class GuestAuthService(
         val device = devices.findById(authId).orElse(null)
         if (device == null) devices.save(GuestDeviceEntity(authId, platform)) else device.platform = platform
         if (!profiles.existsById(auth.userId)) {
-            val snapshot = catalog.snapshot()
-            if (!snapshot.rooms.any { it.isDefault } || !snapshot.backgrounds.any { it.isDefault } ||
-                !snapshot.avatars.any { it.isDefault } || !snapshot.walls.any { it.isDefault } ||
-                !snapshot.floors.any { it.isDefault }
-            ) {
-                throw ApiException(ErrorCode.CATALOG_DEFAULT_MISSING)
-            }
-            housing.ensureProfile(auth.userId, snapshot, logCreated = false)
+            housing.ensureProfile(auth.userId, catalog.snapshot(), logCreated = false)
         }
         wallets.ensureWallet(auth.userId)
         val token = tokens.issue(auth.userId, uuid)
