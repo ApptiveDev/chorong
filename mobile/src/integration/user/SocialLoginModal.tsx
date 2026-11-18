@@ -6,6 +6,7 @@
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { GoogleButtonOverlay } from '../GoogleButtonOverlay';
 import { type SocialProvider, useSocialLogin } from './SocialLoginScreen';
 
 // 애플·구글은 영어로 표기한다(Apple로·Google로 계속하기). 구글 글자 색은 Figma 구글 버튼 순서를 따른다.
@@ -153,6 +154,12 @@ function SocialLoginModal({
                     </Text>
                   ))}
                 </Text>
+                <GoogleButtonOverlay
+                  width={300}
+                  disabled={task.busy}
+                  onIdToken={task.signInWithGoogleToken}
+                  onError={(message) => task.showError(new Error(message))}
+                />
               </Pressable>
               <Pressable
                 accessibilityRole="button"

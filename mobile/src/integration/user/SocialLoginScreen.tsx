@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIntegration, useTask } from '../hooks';
+import { GoogleButtonOverlay } from '../GoogleButtonOverlay';
 import { signInWithGoogle } from '../googleSignIn';
 import type { OAuthCredential } from '../models';
 import { devicePlatform, integrationApi as api, useMockApi } from '../runtime';
@@ -144,6 +145,11 @@ export function useSocialLogin({
   return {
     busy: task.busy,
     signIn: (provider: SocialProvider) => run({ provider, switchToExisting: false }),
+    // 웹은 Google 버튼이 idToken 을 직접 돌려준다. 그 값으로 바로 로그인한다.
+    signInWithGoogleToken: (idToken: string) =>
+      run({ provider: 'google', credential: { idToken }, switchToExisting: false }),
+    showError: (error: unknown) =>
+      setModal(socialLoginErrorModal(error, { guest: false, switchingToExisting: false })),
     modal: (
       <AuthResultModal
         kind={modal}
@@ -208,7 +214,14 @@ export default function SocialLoginScreen() {
         <View style={[s.panel, { marginTop: headerToButtons }]}>
           <View style={s.buttons}>
             <SocialButton provider="apple" disabled={login.busy} onPress={login.signIn} />
-            <SocialButton provider="google" disabled={login.busy} onPress={login.signIn} />
+            <SocialButton
+              provider="google"
+              disabled={login.busy}
+              onPress={login.signIn}
+              webWidth={328}
+              onGoogleToken={login.signInWithGoogleToken}
+              onGoogleError={(message) => login.showError(new Error(message))}
+            />
             <SocialButton provider="kakao" disabled={login.busy} onPress={login.signIn} />
           </View>
           <View style={s.legal}>
@@ -238,10 +251,16 @@ function SocialButton({
   provider,
   disabled,
   onPress,
+  webWidth,
+  onGoogleToken,
+  onGoogleError,
 }: {
   provider: SocialProvider;
   disabled: boolean;
   onPress: (provider: SocialProvider) => void;
+  webWidth?: number;
+  onGoogleToken?: (idToken: string) => void;
+  onGoogleError?: (message: string) => void;
 }) {
   return (
     <Pressable
@@ -265,6 +284,14 @@ function SocialButton({
           {provider === 'apple' ? 'APPLE로 계속하기' : 'KAKAO로 계속하기'}
         </Text>
       )}
+      {provider === 'google' && webWidth && onGoogleToken && onGoogleError ? (
+        <GoogleButtonOverlay
+          width={webWidth}
+          disabled={disabled}
+          onIdToken={onGoogleToken}
+          onError={onGoogleError}
+        />
+      ) : null}
     </Pressable>
   );
 }
