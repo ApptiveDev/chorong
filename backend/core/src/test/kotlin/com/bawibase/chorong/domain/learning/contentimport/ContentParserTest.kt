@@ -122,6 +122,20 @@ class ContentParserTest {
     }
 
     @Test
+    fun `chosung answers must have as many letters as the hint without spaces`() {
+        val spaced = example()
+        spaced.screen(8).put("hint", "ㅇㅌㄹ ㅁㄹ").set<ArrayNode>("answer", mapper.createArrayNode().add("울트라 마린").add("울트라마린"))
+        assertEquals(emptyList(), issues(spaced))
+
+        val longer = example()
+        longer.screen(8).set<ArrayNode>("answer", mapper.createArrayNode().add("울트라마린").add("울트라마린블루"))
+        val found = parse(longer).issues.map { it.toString() }
+        assertEquals(1, found.size, found.toString())
+        assertTrue(found.single().startsWith("레슨 all-types · screens 9번 · answer: 정답 글자 수가 초성 힌트(5 글자)와 다릅니다: 울트라마린블루"), found.toString())
+        assertNull(parse(longer).course)
+    }
+
+    @Test
     fun `missing media files, file name mismatch and duplicate lesson ids are reported`() {
         val root = example()
         root.screen(2).put("image", "missing.svg")

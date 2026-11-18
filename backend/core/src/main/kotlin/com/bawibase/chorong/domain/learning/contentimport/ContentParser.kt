@@ -337,7 +337,22 @@ class ContentParser(
                 "chosung" -> {
                     val hint = scope.text(node, "hint")
                     val answers = scope.texts(node, "answer", min = 1, hint = "하나여도 [\"낱말\"]처럼 [ ]로 감쌉니다")
-                    if (hint == null || answers == null) null else ChosungQuizDefinition(ChosungConfig(hint), ChosungAnswer(answers))
+
+                    // 앱은 힌트의 공백을 뺀 글자 수만큼 입력 칸을 만들고, 다 채우면 제출한다.
+                    fun letters(value: String) = QuizGrader.compact(value).let { it.codePointCount(0, it.length) }
+                    val length = hint?.let(::letters)
+                    val mismatched = answers.orEmpty().filter { letters(it) != length }
+                    if (length != null && mismatched.isNotEmpty()) {
+                        scope.issue(
+                            "answer",
+                            "정답 글자 수가 초성 힌트($length 글자)와 다릅니다: ${mismatched.joinToString()}. 띄어쓰기를 뺀 글자 수를 맞춥니다",
+                        )
+                    }
+                    if (hint == null || answers == null || mismatched.isNotEmpty()) {
+                        null
+                    } else {
+                        ChosungQuizDefinition(ChosungConfig(hint), ChosungAnswer(answers))
+                    }
                 }
 
                 "sound" -> {
