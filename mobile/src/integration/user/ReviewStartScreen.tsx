@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { BackArrow } from '../../components/settings/ControlSettingsUI';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -318,10 +318,13 @@ export default function ReviewStartScreen() {
           accessibilityRole="button"
           accessibilityLabel="복습 시작 화면 나가기"
           onPress={goBack}
-          style={[s.back, { top: top(52), left: 14 * scale }]}
+          hitSlop={8}
+          style={s.back}
         >
-          <Ionicons name="chevron-back" size={27 * scale} color="#f1f1f1" />
-          <Text style={[s.heading, { fontSize: 24 * scale }]}>복습하기</Text>
+          <View style={s.backIcon}>
+            <BackArrow color="#f1f1f1" />
+          </View>
+          <Text style={s.heading}>복습하기</Text>
         </Pressable>
 
         {/* Figma 342:540 · 656:3917: 286×148, 테두리 4, 위아래 20, 줄 간격 20 */}
@@ -390,18 +393,24 @@ export default function ReviewStartScreen() {
 const s = StyleSheet.create({
   canvas: { flex: 1, minHeight: 0, backgroundColor: '#161616', overflow: 'hidden' },
   orbits: { position: 'absolute' },
-  back: { position: 'absolute', flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 34 },
+  // 342:526: 제어실·우주선 꾸미기·프로필 헤더와 같다. 안전 영역 아래 위 32 · 좌우 32, 높이 29,
+  // 공용 '<'(BackArrow 14×25, 14×29 칸)와 제목 간격 12, Pretendard Bold 24.
+  back: {
+    position: 'absolute',
+    top: 32,
+    left: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 29,
+  },
   heading: {
     color: '#f1f1f1',
     fontFamily: 'PretendardBold',
-    ...(Platform.OS === 'web'
-      ? ({ textShadow: '0px 0px 2px #f1f1f1' } as TextStyle)
-      : {
-          textShadowColor: '#f1f1f1',
-          textShadowOffset: { width: 0, height: 0 },
-          textShadowRadius: 2,
-        }),
+    fontSize: 24,
+    includeFontPadding: false,
   },
+  backIcon: { width: 14, height: 29, alignItems: 'center', justifyContent: 'center' },
   card: {
     position: 'absolute',
     alignSelf: 'center',

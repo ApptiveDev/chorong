@@ -22,10 +22,14 @@ export function UserScreen({
   quiz?: boolean;
 }) {
   const session = useIntegration();
+  // 전체 화면을 직접 그리는 dark 화면(복습)은 알림을 흐름 밖에 띄운다. 흐름 안에 두면 헤더가 밀린다.
+  const floatingNotice = dark && !!session.notice;
   const content = (
     <>
       {showTitle ? <Text style={styles.title}>{title}</Text> : null}
-      {session.notice ? <Text style={styles.error}>{session.notice}</Text> : null}
+      {session.notice && !floatingNotice ? (
+        <Text style={styles.error}>{session.notice}</Text>
+      ) : null}
       {!session.ready ? (
         <ActivityIndicator accessibilityLabel="계정 확인 중" />
       ) : member && session.user?.status !== 'ACTIVE' ? (
@@ -58,6 +62,13 @@ export function UserScreen({
           {content}
         </View>
       )}
+      {floatingNotice ? (
+        <View pointerEvents="none" style={screenStyles.floatingNotice}>
+          <Text accessibilityRole="alert" style={screenStyles.floatingNoticeText}>
+            {session.notice}
+          </Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -68,6 +79,19 @@ const screenStyles = StyleSheet.create({
   quizPage: { backgroundColor: '#e4e4e4', paddingHorizontal: 0, paddingTop: 0, gap: 0 },
   darkSafe: { backgroundColor: '#161616' },
   darkPage: { paddingHorizontal: 0, paddingTop: 0, gap: 0, overflow: 'hidden' },
+  // 화면 맨 아래(안전 영역 안)에 띄운다. 헤더·카드·버튼 위치를 바꾸지 않는다.
+  floatingNotice: { position: 'absolute', left: 16, right: 16, bottom: 8, alignItems: 'center' },
+  floatingNoticeText: {
+    color: '#f1f1f1',
+    backgroundColor: 'rgba(185, 28, 28, 0.9)',
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    overflow: 'hidden',
+  },
 });
 // floatingBusy: 로딩 표시를 레이아웃 흐름 밖(절대 위치)에 띄워, 표시·해제 때 아래 화면이 밀리지 않게 한다.
 export function UserStatus({
