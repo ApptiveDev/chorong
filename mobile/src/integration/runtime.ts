@@ -26,6 +26,7 @@ try {
 } catch {
   /* 요청을 차단하고 화면에 설정 오류를 표시한다. */
 }
+if (__DEV__) console.log(`[api] baseURL=${useMockApi ? 'mock' : baseURL || 'invalid'}`);
 export const client = new IntegrationClient(
   useMockApi ? 'https://mock.chorong.invalid/api/v1' : baseURL,
   storage,

@@ -323,6 +323,15 @@ export class IntegrationClient {
     return key;
   }
   private record(trace: Trace) {
+    if (__DEV__) {
+      const { method, endpoint, status, durationMs, code, requestId, issue } = trace;
+      console.log(
+        `[api] ${method} ${endpoint} status=${status ?? 'none'} ms=${durationMs}` +
+          (code ? ` code=${code}` : '') +
+          (requestId ? ` requestId=${requestId}` : '') +
+          (issue ? ` issue=${issue}` : ''),
+      );
+    }
     this.publish({ traces: [trace, ...this.state.traces].slice(0, 30) });
   }
   clearTraces = () => this.publish({ traces: [] });
