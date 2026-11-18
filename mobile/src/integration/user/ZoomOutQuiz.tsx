@@ -16,7 +16,7 @@ import {
   StyleSheet,
   type LayoutChangeEvent,
 } from 'react-native';
-import { studyImageSource } from './lessonImagePreload';
+import { useStudyImageSource } from './lessonImagePreload';
 import { PresentedChoiceQuiz, type PresentedChoiceProps } from './PresentedChoiceQuiz';
 import { presentationImageUrl, presentationStages } from './presentationImage';
 
@@ -85,6 +85,7 @@ function ZoomOutImage({
   canAdvance: boolean;
   onAdvance: () => void;
 }) {
+  const { source } = useStudyImageSource(url);
   const [focus] = useState(() => randomZoomFocus());
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const value = useRef(new Animated.Value(zoom)).current;
@@ -139,11 +140,9 @@ function ZoomOutImage({
       onLayout={onLayout}
       style={[s.frame, { height: 260 * scale }]}
     >
-      <Animated.Image
-        source={studyImageSource(url)}
-        resizeMode="cover"
-        style={[s.photo, { transform }]}
-      />
+      {source ? (
+        <Animated.Image source={source} resizeMode="cover" style={[s.photo, { transform }]} />
+      ) : null}
     </Pressable>
   );
 }

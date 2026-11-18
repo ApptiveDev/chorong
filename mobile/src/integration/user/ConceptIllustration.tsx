@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { studyImageSource } from './lessonImagePreload';
+import { useStudyImageSource } from './lessonImagePreload';
 import type { NarrationMessage } from './narrationContent';
 import { NarrationCopy } from './NarrationDialogue';
 
@@ -52,6 +52,7 @@ export function ConceptIllustration({
   onAdvance: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const image = useStudyImageSource(mediaUrl);
   const width = 348 * scale;
   const height = 269 * scale;
   const shown = messages.slice(Math.max(0, visibleCount - VISIBLE_LINES), visibleCount);
@@ -68,17 +69,17 @@ export function ConceptIllustration({
     >
       <View style={[s.group, { width, gap: 28 * scale }]}>
         <View style={[s.imageFrame, { width, height }]}>
-          {mediaUrl && !failed ? (
+          {!mediaUrl || failed || image.failed ? (
+            <Text style={s.imageError}>이미지를 불러오지 못했습니다.</Text>
+          ) : image.source ? (
             <Image
-              source={studyImageSource(mediaUrl)}
+              source={image.source}
               style={s.image}
               resizeMode="contain"
               fadeDuration={0}
               onError={() => setFailed(true)}
             />
-          ) : (
-            <Text style={s.imageError}>이미지를 불러오지 못했습니다.</Text>
-          )}
+          ) : null}
         </View>
         {keyword ? <Text style={s.keyword}>{keyword}</Text> : null}
         {body && !messages.length ? (

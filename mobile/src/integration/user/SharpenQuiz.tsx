@@ -25,7 +25,7 @@ import {
   type ImageSourcePropType,
   type LayoutChangeEvent,
 } from 'react-native';
-import { studyImageSource } from './lessonImagePreload';
+import { SHARPEN_MOSAIC_RASTER_PX, useStudyImageSource } from './lessonImagePreload';
 import { PresentedChoiceQuiz, type PresentedChoiceProps } from './PresentedChoiceQuiz';
 import { presentationImageUrl, presentationStages } from './presentationImage';
 
@@ -119,7 +119,9 @@ function SharpenImage({
   onAdvance: () => void;
 }) {
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  const source = useMemo(() => studyImageSource(url), [url]);
+  const { source } = useStudyImageSource(url);
+  // 모자이크는 같은 사진을 수백 칸에 깔아서 SVG 면 작은 PNG 를 쓴다.
+  const { source: mosaicSource } = useStudyImageSource(url, SHARPEN_MOSAIC_RASTER_PX);
   const levels = useMemo(
     () => (size ? pixelateLevels(last, size.width, size.height) : []),
     [last, size],
@@ -164,9 +166,11 @@ function SharpenImage({
 
   const layer = (index: number) =>
     index >= last ? (
-      <Image source={source} resizeMode="cover" fadeDuration={0} style={s.photo} />
-    ) : size && levels[index] ? (
-      <Mosaic source={source} width={size.width} height={size.height} {...levels[index]} />
+      source ? (
+        <Image source={source} resizeMode="cover" fadeDuration={0} style={s.photo} />
+      ) : null
+    ) : mosaicSource && size && levels[index] ? (
+      <Mosaic source={mosaicSource} width={size.width} height={size.height} {...levels[index]} />
     ) : null;
 
   return (

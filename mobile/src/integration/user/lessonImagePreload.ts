@@ -1,5 +1,6 @@
 import { Image, type ImageSourcePropType } from 'react-native';
 import type { Content } from '../models';
+import { needsSvgRaster, requestSvgRaster, useImageSource } from '../../lib/svgRaster';
 import { presentationImageUrl } from './presentationImage';
 
 export const localStudyImages: Record<string, ImageSourcePropType> = {
@@ -10,6 +11,14 @@ export const localStudyImages: Record<string, ImageSourcePropType> = {
 
 export function studyImageSource(mediaUrl: string): ImageSourcePropType {
   return localStudyImages[mediaUrl] ?? { uri: mediaUrl, cache: 'force-cache' };
+}
+
+// 점점 선명 모자이크에 쓰는 SVG PNG 의 긴 변(px). 칸마다 한 색만 보여 작아도 된다(svgRaster 주석 참고).
+export const SHARPEN_MOSAIC_RASTER_PX = 128;
+
+/** 학습·문항 사진의 Image source. SVG 는 휴대폰에서 PNG 로 바꾸는 동안 null 이다(svgRaster). */
+export function useStudyImageSource(mediaUrl: string | null | undefined, maxPx?: number) {
+  return useImageSource(mediaUrl, studyImageSource, maxPx);
 }
 
 // IMAGE 콘텐츠와 사진형 SINGLE 문항(TILE·ZOOM_OUT·SHARPEN)의 사진을 함께 미리 받는다.
@@ -26,8 +35,16 @@ export function lessonImageUrls(contents: Content[]): string[] {
 }
 
 export async function prefetchLessonImages(contents: Content[], isCurrent: () => boolean) {
-  const urls = lessonImageUrls(contents);
-  if (!urls.length || !isCurrent()) return;
+  const all = lessonImageUrls(contents);
+  if (!all.length || !isCurrent()) return;
+  // SVG 는 휴대폰 Image 가 그리지 못해 PNG 로 바꿔 둔다. 점점 선명은 첫 화면인 모자이크용도 만든다.
+  all.filter(needsSvgRaster).forEach((url) => void requestSvgRaster(url));
+  contents
+    .map((content) => presentationImageUrl(content.quiz, 'SHARPEN'))
+    .filter(needsSvgRaster)
+    .forEach((url) => void requestSvgRaster(url, SHARPEN_MOSAIC_RASTER_PX));
+  const urls = all.filter((url) => !needsSvgRaster(url));
+  if (!urls.length) return;
 
   let cache: Awaited<ReturnType<NonNullable<typeof Image.queryCache>>> = {};
   try {

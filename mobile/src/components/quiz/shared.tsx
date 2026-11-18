@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { quizImageUri } from '../../lib/quiz';
+import { useImageSource } from '../../lib/svgRaster';
 import type { CardFace, QuizItem } from '../../types/quiz';
 
 export function QuizButton({
@@ -31,16 +32,19 @@ export function QuizButton({
 function QuizImage({ url, label }: { url: string; label: string }) {
   const [failed, setFailed] = useState(false);
   const uri = quizImageUri(url);
-  return !uri || failed ? (
+  const image = useImageSource(uri, (value) => ({ uri: value }));
+  return !uri || failed || image.failed ? (
     <Text style={styles.muted}>이미지를 불러오지 못했습니다. ({label})</Text>
-  ) : (
+  ) : image.source ? (
     <Image
       accessibilityLabel={label}
-      source={{ uri }}
+      source={image.source}
       style={styles.image}
       resizeMode="contain"
       onError={() => setFailed(true)}
     />
+  ) : (
+    <View style={styles.image} />
   );
 }
 export function ItemContent({
