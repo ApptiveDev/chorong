@@ -238,27 +238,53 @@ class GuestAuthApiTest {
         assertEquals(before, snapshot())
     }
 
-    @Test fun `missing each required default rolls back user auth metadata and all assets`() {
-        for (table in listOf("housing_room", "housing_background", "housing_avatar", "housing_wall", "housing_floor")) {
-            val before = snapshot()
+    private fun layoutCount(id: Long) =
+        jdbc.queryForObject("SELECT count(*) FROM chorong_dev.housing_room_layout WHERE user_id=?", Long::class.java, id)!!
+
+    private fun activeRoomSet(id: Long) =
+        jdbc.queryForObject("SELECT active_room_id IS NOT NULL FROM chorong_dev.housing_profile WHERE user_id=?", Boolean::class.java, id)!!
+
+    @Test fun `missing any legacy layout default still creates the guest without a layout`() {
+        for (table in listOf("housing_background", "housing_avatar", "housing_wall", "housing_floor")) {
             jdbc.update("UPDATE chorong_dev.$table SET is_default=false")
             try {
-                val error = post(UUID.randomUUID().toString(), expected = 409)
-                assertEquals("CONFLICT", error["error"]["code"].asText())
-                assertEquals(before, snapshot())
+                val data = post(UUID.randomUUID().toString())["data"]
+                val id = data["user"]["userId"].asLong()
+                assertTrue(data["isNew"].asBoolean())
+                assertEquals(0L, layoutCount(id))
+                assertTrue(activeRoomSet(id))
+                assertEquals(0L, jdbc.queryForObject("SELECT coin FROM chorong_dev.user_wallet WHERE user_id=?", Long::class.java, id))
             } finally {
                 jdbc.update("UPDATE chorong_dev.$table SET is_default=true WHERE code='guest_default'")
             }
         }
     }
 
-    @Test fun `failed initialization preserves an existing legacy account and old tokens`() {
+    @Test fun `empty legacy catalog still creates the guest with a profile and no active room`() {
+        for (table in listOf("housing_room", "housing_background", "housing_avatar", "housing_wall", "housing_floor")) {
+            jdbc.update("UPDATE chorong_dev.$table SET is_default=false")
+        }
+        val data = post(UUID.randomUUID().toString())["data"]
+        val id = data["user"]["userId"].asLong()
+        assertTrue(data["isNew"].asBoolean())
+        assertEquals(0L, layoutCount(id))
+        assertFalse(activeRoomSet(id))
+        val starterSql = "SELECT count(*) FROM chorong_dev.housing_owned_item WHERE user_id=? AND item_type='FURNITURE'"
+        assertEquals(3L, jdbc.queryForObject(starterSql, Long::class.java, id))
+        mvc
+            .get("/api/v1/housings/me") { header(HttpHeaders.AUTHORIZATION, "Bearer ${data["accessToken"].asText()}") }
+            .andExpect { status { isOk() } }
+    }
+
+    @Test fun `existing legacy account initializes without a layout when a legacy default is missing`() {
         val uuid = UUID.randomUUID().toString()
-        legacy.guestSignUp(uuid)
-        val before = snapshot()
+        val old = legacy.guestSignUp(uuid)
+        val oldId = decoder.decode(old.accessToken).subject.toLong()
         jdbc.update("UPDATE chorong_dev.housing_avatar SET is_default=false")
-        assertEquals("CONFLICT", post(uuid, expected = 409)["error"]["code"].asText())
-        assertEquals(before, snapshot())
+        val data = post(uuid)["data"]
+        assertEquals(oldId, data["user"]["userId"].asLong())
+        assertFalse(data["isNew"].asBoolean())
+        assertEquals(0L, layoutCount(oldId))
     }
 
     @Test fun `late token issuance failure rolls back initialized home and wallet too`() {

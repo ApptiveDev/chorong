@@ -199,13 +199,23 @@ class GoogleOAuthApiTest {
         assertEquals("ACTIVE", data["user"]["status"].asText())
     }
 
-    @Test fun `missing defaults and late token failure roll back the new account`() {
+    @Test fun `empty legacy catalog still creates the account without a legacy layout`() {
+        subject()
+        for (table in listOf("housing_room", "housing_background", "housing_avatar", "housing_wall", "housing_floor")) {
+            jdbc.update("UPDATE chorong_dev.$table SET is_default=false")
+        }
+        val data = request()["data"]
+        val id = data["user"]["userId"].asLong()
+        assertTrue(data["isNew"].asBoolean())
+        val profileSql = "SELECT count(*) FROM chorong_dev.housing_profile WHERE user_id=? AND active_room_id IS NULL"
+        assertEquals(1L, jdbc.queryForObject(profileSql, Long::class.java, id))
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM chorong_dev.housing_room_layout WHERE user_id=?", Long::class.java, id))
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM chorong_dev.user_wallet WHERE user_id=?", Long::class.java, id))
+    }
+
+    @Test fun `late token failure rolls back the new account`() {
         subject()
         val before = listOf("app_user", "user_auth", "housing_profile", "user_wallet").associateWith { count(it) }
-        jdbc.update("UPDATE chorong_dev.housing_avatar SET is_default=false")
-        assertEquals("CONFLICT", request(expected = 409)["error"]["code"].asText())
-        assertEquals(before, before.keys.associateWith { count(it) })
-        jdbc.update("UPDATE chorong_dev.housing_avatar SET is_default=true WHERE code='google_default'")
         doThrow(IllegalStateException("planned failure")).`when`(tokens).issue(anyLong(), anyString(), anyBoolean())
         assertEquals("INTERNAL", request(expected = 500)["error"]["code"].asText())
         assertEquals(before, before.keys.associateWith { count(it) })

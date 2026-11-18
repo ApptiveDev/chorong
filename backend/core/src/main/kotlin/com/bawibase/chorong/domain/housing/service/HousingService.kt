@@ -406,7 +406,10 @@ class HousingService(
         profiles.findById(userId).orElse(null)?.let { return it }
         val profile = profiles.save(HousingProfileEntity(userId = userId))
         grantDefaults(userId, catalog)
-        catalog.rooms.filter { it.isDefault }.forEach { createDefaultLayout(userId, checkNotNull(it.id), catalog) }
+        // 예전 방식 방 꾸미기 기본값이다. 하나라도 없으면 레이아웃 없이 프로필만 만든다.
+        if (catalog.hasLayoutDefaults()) {
+            catalog.rooms.filter { it.isDefault }.forEach { createDefaultLayout(userId, checkNotNull(it.id), catalog) }
+        }
         profile.activeRoomId = catalog.rooms.firstOrNull { it.isDefault }?.id
         if (logCreated) log.info("housing.profile_created userId={}", userId)
         return profile
@@ -545,6 +548,9 @@ class HousingService(
     ) {
         if ((type to id) !in owned) throw ApiException(ErrorCode.NOT_OWNED, mapOf("type" to type.name.lowercase(), "id" to code))
     }
+
+    private fun CatalogSnapshot.hasLayoutDefaults() =
+        backgrounds.any { it.isDefault } && avatars.any { it.isDefault } && walls.any { it.isDefault } && floors.any { it.isDefault }
 
     private fun SurfaceKind.toItemType() =
         when (this) {
