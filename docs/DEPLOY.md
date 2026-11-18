@@ -52,7 +52,7 @@ EAS 프로젝트는 `@bawibase-inc/chorong` 이다. 소유 조직은 Expo 조직
 
 빌드 프로필은 `mobile/eas.json` 에 있다.
 
-- preview: 내부 배포용이다. dev API 를 가리키고 dev 웹과 같이 Mock 을 켠다. Android 는 APK 로 만든다
+- preview: 내부 배포용이다. dev API 를 가리키고 Mock 을 끈다. dev 웹도 같은 설정이다. Android 는 APK 로 만든다
 - preview-simulator: preview 와 같은 설정으로 iOS 시뮬레이터용 앱을 만든다. Apple Developer 계정이 필요 없다
 - production: 스토어 배포용이다. prod API 를 가리킨다. 빌드 번호는 EAS 가 원격에서 올린다
 
@@ -65,6 +65,6 @@ npx eas-cli@latest build -p ios --profile production
 npx eas-cli@latest submit -p ios --latest
 ```
 
-Google 로그인 클라이언트 ID 는 preview 프로필 `env` 의 `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` 로 넣는다. `app.config.ts` 가 iOS 클라이언트 ID 로 URL scheme 을 만든다. 백엔드는 `deploy-backend-dev.yml` 의 `GOOGLE_OAUTH_CLIENT_IDS` 로 Web, iOS, Android 클라이언트 ID 를 받는다. prod 클라이언트는 아직 발급하지 않았다. 값은 `bawi-cloud-core/notes/2026-11-14-gcp-terraform-chorong.md` 에 있다.
+Google 로그인 클라이언트 ID 는 dev 웹 워크플로우의 `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` 와 preview 프로필 `env` 의 `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` 로 넣는다. `app.config.ts` 가 iOS 클라이언트 ID 로 URL scheme 을 만든다. 백엔드는 `deploy-backend-dev.yml` 의 `GOOGLE_OAUTH_CLIENT_IDS` 로 Web, iOS, Android 클라이언트 ID 를 받는다. prod 클라이언트는 아직 발급하지 않았다. 값은 `bawi-cloud-core/notes/2026-11-14-gcp-terraform-chorong.md` 에 있다.
 
 첫 iOS 빌드에서 EAS 가 Apple Developer 로그인을 요구한다. 인증서와 프로비저닝 프로파일은 EAS 원격 저장소에 보관한다. 첫 Android 스토어 제출은 Play Console 에서 수동 업로드를 한 번 해야 한다.

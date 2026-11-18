@@ -38,7 +38,8 @@ jobs:
         working-directory: mobile
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.DEV_EXPO_PUBLIC_API_URL }}
-          EXPO_PUBLIC_USE_MOCK: 'true'
+          EXPO_PUBLIC_USE_MOCK: 'false'
+          EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: 132361929925-jdn0p4dlv439ji7m60p8b08920lqhuca.apps.googleusercontent.com
         run: pnpm build:web
 
       - name: 빌드 아티팩트 업로드
