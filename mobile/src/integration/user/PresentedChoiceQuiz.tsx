@@ -17,7 +17,7 @@ import type { AnswerResult, Quiz, QuizAnswer } from '../models';
 import { FEEDBACK_SHEET_COLORS, QuizFeedbackSheet } from './QuizFeedbackSheet';
 import { QUIZ_FEEDBACK_COLORS } from './quizFeedbackColors';
 import { gradedAnnouncement, isUngraded } from './quizGrading';
-import { choicesFor, correctChoiceIndex, type Choice } from './SingleChoiceQuiz';
+import { choicesFor, correctChoiceIndex, type Choice } from './choiceUtils';
 
 type Phase = 'UNANSWERED' | 'GRADING' | 'GRADED' | 'TRANSITIONING';
 const color = FEEDBACK_SHEET_COLORS;
