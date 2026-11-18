@@ -20,7 +20,7 @@ import { BackArrow } from '../../components/settings/ControlSettingsUI';
 import { signOutFromGoogle } from '../googleSignIn';
 import Svg, { Path } from 'react-native-svg';
 import { AppButton } from '../../components/AppButton';
-import { client, integrationApi as api, useMockApi } from '../runtime';
+import { client, devicePlatform, integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Me } from '../models';
 import { IntegrationError } from '../client';
@@ -134,30 +134,27 @@ export default function ProfileScreen() {
       await signOutFromGoogle();
       if (kind === 'logout') setLogoutOpen(false);
       setWithdrawOpen(false);
-      const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
-      if (platform || useMockApi) {
-        try {
-          await api.account.guest(platform ?? 'ANDROID');
-          if (client.getSnapshot().user?.status !== 'GUEST') {
-            await api.account.logout(false);
-            await client.renewGuestDeviceUuid();
-            await api.account.guest(platform ?? 'ANDROID');
-          }
-          if (client.getSnapshot().user?.status !== 'GUEST') {
-            throw new Error('비회원 세션을 만들지 못했습니다.');
-          }
-          router.replace('/more');
-          return;
-        } catch (error) {
-          if (client.getSnapshot().user?.status === 'ACTIVE') {
-            setEndingSession(false);
-            throw error;
-          }
-          Alert.alert(
-            '비회원 연결 실패',
-            '로그인 정보는 정리되었습니다. 시작 화면에서 다시 시도해 주세요.',
-          );
+      try {
+        await api.account.guest(devicePlatform());
+        if (client.getSnapshot().user?.status !== 'GUEST') {
+          await api.account.logout(false);
+          await client.renewGuestDeviceUuid();
+          await api.account.guest(devicePlatform());
         }
+        if (client.getSnapshot().user?.status !== 'GUEST') {
+          throw new Error('비회원 세션을 만들지 못했습니다.');
+        }
+        router.replace('/more');
+        return;
+      } catch (error) {
+        if (client.getSnapshot().user?.status === 'ACTIVE') {
+          setEndingSession(false);
+          throw error;
+        }
+        Alert.alert(
+          '비회원 연결 실패',
+          '로그인 정보는 정리되었습니다. 시작 화면에서 다시 시도해 주세요.',
+        );
       }
       router.replace('/welcome');
     });

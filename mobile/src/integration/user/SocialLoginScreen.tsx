@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -13,7 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useIntegration, useTask } from '../hooks';
 import { signInWithGoogle } from '../googleSignIn';
 import type { OAuthCredential } from '../models';
-import { integrationApi as api, useMockApi } from '../runtime';
+import { devicePlatform, integrationApi as api, useMockApi } from '../runtime';
 import { AuthResultModal } from './AuthResultModals';
 import { socialLoginErrorModal, type SocialLoginModalKind } from './socialLoginResult';
 import { firstStudyRoute } from './welcomeFlow';
@@ -56,9 +55,7 @@ export async function continueWithSocial(
     return { isNew: auth.isNew };
   }
   if (!authenticated) {
-    const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
-    if (!platform) throw new Error('웹에서는 임시 로그인을 사용할 수 없습니다.');
-    await api.account.guest(platform);
+    await api.account.guest(devicePlatform());
   }
   // 애플·카카오는 아직 실제 연동 전이라 비회원 세션으로 대신한다. 새 회원이 아니다.
   return { isNew: false };
@@ -92,6 +89,7 @@ export function useSocialLogin({
     attempt.current = next;
     setModal(null);
     const guest = session.authenticated && session.user?.status === 'GUEST';
+    if (__DEV__) console.log(`[social] start provider=${next.provider} guest=${guest}`);
     void task.run(async () => {
       try {
         const result = await continueWithSocial(next.provider, session.authenticated, {
@@ -101,6 +99,8 @@ export function useSocialLogin({
             next.credential = credential;
           },
         });
+        if (__DEV__)
+          console.log(`[social] result provider=${next.provider} isNew=${result?.isNew}`);
         if (!result) return;
         if (noAccountWhenNew && result.isNew) {
           newMember.current = result;
@@ -108,7 +108,10 @@ export function useSocialLogin({
           return;
         }
         onSignedIn(result);
+        if (__DEV__) console.log('[social] signedIn done');
       } catch (error) {
+        if (__DEV__)
+          console.log(`[social] error ${error instanceof Error ? error.message : error}`);
         setModal(
           socialLoginErrorModal(error, { guest, switchingToExisting: next.switchToExisting }),
         );

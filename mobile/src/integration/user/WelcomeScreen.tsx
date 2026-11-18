@@ -20,7 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { useIntegration, useTask } from '../hooks';
-import { integrationApi as api, useMockApi } from '../runtime';
+import { devicePlatform, integrationApi as api } from '../runtime';
 import { firstStudyRoute } from './welcomeFlow';
 import { useReduceMotion, useTwinkle } from './twinkle';
 
@@ -86,16 +86,14 @@ export default function WelcomeScreen() {
   const markImageLoaded = (index: number) => {
     setLoadedImages((previous) => previous | (1 << index));
   };
-  const platform = Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : null;
   const start = () => {
     if (!session.ready || task.busy) return;
     if (session.authenticated && session.user?.status !== 'GUEST') {
       router.replace('/');
       return;
     }
-    if (!session.authenticated && !platform && !useMockApi) return;
     void task.run(async () => {
-      if (!session.authenticated) await api.account.guest(platform ?? 'ANDROID');
+      if (!session.authenticated) await api.account.guest(devicePlatform());
       // 레슨을 못 불러오면 게스트 계정은 유지하고 학습 홈에서 다시 불러온다.
       router.replace((await firstStudyRoute(api.learning)) ?? '/');
     });
@@ -227,30 +225,14 @@ export default function WelcomeScreen() {
                 {task.error.replace(/^[A-Z_]+:\s*/, '').replace(/\s*\(HTTP \d+\)$/, '')}
               </Text>
             ) : null}
-            {!session.authenticated && !platform && !useMockApi ? (
-              <Text allowFontScaling={false} style={s.webNotice}>
-                웹 비회원 시작은 현재 API에서 지원하지 않습니다.
-              </Text>
-            ) : null}
             <Pressable
               accessibilityRole="button"
               accessibilityState={{
-                disabled:
-                  !session.ready ||
-                  task.busy ||
-                  (!session.authenticated && !platform && !useMockApi),
+                disabled: !session.ready || task.busy,
               }}
-              disabled={
-                !session.ready || task.busy || (!session.authenticated && !platform && !useMockApi)
-              }
+              disabled={!session.ready || task.busy}
               onPress={start}
-              style={[
-                s.primary,
-                (!session.ready ||
-                  task.busy ||
-                  (!session.authenticated && !platform && !useMockApi)) &&
-                  s.disabled,
-              ]}
+              style={[s.primary, (!session.ready || task.busy) && s.disabled]}
             >
               <Text allowFontScaling={false} numberOfLines={1} style={s.primaryText}>
                 첫 학습 시작하기
@@ -389,5 +371,4 @@ const s = StyleSheet.create({
   secondaryText: { color: '#f1f1f1', fontFamily: 'KkakdugiRegular', fontSize: 16, lineHeight: 24 },
   disabled: { opacity: 0.38 },
   error: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 14, textAlign: 'center' },
-  webNotice: { color: '#f1f1f1', fontFamily: 'KimmLight', fontSize: 12, textAlign: 'center' },
 });

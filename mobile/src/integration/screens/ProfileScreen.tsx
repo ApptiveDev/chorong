@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Platform as RNPlatform, Switch, Text } from 'react-native';
-import { integrationApi as api } from '../runtime';
+import { devicePlatform, integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { Platform } from '../models';
 import { Button, Card, Choices, Field, Json, Nav, Page, styles, TaskStatus } from '../ui';
@@ -15,9 +15,7 @@ function ProfileForm() {
   const [nickname, setNickname] = useState(''),
     [pushEnabled, setPushEnabled] = useState(false);
   const [pushToken, setPushToken] = useState('');
-  const [platform, setPlatform] = useState<Platform | ''>(
-    RNPlatform.OS === 'ios' ? 'IOS' : RNPlatform.OS === 'android' ? 'ANDROID' : '',
-  );
+  const [platform, setPlatform] = useState<Platform | ''>(devicePlatform());
   const [rewards, setRewards] = useState<unknown[]>([]),
     [cursor, setCursor] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -115,7 +113,7 @@ function ProfileForm() {
           disabled={task.busy || !auth.authenticated}
           onPress={() => void update({ pushEnabled })}
         />
-        <Choices values={['IOS', 'ANDROID']} value={platform} onChange={setPlatform} />
+        <Choices values={['IOS', 'ANDROID', 'WEB']} value={platform} onChange={setPlatform} />
         <Field label="네이티브 Push Token" value={pushToken} onChange={setPushToken} secret />
         <Button
           title="Push Token 등록·갱신"

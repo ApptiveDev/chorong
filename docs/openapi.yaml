@@ -1728,7 +1728,7 @@ components:
     Platform:
       type: string
       description: ENUM-03
-      enum: [IOS, ANDROID]
+      enum: [IOS, ANDROID, WEB]
     ContentType:
       type: string
       description: |

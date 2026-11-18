@@ -1,5 +1,6 @@
 import 'expo';
 import { Platform } from 'react-native';
+import type { Platform as DevicePlatformName } from './models';
 import { api as existingApi } from '../lib/api';
 import { IntegrationClient, integrationBaseURL } from './client';
 import { createIntegrationApi } from './api';
@@ -9,6 +10,10 @@ import { restoreMockState, saveMockState } from './mockStorage';
 
 export const useMockApi = process.env.EXPO_PUBLIC_USE_MOCK === 'true';
 let mockUuidSequence = 0;
+
+export function devicePlatform(): DevicePlatformName {
+  return Platform.OS === 'ios' ? 'IOS' : Platform.OS === 'android' ? 'ANDROID' : 'WEB';
+}
 
 export function randomUuid() {
   if (useMockApi)

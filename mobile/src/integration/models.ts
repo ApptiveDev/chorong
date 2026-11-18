@@ -12,7 +12,7 @@ import {
   type Infer,
 } from './schema';
 
-export type Platform = 'IOS' | 'ANDROID';
+export type Platform = 'IOS' | 'ANDROID' | 'WEB';
 export type Provider = 'email' | 'google' | 'kakao' | 'apple';
 export type OAuthCredential = {
   idToken?: string;

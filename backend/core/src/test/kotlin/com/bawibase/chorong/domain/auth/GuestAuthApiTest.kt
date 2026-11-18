@@ -190,6 +190,13 @@ class GuestAuthApiTest {
         assertEquals(DevicePlatform.ANDROID, devices.findById(checkNotNull(auth.id)).orElseThrow().platform)
     }
 
+    @Test fun `web guest is accepted and stores the web platform`() {
+        val uuid = UUID.randomUUID().toString()
+        post(uuid, "WEB")
+        val auth = checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.GUEST, uuid))
+        assertEquals(DevicePlatform.WEB, devices.findById(checkNotNull(auth.id)).orElseThrow().platform)
+    }
+
     @Test fun `existing legacy guest is reused and missing starter assets are initialized`() {
         val uuid = UUID.randomUUID().toString()
         val old = legacy.guestSignUp(uuid)
@@ -216,7 +223,7 @@ class GuestAuthApiTest {
                 body("not-a-uuid"),
                 body("1-2-3-4-5"),
                 body(" " + UUID.randomUUID()),
-                body(UUID.randomUUID().toString(), "WEB"),
+                body(UUID.randomUUID().toString(), "DESKTOP"),
                 body(UUID.randomUUID().toString(), "ios"),
                 "{}",
                 "{",

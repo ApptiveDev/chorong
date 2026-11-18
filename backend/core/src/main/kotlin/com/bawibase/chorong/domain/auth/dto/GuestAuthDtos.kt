@@ -5,7 +5,7 @@ import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserEntity
 import jakarta.validation.constraints.Pattern
 
-enum class DevicePlatform { IOS, ANDROID }
+enum class DevicePlatform { IOS, ANDROID, WEB }
 
 data class GuestAuthRequest(
     @field:Pattern(regexp = UUID_PATTERN, message = "UUID 형식으로 입력하세요.")

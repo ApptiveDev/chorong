@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Platform as RNPlatform, Switch, Text } from 'react-native';
-import { integrationApi as api, client } from '../runtime';
+import { devicePlatform, integrationApi as api, client } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import { storageNotice } from '../storage';
 import type { Platform, Provider } from '../models';
@@ -15,9 +15,7 @@ function AccountForm() {
   const router = useRouter();
   const state = useIntegration(),
     task = useTask();
-  const [platform, setPlatform] = useState<Platform | ''>(
-    RNPlatform.OS === 'ios' ? 'IOS' : RNPlatform.OS === 'android' ? 'ANDROID' : '',
-  );
+  const [platform, setPlatform] = useState<Platform | ''>(devicePlatform());
   const [email, setEmail] = useState(''),
     [password, setPassword] = useState('');
   const [verificationId, setVerificationId] = useState(''),
@@ -61,7 +59,7 @@ function AccountForm() {
             백엔드 확인이 필요합니다.
           </Text>
         ) : null}
-        <Choices values={['IOS', 'ANDROID']} value={platform} onChange={setPlatform} />
+        <Choices values={['IOS', 'ANDROID', 'WEB']} value={platform} onChange={setPlatform} />
         <Button
           title="게스트로 로그인"
           disabled={task.busy || !platform || state.authenticated}

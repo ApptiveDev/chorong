@@ -3,6 +3,9 @@ import { catalog, idempotentApis, type EnabledApiId } from './catalog';
 import { ContractError, objectValue, type Schema } from './schema';
 import { pageMeta, type Page, type TokenPair, type UserBrief, type Me } from './models';
 
+// Metro 가 주입한다. Node 테스트에는 없다.
+declare const __DEV__: boolean | undefined;
+
 export interface SessionStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
@@ -323,7 +326,7 @@ export class IntegrationClient {
     return key;
   }
   private record(trace: Trace) {
-    if (__DEV__) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
       const { method, endpoint, status, durationMs, code, requestId, issue } = trace;
       console.log(
         `[api] ${method} ${endpoint} status=${status ?? 'none'} ms=${durationMs}` +
