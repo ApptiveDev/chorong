@@ -20,7 +20,6 @@ export const localShopCategories: { id: LocalShopCategory; label: string }[] = [
   { id: 'other', label: '기타' },
 ];
 
-// 로컬 UI 검증 전용 데이터다. housingApi 요청에는 전달하지 않는다.
 export const localShopItems: LocalShopItem[] = [
   {
     id: 'wall-1',
