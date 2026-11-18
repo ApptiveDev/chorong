@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   Animated,
   Easing,
@@ -34,6 +34,8 @@ import { GlowFilter, HUD_CORNER, HUD_DOTTED, HUD_RULER } from './constellationAr
 import { useDrift, useReduceMotion, useTwinkle } from './twinkle';
 
 // Figma L01-01 학습 홈(757:3107). 표시할 값은 모두 CoursesScreen 이 서버 응답에서 읽어 넘긴다.
+type ViewRef = ComponentRef<typeof View>;
+
 const color = { base: '#161616', fale: '#f1f1f1', yellow: '#ffde23' };
 
 // 별자리 칸 좌표계(Figma Frame 57 기준, 폭 328). HUD 모서리 안쪽(위 61 · 높이 288)이 별을 놓는 칸이다.
@@ -93,7 +95,7 @@ export function LearningHome({
   const panelWidth = Math.min(CANVAS.width, width - 74);
   const k = panelWidth / CANVAS.width;
   const reduceMotion = useReduceMotion();
-  const chipRef = useRef<View>(null);
+  const chipRef = useRef<ViewRef>(null);
   const [popover, setPopover] = useState<PopoverAnchor | null>(null);
   const openPopover = () =>
     chipRef.current?.measureInWindow((x, y, w, h) => setPopover({ x, y, width: w, height: h }));

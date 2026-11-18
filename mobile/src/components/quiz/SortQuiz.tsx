@@ -1,9 +1,11 @@
-import { useRef } from 'react';
+import { useRef, type ComponentRef } from 'react';
 import { Text, View } from 'react-native';
 import { moveItem } from '../../lib/quiz-state';
 import type { QuizConfigs } from '../../types/quiz';
 import { DragHandle, dropOn } from './gestures';
 import { ItemContent, itemLabel, QuizButton, styles } from './shared';
+
+type ViewRef = ComponentRef<typeof View>;
 
 export function SortQuiz({
   config,
@@ -16,7 +18,7 @@ export function SortQuiz({
   onChange: (order: string[]) => void;
   disabled: boolean;
 }) {
-  const targets = useRef(new Map<string, View>()).current;
+  const targets = useRef(new Map<string, ViewRef>()).current;
   const current = useRef({ order, disabled, onChange });
   current.current = { order, disabled, onChange };
   const move = (item: string, target: string) => {

@@ -23,7 +23,7 @@ type DockBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']
   onGuestHousing?: () => void;
 };
 
-function DockBar({ state, navigation, bottom, onGuestHousing }: DockBarProps) {
+function DockBar({ state, emitter, navigateToTab, bottom, onGuestHousing }: DockBarProps) {
   return (
     <View style={[dockStyles.bar, { height: 64 + bottom, paddingBottom: bottom }]}>
       <View style={dockStyles.items}>
@@ -43,14 +43,14 @@ function DockBar({ state, navigation, bottom, onGuestHousing }: DockBarProps) {
                   onGuestHousing();
                   return;
                 }
-                const event = navigation.emit({
+                const event = emitter.emit({
                   type: 'tabPress',
                   target: route.key,
                   canPreventDefault: true,
                 });
-                if (!selected && !event.defaultPrevented) navigation.navigate(route.name);
+                if (!selected && !event.defaultPrevented) navigateToTab(route.key);
               }}
-              onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
+              onLongPress={() => emitter.emit({ type: 'tabLongPress', target: route.key })}
               style={[dockStyles.item, selected && dockStyles.selected]}
             >
               <Text style={[dockStyles.label, selected && dockStyles.selectedLabel]}>

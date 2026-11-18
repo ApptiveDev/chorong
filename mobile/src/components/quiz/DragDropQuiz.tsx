@@ -1,8 +1,10 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ComponentRef } from 'react';
 import { Text, View } from 'react-native';
 import type { QuizConfigs } from '../../types/quiz';
 import { DragHandle, dropOn } from './gestures';
 import { ItemContent, itemLabel, QuizButton, styles } from './shared';
+
+type ViewRef = ComponentRef<typeof View>;
 
 export function DragDropQuiz({
   config,
@@ -16,7 +18,7 @@ export function DragDropQuiz({
   disabled: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const targets = useRef(new Map<string, View>()).current;
+  const targets = useRef(new Map<string, ViewRef>()).current;
   const current = useRef({ placements, disabled, onChange });
   current.current = { placements, disabled, onChange };
   const place = (item: string, target: string) => {

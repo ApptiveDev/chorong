@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, type ComponentRef } from 'react';
 import {
   Animated,
   PanResponder,
@@ -9,6 +9,8 @@ import {
   type PanResponderGestureState,
 } from 'react-native';
 import { styles } from './shared';
+
+type ViewRef = ComponentRef<typeof View>;
 
 type Point = { x: number; y: number };
 export function windowPoint(event: GestureResponderEvent): Point {
@@ -87,7 +89,7 @@ export function DragHandle({
     </Animated.View>
   );
 }
-export function dropOn(point: Point, targets: Map<string, View>, onHit: (id: string) => void) {
+export function dropOn(point: Point, targets: Map<string, ViewRef>, onHit: (id: string) => void) {
   targets.forEach((view, id) =>
     view.measureInWindow((x, y, width, height) => {
       if (point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height) onHit(id);

@@ -1,4 +1,13 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentRef,
+} from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   ActivityIndicator,
@@ -20,6 +29,8 @@ import { shipColor as color, ShipTabsHeader } from './ShipStatus';
 import { BlockModal, ReportModal } from './SocialConfirmModals';
 
 // Figma D01_2 구경하기 (547:2653) · 더보기 열린 상태 (656:1471)
+type ViewRef = ComponentRef<typeof View>;
+
 const PAGE_SIZE = 20;
 const MENU_WIDTH = 80;
 const SWIPE_SLOP = 12;
@@ -64,7 +75,7 @@ export function BrowseView({
   visitsRef.current = visits;
   const unavailableRef = useRef(unavailable);
   unavailableRef.current = unavailable;
-  const dotsRef = useRef<View>(null);
+  const dotsRef = useRef<ViewRef>(null);
   const current = cards[index] ?? null;
 
   const load = useCallback(async () => {
@@ -465,7 +476,7 @@ const ShipPage = memo(function ShipPage({
   likedByMe: boolean;
   likeBusy: boolean;
   shopItems: ShopItem[];
-  dotsRef?: React.RefObject<View | null>;
+  dotsRef?: React.RefObject<ViewRef | null>;
   onLike?: () => void;
   onMore?: () => void;
 }) {

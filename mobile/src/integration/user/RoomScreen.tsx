@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useLocalSearchParams, usePreventRemove, useRouter } from 'expo-router';
 import {
   Animated,
   PanResponder,
@@ -139,8 +139,6 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const [loaded, setLoaded] = useState(false);
   const [purchaseRetryOnly, setPurchaseRetryOnly] = useState(false);
   const purchaseKey = useRef<string | null>(null);
-  const leaveAllowed = useRef(false);
-  const navigation = useNavigation();
   // 첫 배치 전에는 화면 높이로 추정해 상자 크기가 튀지 않게 한다.
   const [shipAreaHeight, setShipAreaHeight] = useState(screenHeight - insets.top - HEADER_BLOCK);
 
@@ -317,22 +315,9 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     })) ?? [];
   const dirty = pending.length > 0 || JSON.stringify(draft) !== JSON.stringify(savedDraft);
   // 하드웨어·라우터 뒤로 가기도 같은 확인을 거친다. 저장 성공·변경 취소 뒤에는 그대로 보낸다.
-  const guard = useRef({ dirty, busy: task.busy });
-  guard.current = { dirty, busy: task.busy };
-  useEffect(
-    () =>
-      navigation.addListener('beforeRemove', (event) => {
-        if (leaveAllowed.current) return;
-        if (guard.current.busy) {
-          event.preventDefault();
-          return;
-        }
-        if (!guard.current.dirty) return;
-        event.preventDefault();
-        setExitOpen(true);
-      }),
-    [navigation],
-  );
+  const allowLeave = usePreventRemove(dirty || task.busy, () => {
+    if (!task.busy) setExitOpen(true);
+  });
   const sceneItems: RoomSceneItem[] = [
     ...draft
       .filter((item) => item.area === 'INTERIOR')
@@ -549,7 +534,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     setLayerMenu(false);
     purchaseKey.current = null;
     setPurchaseRetryOnly(false);
-    leaveAllowed.current = true;
+    allowLeave();
     exit();
   };
   // 최신 별가루를 다시 읽는다. 실패하면 갖고 있던 값을 쓴다(사전 안내용, 최종 판단은 구매 응답).
@@ -633,7 +618,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         const saved = await api.room.save(placements);
         setRoom((current) => current && { ...current, placements: saved.placements });
         setNotice('배치를 저장했습니다.');
-        leaveAllowed.current = true;
+        allowLeave();
         exit();
         return saved;
       } catch {

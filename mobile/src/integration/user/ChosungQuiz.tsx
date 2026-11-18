@@ -1,7 +1,7 @@
 // CHOSUNG(초성) 퀴즈. Figma 초성퀴즈(737:807)·정답(739:892)·오답(739:916)을 따른다.
 // 채점은 서버(API-406·502) 결과만 쓴다. 앱은 정답을 알지 못한다.
 // 제출 버튼이 없다. 입력 칸을 모두 채우고 한글 조합이 끝나면 한 번만 자동 제출한다(chosungInput.ts).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -63,7 +63,7 @@ export function ChosungQuiz({
   const [error, setError] = useState('');
   const phaseRef = useRef<Phase>('INPUT');
   const textRef = useRef(initialText);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = useRef(true);
   const sheetProgress = useRef(new Animated.Value(0)).current;

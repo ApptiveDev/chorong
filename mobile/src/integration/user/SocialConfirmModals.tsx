@@ -36,7 +36,9 @@ function Frame({
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={() => !busy && onRequestClose()}
+      onRequestClose={() => {
+        if (!busy) onRequestClose();
+      }}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

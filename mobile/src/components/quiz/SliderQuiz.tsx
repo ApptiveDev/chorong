@@ -1,9 +1,11 @@
-import { useRef } from 'react';
+import { useRef, type ComponentRef } from 'react';
 import { StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import { sliderIndex, sliderSteps, sliderValue } from '../../lib/quiz-state';
 import type { SliderConfig } from '../../types/quiz';
 import { useDrag, windowPoint } from './gestures';
 import { styles } from './shared';
+
+type ViewRef = ComponentRef<typeof View>;
 
 export function SliderQuiz({
   config,
@@ -16,7 +18,7 @@ export function SliderQuiz({
   onChange: (value: number) => void;
   disabled: boolean;
 }) {
-  const track = useRef<View>(null);
+  const track = useRef<ViewRef>(null);
   const geometry = useRef({ x: 0, width: 0 });
   const steps = sliderSteps(config);
   const index = sliderIndex(config, value);

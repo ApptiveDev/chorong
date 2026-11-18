@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { Redirect, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -40,7 +40,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const session = useIntegration();
   const task = useTask();
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [draft, setDraft] = useState('');
   const [nicknameOpen, setNicknameOpen] = useState(false);
