@@ -557,6 +557,222 @@ test('app restart rotates stored refresh and reloads server user status', async 
   assert.equal(restored.c.getSnapshot().ready, true);
 });
 
+const offline = (config) => {
+  throw new AxiosError('Network Error', 'ERR_NETWORK', config);
+};
+
+test('app restart without network keeps the stored login and retries refresh later', async () => {
+  const { c, entries } = setup(true);
+  await login(c);
+  const restored = setup(true, entries);
+  restored.c.http.defaults.adapter = offline;
+  await restored.c.initialize();
+  assert.equal(restored.c.getSnapshot().ready, true);
+  assert.equal(restored.c.getSnapshot().authenticated, true);
+  assert.equal(
+    JSON.parse([...entries.values()].find((v) => v.includes('refresh'))).tokens.refreshToken,
+    tokens.refreshToken,
+  );
+  const urls = [];
+  restored.c.http.defaults.adapter = async (config) => {
+    urls.push(config.url);
+    return respond(config, { data: config.url.includes('refresh') ? tokens : me });
+  };
+  await restored.c.refresh();
+  assert.deepEqual(urls, ['/auth/token/refresh']);
+});
+
+test('refresh server error keeps the session; rejection still clears it', async () => {
+  const { c, entries } = setup(true);
+  await login(c);
+  c.http.defaults.adapter = async (config) => fail(config, 503, 'SERVICE_UNAVAILABLE');
+  await assert.rejects(c.refresh());
+  assert.equal(c.getSnapshot().authenticated, true);
+  c.http.defaults.adapter = async (config) => fail(config, 401, 'AUTH_TOKEN_REUSED');
+  await assert.rejects(c.refresh());
+  assert.equal(c.getSnapshot().authenticated, false);
+  assert.equal(
+    [...entries.keys()].some((key) => key.includes('session')),
+    false,
+  );
+});
+
+test('a window adopts a refresh token another window already rotated instead of reusing it', async () => {
+  const entries = new Map();
+  const first = setup(true, entries);
+  await login(first.c);
+  // 두 번째 창이 열리면서 토큰을 회전한다. 첫 번째 창은 예전 토큰을 들고 있다.
+  const second = setup(true, entries);
+  const sent = [];
+  second.c.http.defaults.adapter = async (config) => {
+    if (!config.url.includes('refresh')) return respond(config, { data: me });
+    sent.push(JSON.parse(config.data).refreshToken);
+    return respond(config, {
+      data: { ...tokens, accessToken: 'rotated-access', refreshToken: 'rotated-refresh' },
+    });
+  };
+  await second.c.initialize();
+  first.c.http.defaults.adapter = async (config) => {
+    if (config.url.includes('refresh')) throw new Error('회전된 토큰을 다시 보내면 안 된다');
+    assert.equal(config.headers.get('Authorization'), 'Bearer rotated-access');
+    return respond(config, {
+      data: { stardust: 2, energy: 5, energyResetsAt: '2026-11-12T00:00:00+09:00' },
+    });
+  };
+  await first.c.refresh();
+  await first.api.benefits.wallet();
+  assert.equal(first.c.getSnapshot().authenticated, true);
+  assert.deepEqual(sent, [tokens.refreshToken]);
+});
+
+test('a window that sees another window logged out clears itself without calling refresh', async () => {
+  const entries = new Map();
+  const first = setup(true, entries);
+  await login(first.c);
+  for (const key of [...entries.keys()]) if (key.includes('session')) entries.delete(key);
+  first.c.http.defaults.adapter = async () => {
+    throw new Error('로그아웃된 토큰으로 갱신하면 안 된다');
+  };
+  await assert.rejects(first.c.refresh());
+  assert.equal(first.c.getSnapshot().authenticated, false);
+});
+
+// 브라우저 탭 여러 개를 흉내 낸다. 저장소는 공유하고, 잠금은 한 번에 하나(재진입 불가)이며,
+// 한 탭이 값을 바꾸면 다른 탭에만 알린다.
+function browserWindows() {
+  const entries = new Map();
+  const watchers = [];
+  let queue = Promise.resolve();
+  const locks = [];
+  const open = () => {
+    const self = {};
+    const notify = (key) => {
+      for (const watcher of watchers)
+        if (watcher.owner !== self && watcher.key === key) watcher.listener();
+    };
+    const storage = {
+      get: async (k) => entries.get(k) ?? null,
+      set: async (k, v) => {
+        entries.set(k, v);
+        notify(k);
+      },
+      remove: async (k) => {
+        if (!entries.has(k)) return;
+        entries.delete(k);
+        notify(k);
+      },
+      lock: (name, task) => {
+        locks.push(name);
+        const run = queue.then(task);
+        queue = run.catch(() => {});
+        return run;
+      },
+      watch: (key, listener) => {
+        watchers.push({ owner: self, key, listener });
+        return () => {};
+      },
+    };
+    let n = 0;
+    const c = new IntegrationClient(
+      'https://test.invalid/api/v1',
+      storage,
+      () => (n++ === 0 ? uuid : `key-${n}`),
+      true,
+    );
+    return { c, api: createIntegrationApi(c) };
+  };
+  return { open, entries, locks };
+}
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+test('login, refresh and logout all take the session lock without deadlocking', async () => {
+  const browser = browserWindows();
+  const tab = browser.open();
+  await tab.c.initialize();
+  await login(tab.c);
+  tab.c.http.defaults.adapter = async (config) =>
+    config.url.includes('logout') ? respond(config, null, 204) : respond(config, { data: tokens });
+  await tab.c.refresh();
+  await tab.api.account.logout(false);
+  assert.equal(browser.locks.length >= 3, true);
+  assert.ok(browser.locks.every((name) => name.endsWith('.lock')));
+  assert.equal(tab.c.getSnapshot().authenticated, false);
+});
+
+test('logout in one tab logs the other tab out immediately', async () => {
+  const browser = browserWindows();
+  const first = browser.open();
+  const second = browser.open();
+  await first.c.initialize();
+  await login(first.c);
+  second.c.http.defaults.adapter = async (config) =>
+    respond(config, { data: config.url.includes('refresh') ? tokens : me });
+  await second.c.initialize();
+  assert.equal(second.c.getSnapshot().authenticated, true);
+  first.c.http.defaults.adapter = async (config) => respond(config, null, 204);
+  await first.api.account.logout(false);
+  await settle();
+  assert.equal(second.c.getSnapshot().authenticated, false);
+  assert.match(second.c.getSnapshot().notice, /다른 창에서 로그아웃/);
+});
+
+test('login in one tab signs in the other tab and a different account replaces the screen', async () => {
+  const browser = browserWindows();
+  const first = browser.open();
+  const second = browser.open();
+  await first.c.initialize();
+  await second.c.initialize();
+  await login(first.c);
+  await settle();
+  assert.equal(second.c.getSnapshot().authenticated, true);
+  assert.equal(second.c.getSnapshot().user.userId, user.userId);
+  const before = second.c.getSnapshot().generation;
+  await first.c.authenticate(async () => ({
+    ...tokens,
+    refreshToken: 'other-refresh',
+    user: { ...user, userId: 8 },
+  }));
+  await settle();
+  assert.equal(second.c.getSnapshot().user.userId, 8);
+  assert.ok(second.c.getSnapshot().generation > before);
+});
+
+test('logout sends the token another tab rotated so that session is revoked', async () => {
+  const browser = browserWindows();
+  const first = browser.open();
+  const second = browser.open();
+  await first.c.initialize();
+  await login(first.c);
+  second.c.http.defaults.adapter = async (config) =>
+    config.url.includes('refresh')
+      ? respond(config, {
+          data: { ...tokens, accessToken: 'rotated-access', refreshToken: 'rotated-refresh' },
+        })
+      : respond(config, { data: me });
+  await second.c.initialize();
+  let bearer = null;
+  first.c.http.defaults.adapter = async (config) => {
+    bearer = config.headers.get('Authorization');
+    return respond(config, null, 204);
+  };
+  await first.api.account.logout(false);
+  assert.equal(bearer, 'Bearer rotated-access');
+});
+
+test('a rejected tab does not delete a newer login saved by another tab', async () => {
+  const browser = browserWindows();
+  const first = browser.open();
+  await first.c.initialize();
+  await login(first.c);
+  // 다른 탭이 새로 로그인해 저장소를 바꿨지만 first 는 아직 알림을 처리하지 않았다.
+  const key = [...browser.entries.keys()].find((k) => k.includes('session'));
+  const newer = JSON.parse(browser.entries.get(key));
+  newer.tokens.refreshToken = 'newer-refresh';
+  browser.entries.set(key, JSON.stringify(newer));
+  await first.c.clear('토큰 갱신 실패. 다시 로그인하세요.');
+  assert.equal(JSON.parse(browser.entries.get(key)).tokens.refreshToken, 'newer-refresh');
+});
+
 test('목업 사용자 데이터만으로는 인증되지 않고 비회원 세션은 재실행 후에도 유지된다', async () => {
   const original = JSON.parse(JSON.stringify(mockSnapshot()));
   const entries = new Map();
