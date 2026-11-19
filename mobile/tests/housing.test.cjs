@@ -13,6 +13,7 @@ const {
   isOnGrid,
   isPlaceable,
   nextLayer,
+  placeableArea,
   placeableCells,
   sendToBack,
   snapPoint,
@@ -39,22 +40,38 @@ test('snapped points are API-compatible 0..1 values on the grid', () => {
   }
 });
 
-test('placeable cells match the previous editor bounds', () => {
-  // 25칸 기준: x 0.12~0.88, y 0.44~0.88
-  assert.deepEqual(placeableCells(), { minCol: 3, maxCol: 22, minRow: 11, maxRow: 22 });
+test('placeable cells keep the default box on the floor of the room art', () => {
+  // 166×172 캔버스, 바닥 x 5~161 · y 59~166, 기본 상자 34: x 0.13~0.87, y 0.34~0.87
+  assert.deepEqual(placeableCells(), { minCol: 4, maxCol: 21, minRow: 9, maxRow: 21 });
+});
+
+test('placeable area depends on furniture size', () => {
+  // 의자 39×51(1배): 가로는 전체가 바닥 안, 세로는 중심이 바닥 위·아래 끝이 바닥 안.
+  const chair = placeableArea({ width: 39, height: 51 });
+  assert.ok(Math.abs(chair.minX * 166 - (5 + 19.5)) < 1e-9);
+  assert.ok(Math.abs(chair.maxX * 166 - (161 - 19.5)) < 1e-9);
+  assert.ok(Math.abs(chair.minY * 172 - 59) < 1e-9);
+  assert.ok(Math.abs(chair.maxY * 172 - (166 - 25.5)) < 1e-9);
+  // 바닥보다 넓은 가구는 가로 가운데에만, 너무 높은 가구는 바닥 위쪽 선에만 둔다.
+  const huge = placeableArea({ width: 200, height: 300 });
+  assert.equal(huge.minX, huge.maxX);
+  assert.ok(Math.abs(huge.minX - 83 / 166) < 1e-9);
+  assert.equal(huge.minY, huge.maxY);
+  const point = snapPoint({ x: 0.1, y: 0.9 }, undefined, huge);
+  assert.ok(isOnGrid(point));
 });
 
 test('drops outside the area clamp to the nearest valid cell', () => {
-  assert.deepEqual(clampCell({ col: -3, row: 2 }), { col: 3, row: 11 });
-  assert.deepEqual(clampCell({ col: 60, row: 90 }), { col: 22, row: 22 });
-  assert.deepEqual(snapPoint({ x: 0.48, y: 0.1 }), { x: 0.48, y: 0.44 });
+  assert.deepEqual(clampCell({ col: -3, row: 2 }), { col: 4, row: 9 });
+  assert.deepEqual(clampCell({ col: 60, row: 90 }), { col: 21, row: 21 });
+  assert.deepEqual(snapPoint({ x: 0.48, y: 0.1 }), { x: 0.48, y: 0.36 });
 });
 
 test('drag target uses cumulative delta and is independent of screen size', () => {
   const start = { x: 0.5, y: 0.6 };
   // 같은 비율만큼 끌면 장면 크기와 관계없이 같은 격자점이 된다.
   for (const width of [206, 273, 314, 480]) {
-    const inner = { width, height: width * (326 / 314) };
+    const inner = { width, height: width * (172 / 166) };
     const target = dragTarget(start, { dx: inner.width * 0.13, dy: inner.height * 0.07 }, inner);
     assert.deepEqual(target, { x: 0.64, y: 0.68 });
   }

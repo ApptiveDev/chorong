@@ -22,7 +22,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { furnitureImage, RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { ROOM_1X } from '../../components/house/placementGrid';
 import type { HousingCard, HousingVisit, ShopItem } from '../models';
 import { integrationApi as api } from '../runtime';
 import { shipColor as color, ShipTabsHeader } from './ShipStatus';
@@ -491,6 +492,7 @@ const ShipPage = memo(function ShipPage({
           x: placement.transform.x,
           y: placement.transform.y,
           layer: placement.transform.layer,
+          art: furnitureImage(placement.imageUrl, placement.width, placement.height),
         })) ?? [],
     [visit, shopItems],
   );
@@ -522,7 +524,7 @@ const ShipPage = memo(function ShipPage({
           ) : unavailable ? (
             <Text style={s.boxText}>볼 수 없는 우주선이에요.</Text>
           ) : (
-            <ActivityIndicator color={color.secondary} accessibilityLabel="우주선을 불러오는 중" />
+            <ActivityIndicator color={color.lght} accessibilityLabel="우주선을 불러오는 중" />
           )}
         </View>
         <View style={s.likeRow}>
@@ -638,19 +640,15 @@ const s = StyleSheet.create({
   },
   dots: { width: 20, height: 4 },
   shipGroup: { gap: 20 },
+  // 방 그림만 보이게 배경·테두리 없이 자리만 잡는다.
   roomBox: {
     width: '100%',
     aspectRatio: 312 / 300,
-    backgroundColor: color.mist,
-    borderWidth: 1,
-    borderColor: color.lght,
-    borderRadius: 8,
-    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sceneFit: { height: '100%', aspectRatio: 330 / 342 },
-  boxText: { color: color.secondary, fontFamily: 'PretendardRegular', fontSize: 14 },
+  sceneFit: { height: '100%', aspectRatio: ROOM_1X.width / ROOM_1X.height },
+  boxText: { color: color.lght, fontFamily: 'PretendardRegular', fontSize: 14 },
   likeRow: { paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'flex-end' },
   // Figma 656:4075: 하트 20×18 + 숫자 칸(폭 20, Medium 12 #F1F1F1)
   like: { height: 20, flexDirection: 'row', alignItems: 'center' },
