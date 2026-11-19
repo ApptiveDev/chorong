@@ -703,7 +703,8 @@ export const me: Me = {
   lastStudyDate: '2026-11-01',
 };
 
-const furnitureColors = ['크림', '세이지', '라벤더', '로즈', '블루'];
+// 색상 옵션 5개. 다섯 번째(파랑)는 목업 인벤토리 '별빛 의자'(optionId 1015)와 맞춘다.
+const furnitureColors = ['빨강', '노랑', '초록', '보라', '파랑'];
 const furnitureCatalog = [
   { itemId: 101, name: '의자', kind: 'chair', price: 30 },
   { itemId: 102, name: '책상', kind: 'desk', price: 40 },

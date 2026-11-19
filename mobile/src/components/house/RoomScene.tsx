@@ -337,17 +337,18 @@ export function FurnitureArt({
   color?: string;
   size?: number;
 }) {
+  // 색상 옵션(빨강·노랑·초록·파랑·보라)은 영문 서버 값 · 한글 목업 값 모두 받는다. 그 밖은 기본 나무색.
   const shade = color?.startsWith('#')
     ? color
-    : /세이지|초록/.test(color ?? '')
+    : /green|초록/i.test(color ?? '')
       ? '#a9b9ac'
-      : /라벤더|보라/.test(color ?? '')
+      : /purple|보라/i.test(color ?? '')
         ? '#b9afd0'
-        : /로즈|분홍/.test(color ?? '')
+        : /red|빨강/i.test(color ?? '')
           ? '#d1a29d'
-          : /블루|파랑/.test(color ?? '')
+          : /blue|파랑/i.test(color ?? '')
             ? '#929db2'
-            : /노랑/.test(color ?? '')
+            : /yellow|노랑/i.test(color ?? '')
               ? '#e9d69a'
               : '#d9bf99';
   const edge = '#807064';

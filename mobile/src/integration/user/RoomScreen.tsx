@@ -5,6 +5,7 @@ import {
   PanResponder,
   Pressable,
   ScrollView,
+  Image,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FurnitureArt,
+  type FurnitureImage,
   furnitureImage,
   RoomScene,
   type RoomSceneItem,
@@ -79,16 +81,17 @@ const furnitureKinds = [
   { key: 'bed', label: '침대', pattern: /침대|bed/i },
 ] as const;
 const furnitureKind = (name: string) => furnitureKinds.find((kind) => kind.pattern.test(name))?.key;
-// Figma 651:1079 색상 버튼 5개. 옵션 JSON 의 color 문자열(한글 목업 · 영문 서버 값)을 계열로 묶는다.
+// Figma 651:1079 색상 버튼 5개. 색상 옵션은 빨강·노랑·초록·파랑·보라다.
+// 옵션 JSON 의 color 문자열을 버튼에 맞춘다. 값은 이 다섯 색뿐이고, 영문(서버)·한글(목업) 둘 다 받는다.
 const colorChoices = [
-  { key: 'pink', label: '분홍', hex: '#ff7289', pattern: /로즈|분홍|핑크|빨강|rose|pink|red/i },
-  { key: 'yellow', label: '노랑', hex: '#fdf395', pattern: /노랑|크림|yellow|cream/i },
-  { key: 'green', label: '초록', hex: '#95b781', pattern: /세이지|초록|green|sage/i },
-  { key: 'blue', label: '파랑', hex: '#92a5e1', pattern: /블루|파랑|blue/i },
-  { key: 'purple', label: '보라', hex: '#ccaed9', pattern: /라벤더|보라|purple|lavender/i },
+  { key: 'red', label: '빨강', hex: '#ff7289', pattern: /^(red|빨강)$/i },
+  { key: 'yellow', label: '노랑', hex: '#fdf395', pattern: /^(yellow|노랑)$/i },
+  { key: 'green', label: '초록', hex: '#95b781', pattern: /^(green|초록)$/i },
+  { key: 'blue', label: '파랑', hex: '#92a5e1', pattern: /^(blue|파랑)$/i },
+  { key: 'purple', label: '보라', hex: '#ccaed9', pattern: /^(purple|보라)$/i },
 ] as const;
 const colorMatches = (option: Record<string, unknown>, key: ColorKey) => {
-  const value = optionColor(option);
+  const value = optionColor(option)?.trim();
   const choice = colorChoices.find((entry) => entry.key === key);
   return Boolean(value && choice?.pattern.test(value));
 };
@@ -775,7 +778,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
                   onPress={() => setFilter(entry.key)}
                   style={[s.filterKind, filter === entry.key && s.filterKindActive]}
                 >
-                  <FurnitureArt name={entry.label} color="크림" size={26} />
+                  <FurnitureArt name={entry.label} size={26} />
                 </Pressable>
               ))}
             </View>
@@ -807,12 +810,14 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
           {catalogTab === 'owned'
             ? ownedGroups.map((group) => {
                 const next = group.items.find((item) => !placedIds.has(item.inventoryId));
+                const first = group.items[0];
                 return (
                   <Product
                     key={group.key}
                     width={cardWidth}
                     name={group.name}
                     color={optionColor(group.option)}
+                    art={optionArt(first.itemId, first.optionId)}
                     caption={`${group.placed}/${group.items.length}`}
                     accessibilityCaption={`보유 ${group.items.length}개 중 ${group.placed}개 배치`}
                     disabled={!next}
@@ -834,6 +839,11 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
                     width={cardWidth}
                     name={item.name}
                     color={optionColor(choice?.option ?? {})}
+                    art={
+                      choice
+                        ? furnitureImage(choice.previewAsset, choice.width, choice.height)
+                        : undefined
+                    }
                     price={lockHint === null ? choice?.price : undefined}
                     caption={lockHint ?? (choice?.owned ? '보유' : '')}
                     accessibilityCaption={
@@ -942,10 +952,12 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
 }
 
 // Figma 546:7637 Frame 26/Frame 102: 112×120, 이미지 72, 아래 글자 12
+const PRODUCT_ART = 72;
 function Product({
   width,
   name,
   color: itemColor,
+  art,
   caption,
   price,
   accessibilityCaption,
@@ -955,6 +967,8 @@ function Product({
   width: number;
   name: string;
   color?: string;
+  // 서버 가구 그림. 없으면 이름·색으로 고른 SVG 를 그린다.
+  art?: FurnitureImage;
   caption: string;
   price?: number;
   accessibilityCaption: string;
@@ -971,7 +985,20 @@ function Product({
       style={[s.product, { width }, disabled && s.productDisabled]}
     >
       <View style={s.productImage}>
-        <FurnitureArt name={name} color={itemColor} size={72} />
+        {art ? (
+          // 72×72 안에 비율을 지켜 맞춘다. 정수 배율이 아니어도 그림이 잘리지 않는다.
+          <Image
+            source={{ uri: art.uri }}
+            style={{
+              width: (art.width * PRODUCT_ART) / Math.max(art.width, art.height),
+              height: (art.height * PRODUCT_ART) / Math.max(art.width, art.height),
+            }}
+            resizeMode="stretch"
+            accessibilityIgnoresInvertColors
+          />
+        ) : (
+          <FurnitureArt name={name} color={itemColor} size={PRODUCT_ART} />
+        )}
       </View>
       <View style={s.productCaption}>
         {price !== undefined ? (
