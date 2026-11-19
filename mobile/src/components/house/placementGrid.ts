@@ -21,6 +21,8 @@ export const HOUSING_GRID: GridSpec = { columns: 25, rows: 25 };
 export const ROOM_1X: Size = { width: 166, height: 172 };
 // 방 그림의 노란 바닥 안쪽(1배 px). 6배 그림에서 x 30~965, y 354~995 를 잰 값이다.
 export const FLOOR_1X: PlaceableArea = { minX: 5, maxX: 161, minY: 59, maxY: 166 };
+// 바닥 모서리 반지름(1배 px). 6배 그림에서 약 80px.
+export const FLOOR_RADIUS_1X = 13;
 // 서버 그림·크기가 없는 가구의 상자(1배 px). 예전 디자인 65/314 비율을 유지한다.
 export const DEFAULT_FURNITURE_1X: Size = { width: 34, height: 34 };
 // 상자 안 대체 SVG 그림 비율(예전 55/65).
