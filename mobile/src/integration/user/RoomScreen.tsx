@@ -11,12 +11,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FurnitureArt, RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import {
+  FurnitureArt,
+  furnitureImage,
+  RoomScene,
+  type RoomSceneItem,
+} from '../../components/house/RoomScene';
 import {
   bringToFront,
   initialPoint,
   type LayerEntry,
   nextLayer,
+  ROOM_1X,
   sendToBack,
 } from '../../components/house/placementGrid';
 import { BackArrow } from '../../components/settings/ControlSettingsUI';
@@ -318,6 +324,20 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const allowLeave = usePreventRemove(dirty || task.busy, () => {
     if (!task.busy) setExitOpen(true);
   });
+  // 상점 옵션 그림. 저장 전 가구(꺼낸 내 아이템·장바구니)는 배치 응답이 없어 여기서 찾는다.
+  const optionArt = (itemId: number, optionId: number | undefined) => {
+    const option = shopItems
+      .find((item) => item.itemId === itemId)
+      ?.options.find((candidate) => candidate.optionId === optionId);
+    return option ? furnitureImage(option.previewAsset, option.width, option.height) : undefined;
+  };
+  const placedArt = (inventoryId: string, owned: InventoryItem | undefined) => {
+    const saved = room?.placements.find((placement) => placement.inventoryId === inventoryId);
+    return (
+      (saved && furnitureImage(saved.imageUrl, saved.width, saved.height)) ??
+      (owned ? optionArt(owned.itemId, owned.optionId) : undefined)
+    );
+  };
   const sceneItems: RoomSceneItem[] = [
     ...draft
       .filter((item) => item.area === 'INTERIOR')
@@ -330,6 +350,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
           y: item.transform.y,
           layer: item.transform.layer,
           color: optionColor((owned?.option ?? {}) as Record<string, unknown>),
+          art: placedArt(item.inventoryId, owned),
         };
       }),
     ...pending.map((item) => ({
@@ -340,6 +361,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       layer: item.transform.layer,
       color: optionColor(item.option),
       pending: true,
+      art: optionArt(item.itemId, item.optionId),
     })),
   ];
 
@@ -996,18 +1018,14 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // 방 그림만 보이게 배경·테두리 없이 자리만 잡는다.
   roomBox: {
     width: '100%',
     aspectRatio: 312 / 300,
-    backgroundColor: color.mist,
-    borderWidth: 1,
-    borderColor: color.lght,
-    borderRadius: 8,
-    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sceneFit: { height: '100%', aspectRatio: 330 / 342 },
+  sceneFit: { height: '100%', aspectRatio: ROOM_1X.width / ROOM_1X.height },
   // Figma 651:599 Frame 126: 배경 #E4E4E4, 테두리 2 #161616, 위 모서리 16, 위 20 · 아래 28 · 좌우 24
   sheet: {
     position: 'absolute',

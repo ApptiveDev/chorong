@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RoomScene } from '../../components/house/RoomScene';
+import { ROOM_1X } from '../../components/house/placementGrid';
 import { housingVisibility } from '../housingVisibility';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
@@ -161,19 +162,15 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // 방 그림만 보이게 배경·테두리 없이 자리만 잡는다.
   roomBox: {
     width: '100%',
     aspectRatio: 312 / 300,
-    backgroundColor: color.mist,
-    borderWidth: 1,
-    borderColor: color.lght,
-    borderRadius: 8,
-    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // RoomScene 고유 비율(330:342)을 유지한 채 상자 높이에 맞춘다.
-  sceneFit: { height: '100%', aspectRatio: 330 / 342 },
+  // RoomScene 고유 비율(방 그림 166:172)을 유지한 채 상자 높이에 맞춘다.
+  sceneFit: { height: '100%', aspectRatio: ROOM_1X.width / ROOM_1X.height },
   status: { position: 'absolute', top: '100%', left: 0, right: 0, alignItems: 'center', gap: 4 },
   retryText: { color: color.fale, fontFamily: 'PretendardRegular', fontSize: 12, marginTop: 8 },
   actions: {

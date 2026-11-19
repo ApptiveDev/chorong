@@ -1,6 +1,7 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { furnitureImage, RoomScene, type RoomSceneItem } from '../../components/house/RoomScene';
+import { ROOM_1X } from '../../components/house/placementGrid';
 import type { HousingDetail, InventoryItem } from '../models';
 import { shipColor as color } from './ShipStatus';
 
@@ -20,6 +21,7 @@ export function savedSceneItems(
         y: placement.transform.y,
         layer: placement.transform.layer,
         color: typeof option.color === 'string' ? option.color : undefined,
+        art: furnitureImage(placement.imageUrl, placement.width, placement.height),
       };
     }) ?? []
   );
@@ -154,7 +156,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sceneFit: { height: '100%', aspectRatio: 330 / 342 },
+  sceneFit: { height: '100%', aspectRatio: ROOM_1X.width / ROOM_1X.height },
   // Figma 닫기: 왼쪽 278 · 위 14 (팝업 오른쪽 끝에서 12)
   close: { position: 'absolute', top: 14, right: 12, width: 12, height: 12 },
 });

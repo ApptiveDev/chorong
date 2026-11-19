@@ -316,6 +316,10 @@ export const placement = object({
   itemId: num,
   optionId: optional(num),
   option: unknownObject,
+  // 가구 그림(0.4.2). 그림이 없으면 null, 서버 구현 전에는 생략. width·height 는 1배 px.
+  imageUrl: optional(nullable(str)),
+  width: optional(nullable(num)),
+  height: optional(nullable(num)),
 });
 export const housingDetail = object({
   housing,
@@ -334,7 +338,10 @@ export const shopOption = object({
   option: unknownObject,
   currency: enumeration('STARDUST'),
   price: num,
+  // 옵션 그림 URL. 방에 놓는 그림에도 쓴다. width·height 는 1배 px(0.4.2).
   previewAsset: str,
+  width: optional(nullable(num)),
+  height: optional(nullable(num)),
   owned: bool,
   // 색상 옵션 잠금(0.4.1). 서버가 아직 보내지 않으면 생략되며 살 수 있는 것으로 본다.
   unlocked: optional(bool),

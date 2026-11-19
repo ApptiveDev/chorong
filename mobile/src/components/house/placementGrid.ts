@@ -1,9 +1,9 @@
 // 하우징 배치 좌표 체계. 꾸미기(내 아이템)·상점 배치·조회 화면이 모두 이 모듈을 쓴다.
 //
-// - 저장 좌표: API-702 transform.x·y. 0~1 실수. 장면 안쪽(테두리 제외) 폭·높이에 대한 비율이며 가구 중심점이다.
+// - 저장 좌표: API-702 transform.x·y. 0~1 실수. 방 그림 전체 폭·높이에 대한 비율이며 가구 중심점이다.
 //   서버는 [0, 1] 범위만 검사하고 그리드를 모른다(HousingPlacementTransformRequest).
 // - 그리드 좌표: 저장 좌표 × columns·rows 를 반올림한 정수 칸. 화면 계산에만 쓰고 서버에는 보내지 않는다.
-// - 화면 좌표: 렌더링할 때만 장면 안쪽 크기를 곱해 만든다.
+// - 화면 좌표: 렌더링할 때만 장면 크기를 곱해 만든다.
 //
 // 그리드에 스냅한 저장 좌표는 col / columns 형태의 0~1 실수라 기존 API 형식 그대로 저장된다.
 
@@ -13,25 +13,37 @@ export type Point = { x: number; y: number };
 export type Size = { width: number; height: number };
 export type PlaceableArea = { minX: number; maxX: number; minY: number; maxY: number };
 
-// 한 칸이 디자인 기준 약 12.6px. 기존 1/50 저장값 중 격자 밖 값은 그대로 그리고 옮길 때 스냅한다.
+// 한 칸이 원본 캔버스 기준 약 6.6px. 기존 1/50 저장값 중 격자 밖 값은 그대로 그리고 옮길 때 스냅한다.
 export const HOUSING_GRID: GridSpec = { columns: 25, rows: 25 };
 
-// RoomScene 디자인 기준 크기: 330×342, 테두리 8 → 안쪽 314×326.
-export const DESIGN_SCENE: Size = { width: 314, height: 326 };
-// 디자인 기준 가구 상자(65)와 그림(55) 크기. 실제 화면에서는 장면 폭에 비례해 줄이거나 늘린다.
-export const FURNITURE_BOX = 65;
-export const FURNITURE_ART = 55;
-// 바닥 시작 높이(RoomScene floor top 43%). 가구 중심은 바닥 위에만 둔다.
-export const FLOOR_TOP = 0.43;
+// 도트 원본 캔버스(1배) 크기. 그림 파일은 6배(996×1032)로 내보낸다.
+// 서버 가구 width·height 도 이 1배 픽셀 단위다(V55__housing_art.sql).
+export const ROOM_1X: Size = { width: 166, height: 172 };
+// 방 그림의 노란 바닥 안쪽(1배 px). 6배 그림에서 x 30~965, y 354~995 를 잰 값이다.
+export const FLOOR_1X: PlaceableArea = { minX: 5, maxX: 161, minY: 59, maxY: 166 };
+// 서버 그림·크기가 없는 가구의 상자(1배 px). 예전 디자인 65/314 비율을 유지한다.
+export const DEFAULT_FURNITURE_1X: Size = { width: 34, height: 34 };
+// 상자 안 대체 SVG 그림 비율(예전 55/65).
+export const FALLBACK_ART_RATIO = 55 / 65;
 
-// 가구 중심이 놓일 수 있는 범위(저장 좌표). 가구 상자가 장면 밖으로 잘리지 않게 반 상자만큼 띄운다.
-// 서버에는 이 제약이 없다. 가구별 크기 정보가 없어 모든 가구에 같은 상자 크기를 쓴다.
-export const PLACEABLE_AREA: PlaceableArea = {
-  minX: FURNITURE_BOX / 2 / DESIGN_SCENE.width,
-  maxX: 1 - FURNITURE_BOX / 2 / DESIGN_SCENE.width,
-  minY: FLOOR_TOP,
-  maxY: 1 - FURNITURE_BOX / 2 / DESIGN_SCENE.height,
+// 가구 중심이 놓일 수 있는 범위(저장 좌표). 서버에는 이 제약이 없다.
+// 가로는 가구 전체가 바닥 안에 있어야 한다. 세로는 중심이 바닥 위에 있고 아래 끝이 바닥을 넘지 않아야 한다.
+// 키 큰 가구는 윗부분이 벽에 걸칠 수 있다. 바닥보다 넓은 가구는 가운데에만 둔다.
+export const placeableArea = (size: Size = DEFAULT_FURNITURE_1X): PlaceableArea => {
+  const minX = (FLOOR_1X.minX + size.width / 2) / ROOM_1X.width;
+  const maxX = (FLOOR_1X.maxX - size.width / 2) / ROOM_1X.width;
+  const minY = FLOOR_1X.minY / ROOM_1X.height;
+  const maxY = (FLOOR_1X.maxY - size.height / 2) / ROOM_1X.height;
+  const midX = (minX + maxX) / 2;
+  return {
+    minX: Math.min(minX, midX),
+    maxX: Math.max(maxX, midX),
+    minY,
+    maxY: Math.max(maxY, minY),
+  };
 };
+
+export const PLACEABLE_AREA: PlaceableArea = placeableArea();
 
 // API-702 transform.layer 허용 범위(@Min(0) @Max(9), OpenAPI Transform.layer maximum 9).
 export const MIN_LAYER = 0;
@@ -39,8 +51,8 @@ export const MAX_LAYER = 9;
 
 const EPSILON = 1e-9;
 
-export const furnitureScale = (inner: Size) =>
-  inner.width > 0 ? inner.width / DESIGN_SCENE.width : 1;
+// 화면 px / 1배 px.
+export const furnitureScale = (inner: Size) => (inner.width > 0 ? inner.width / ROOM_1X.width : 1);
 
 export const cellToPoint = ({ col, row }: GridCell, grid: GridSpec = HOUSING_GRID): Point => ({
   x: col / grid.columns,
