@@ -10,6 +10,10 @@ export interface SessionStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
+  // 같은 저장소를 쓰는 다른 창(웹 탭)과 겹치지 않게 task 를 실행한다. 없으면 바로 실행한다.
+  lock?<T>(name: string, task: () => Promise<T>): Promise<T>;
+  // 다른 창이 key 값을 바꾸면 listener 를 부른다. 이 창에서 쓴 값으로는 부르지 않는다.
+  watch?(key: string, listener: () => void): () => void;
 }
 export type Session = { tokens: TokenPair; user: UserBrief; expiresAt: number };
 export type Trace = {
@@ -56,6 +60,9 @@ export class IntegrationError extends Error {
     super(message);
   }
 }
+// 연결 실패·시간 초과·5xx. 저장된 로그인을 지우지 않고 다음 요청 때 다시 시도한다.
+const transient = (error: unknown) =>
+  error instanceof IntegrationError && (error.status === null || error.status >= 500);
 const sensitive = /password|token|secret|authorization|credential|deviceuuid|email|verificationid/i;
 export function redact(value: unknown, secrets: string[] = []): unknown {
   if (typeof value === 'string') {
@@ -116,6 +123,7 @@ export class IntegrationClient {
   private device: string | null = null;
   private deviceFlight: Promise<string> | null = null;
   private keys = new Map<string, string>();
+  private lockHeld = false;
   constructor(
     readonly baseURL: string,
     private storage: SessionStorage,
@@ -129,6 +137,7 @@ export class IntegrationClient {
       timeout: 15000,
       headers: { 'Content-Type': 'application/json' },
     });
+    if (persistTokens) storage.watch?.(this.storageKey(), () => void this.followStorage());
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -153,7 +162,69 @@ export class IntegrationClient {
       );
     return this.storageQueue;
   }
+  private async readStoredSession(): Promise<Session | null> {
+    // 이 창에서 쓰는 중인 값이 먼저 저장되게 기다린다.
+    await this.storageQueue.catch(() => {});
+    const raw = await this.storage.get(this.storageKey());
+    if (!raw) return null;
+    const { tokenPair, userBrief } = await import('./models');
+    const saved: unknown = JSON.parse(raw);
+    if (!objectValue(saved) || typeof saved.expiresAt !== 'number')
+      throw new ContractError('저장된 세션');
+    return {
+      tokens: tokenPair(saved.tokens),
+      user: userBrief(saved.user),
+      expiresAt: saved.expiresAt,
+    };
+  }
+  // 저장된 세션을 바꾸는 작업은 모든 창에서 이 잠금 안에서 한다. 같은 창 안에서는 다시 잠그지 않는다.
+  private async withSessionLock<T>(task: () => Promise<T>): Promise<T> {
+    if (!this.persistTokens || !this.storage.lock || this.lockHeld) return task();
+    return this.storage.lock(`${this.storageKey()}.lock`, async () => {
+      this.lockHeld = true;
+      try {
+        return await task();
+      } finally {
+        this.lockHeld = false;
+      }
+    });
+  }
+  // 다른 창이 바꾼 저장 세션을 이 창에 반영한다.
+  // 회전된 리프레시 토큰을 다시 보내면 서버가 재사용으로 보고 모든 기기 세션을 폐기하므로, 갱신·로그아웃 전에 반드시 맞춘다.
+  private async syncFromStorage(): Promise<'same' | 'adopted' | 'cleared'> {
+    if (!this.persistTokens) return 'same';
+    const current = this.session;
+    const stored = await this.readStoredSession();
+    if (current && stored?.tokens.refreshToken === current.tokens.refreshToken) return 'same';
+    if (!stored) {
+      if (!current) return 'same';
+      await this.clear('다른 창에서 로그아웃했습니다. 다시 로그인하세요.');
+      return 'cleared';
+    }
+    if (current && stored.user.userId === current.user.userId) {
+      this.session = { ...stored, user: current.user };
+      this.version++;
+      return 'adopted';
+    }
+    // 다른 창에서 로그인했거나 다른 계정으로 바꿨다. 화면을 새 계정 기준으로 다시 그린다.
+    this.epoch++;
+    this.version = 0;
+    this.keys.clear();
+    this.session = stored;
+    this.publish({ authenticated: true, user: stored.user, generation: this.epoch, notice: null });
+    return 'adopted';
+  }
+  private async followStorage() {
+    // 시작 복원 전이거나 이 창이 로그인·로그아웃·갱신 중이면 그 흐름이 잠금 안에서 저장소를 다시 읽는다.
+    if (!this.state.ready || this.authBusy || this.refreshFlight) return;
+    try {
+      await this.syncFromStorage();
+    } catch {
+      // 손상된 값은 다음 갱신 때 정리한다.
+    }
+  }
   async clear(notice: string | null = null, preserveTraces = false) {
+    const cleared = this.session;
     this.epoch++;
     this.session = null;
     this.keys.clear();
@@ -164,8 +235,27 @@ export class IntegrationClient {
       notice,
       traces: preserveTraces ? this.state.traces : [],
     });
+    if (!this.persistTokens) return;
     try {
-      await this.persist();
+      await this.withSessionLock(async () => {
+        let stored: Session | null = null,
+          corrupt = false;
+        try {
+          stored = await this.readStoredSession();
+        } catch {
+          corrupt = true;
+        }
+        // 다른 창이 그 사이 새로 로그인했으면 그 세션은 지우지 않는다.
+        if (
+          !corrupt &&
+          !(stored && cleared && stored.tokens.refreshToken === cleared.tokens.refreshToken)
+        )
+          return;
+        this.storageQueue = this.storageQueue
+          .catch(() => {})
+          .then(() => this.storage.remove(this.storageKey()));
+        await this.storageQueue;
+      });
     } catch {
       this.publish({ notice: '저장된 인증 삭제 실패. 보안 저장소를 확인하세요.' });
     }
@@ -204,24 +294,21 @@ export class IntegrationClient {
     this.initializeFlight = (async () => {
       try {
         if (this.persistTokens) {
-          const raw = await this.storage.get(this.storageKey());
-          if (raw) {
-            const { tokenPair, userBrief } = await import('./models');
-            const saved: unknown = JSON.parse(raw);
-            if (!objectValue(saved) || typeof saved.expiresAt !== 'number')
-              throw new ContractError('저장된 세션');
-            this.session = {
-              tokens: tokenPair(saved.tokens),
-              user: userBrief(saved.user),
-              expiresAt: saved.expiresAt,
-            };
+          const saved = await this.readStoredSession();
+          if (saved) {
+            this.session = saved;
             this.epoch++;
             this.publish({ authenticated: true, user: this.session.user, generation: this.epoch });
             // 재시작 후에는 서버에서 세션과 회원 상태를 다시 확인한다.
-            await this.refresh();
-            const { me } = await import('./models');
-            const user = await this.request('API-201', me);
-            this.setUser(user);
+            // 연결 실패·서버 오류면 저장된 로그인으로 계속하고 다음 요청 때 다시 갱신한다.
+            try {
+              await this.refresh();
+              const { me } = await import('./models');
+              const user = await this.request('API-201', me);
+              this.setUser(user);
+            } catch (error) {
+              if (!transient(error)) throw error;
+            }
           }
         }
       } catch {
@@ -246,31 +333,34 @@ export class IntegrationClient {
       if (this.refreshFlight) await this.refreshFlight;
       const data = await action();
       if (this.epoch !== epoch) throw new Error('인증 상태가 변경되었습니다.');
-      this.epoch++;
-      this.version = 0;
-      this.session = {
-        tokens: data,
-        user: data.user,
-        expiresAt: Date.now() + data.expiresIn * 1000,
-      };
-      this.publish({
-        authenticated: true,
-        user: data.user,
-        generation: this.epoch,
-        notice: null,
-        traces: this.state.traces
-          .filter(
-            (trace) =>
-              trace.success && ['API-101', 'API-103', 'API-104', 'API-105'].includes(trace.api),
-          )
-          .slice(0, 1),
+      // 다른 창의 갱신이 끝난 뒤에 저장해야 새 로그인이 덮어써지지 않는다.
+      await this.withSessionLock(async () => {
+        this.epoch++;
+        this.version = 0;
+        this.session = {
+          tokens: data,
+          user: data.user,
+          expiresAt: Date.now() + data.expiresIn * 1000,
+        };
+        this.publish({
+          authenticated: true,
+          user: data.user,
+          generation: this.epoch,
+          notice: null,
+          traces: this.state.traces
+            .filter(
+              (trace) =>
+                trace.success && ['API-101', 'API-103', 'API-104', 'API-105'].includes(trace.api),
+            )
+            .slice(0, 1),
+        });
+        try {
+          await this.persist();
+        } catch {
+          await this.clear('토큰 저장 실패. 다시 로그인하세요.');
+          throw new Error('토큰 저장 실패');
+        }
       });
-      try {
-        await this.persist();
-      } catch {
-        await this.clear('토큰 저장 실패. 다시 로그인하세요.');
-        throw new Error('토큰 저장 실패');
-      }
     } finally {
       this.authBusy = false;
     }
@@ -280,20 +370,29 @@ export class IntegrationClient {
     const current = this.session,
       epoch = this.epoch;
     if (!current) throw new Error('먼저 로그인하세요.');
+    const rotate = async () => {
+      // 다른 창이 이미 회전했거나 로그아웃했으면 저장된 상태를 따른다.
+      if (epoch !== this.epoch) throw new Error('인증 상태가 변경되었습니다.');
+      const synced = await this.syncFromStorage();
+      if (synced === 'cleared') throw new IntegrationError('먼저 로그인하세요.', 'UNAUTHORIZED');
+      if (synced === 'adopted') return;
+      const { tokenPair } = await import('./models');
+      const tokens = await this.request('API-106', tokenPair, {
+        body: { refreshToken: current.tokens.refreshToken, deviceUuid: await this.deviceUuid() },
+        noRefresh: true,
+        public: true,
+      });
+      if (epoch !== this.epoch) throw new Error('인증 상태가 변경되었습니다.');
+      this.session = { ...current, tokens, expiresAt: Date.now() + tokens.expiresIn * 1000 };
+      this.version++;
+      await this.persist();
+    };
     const request = (async () => {
       try {
-        const { tokenPair } = await import('./models');
-        const tokens = await this.request('API-106', tokenPair, {
-          body: { refreshToken: current.tokens.refreshToken, deviceUuid: await this.deviceUuid() },
-          noRefresh: true,
-          public: true,
-        });
-        if (epoch !== this.epoch) throw new Error('인증 상태가 변경되었습니다.');
-        this.session = { ...current, tokens, expiresAt: Date.now() + tokens.expiresIn * 1000 };
-        this.version++;
-        await this.persist();
+        await this.withSessionLock(rotate);
       } catch (error) {
-        if (epoch === this.epoch) await this.clear('토큰 갱신 실패. 다시 로그인하세요.', true);
+        if (epoch === this.epoch && !transient(error))
+          await this.clear('토큰 갱신 실패. 다시 로그인하세요.', true);
         throw error;
       }
     })();
@@ -309,10 +408,15 @@ export class IntegrationClient {
     this.authBusy = true;
     try {
       if (this.refreshFlight) await this.refreshFlight;
-      await action();
-      const completedRequest = this.state.traces[0];
-      await this.clear();
-      if (completedRequest) this.record(completedRequest);
+      // 서버는 액세스 토큰의 세션(sid)을 폐기한다. 다른 창이 회전한 최신 토큰으로 보내야 그 세션이 남지 않는다.
+      await this.withSessionLock(async () => {
+        if ((await this.syncFromStorage()) === 'cleared')
+          throw new IntegrationError('먼저 로그인하세요.', 'UNAUTHORIZED');
+        await action();
+        const completedRequest = this.state.traces[0];
+        await this.clear();
+        if (completedRequest) this.record(completedRequest);
+      });
     } finally {
       this.authBusy = false;
     }
