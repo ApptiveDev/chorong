@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  avatarPoint,
   FurnitureArt,
   type FurnitureImage,
   furnitureImage,
@@ -136,6 +137,8 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [draft, setDraft] = useState<PlacementInput[]>([]);
   const [pending, setPending] = useState<PendingItem[]>([]);
+  // 고양이 편집 위치. null 이면 서버에 저장된 위치 그대로다.
+  const [avatarDraft, setAvatarDraft] = useState<{ x: number; y: number } | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [layerMenu, setLayerMenu] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -322,7 +325,11 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       area,
       transform,
     })) ?? [];
-  const dirty = pending.length > 0 || JSON.stringify(draft) !== JSON.stringify(savedDraft);
+  const savedAvatar = avatarPoint(room?.avatar);
+  const avatarMoved =
+    avatarDraft !== null && (avatarDraft.x !== savedAvatar.x || avatarDraft.y !== savedAvatar.y);
+  const dirty =
+    pending.length > 0 || avatarMoved || JSON.stringify(draft) !== JSON.stringify(savedDraft);
   // 하드웨어·라우터 뒤로 가기도 같은 확인을 거친다. 저장 성공·변경 취소 뒤에는 그대로 보낸다.
   const allowLeave = usePreventRemove(dirty || task.busy, () => {
     if (!task.busy) setExitOpen(true);
@@ -437,6 +444,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     setExpanded(false);
     setNotice('');
   };
+  const moveAvatar = (x: number, y: number) => setAvatarDraft({ x, y });
   const moveItem = (key: string, x: number, y: number) => {
     setDraft((items) =>
       items.map((item) =>
@@ -555,6 +563,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
     setExitOpen(false);
     setDraft(savedDraft);
     setPending([]);
+    setAvatarDraft(null);
     setSelectedKey(null);
     setLayerMenu(false);
     purchaseKey.current = null;
@@ -642,6 +651,20 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         }
         const saved = await api.room.save(placements);
         setRoom((current) => current && { ...current, placements: saved.placements });
+        if (avatarMoved && avatarDraft && room) {
+          // 배치 저장 뒤에 보낸다. 고양이가 앉아 있던 가구를 이번에 뺐다면 placementId 를 비운다.
+          const sitting = room.avatar.placementId;
+          const avatar = await api.room.avatar({
+            ...avatarDraft,
+            state: room.avatar.state,
+            placementId:
+              sitting !== null && saved.placements.some((item) => item.placementId === sitting)
+                ? sitting
+                : null,
+          });
+          setRoom((current) => current && { ...current, avatar });
+          setAvatarDraft(null);
+        }
         setNotice('배치를 저장했습니다.');
         allowLeave();
         exit();
@@ -692,6 +715,8 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
             <View style={s.sceneFit}>
               <RoomScene
                 items={sceneItems}
+                avatar={avatarDraft ?? room?.avatar}
+                onMoveAvatar={moveAvatar}
                 editable
                 showGrid
                 selectedKey={selectedKey}
@@ -945,6 +970,7 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
         isPublic={isPublic}
         likeCount={room?.housing.likeCount ?? null}
         items={savedSceneItems(room, inventory)}
+        avatar={room?.avatar}
         onClose={() => setInfoOpen(false)}
       />
     </SafeAreaView>

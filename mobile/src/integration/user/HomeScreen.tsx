@@ -90,7 +90,7 @@ function Home() {
                 </View>
                 <View style={s.roomBox}>
                   <View style={s.sceneFit}>
-                    <RoomScene items={sceneItems} />
+                    <RoomScene items={sceneItems} avatar={room?.avatar} />
                   </View>
                 </View>
                 <View style={s.status}>
@@ -120,6 +120,7 @@ function Home() {
         isPublic={visibility.isPublic}
         likeCount={room?.housing.likeCount ?? null}
         items={sceneItems}
+        avatar={room?.avatar}
         onClose={() => setInfoOpen(false)}
       />
     </SafeAreaView>

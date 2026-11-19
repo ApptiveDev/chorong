@@ -33,6 +33,7 @@ export function ShipInfoPopup({
   nickname,
   likeCount,
   items,
+  avatar,
   onClose,
 }: {
   visible: boolean;
@@ -41,6 +42,8 @@ export function ShipInfoPopup({
   isPublic: boolean | null;
   likeCount: number | null;
   items: RoomSceneItem[];
+  // 저장된 고양이 위치(HousingDetail.avatar)
+  avatar?: unknown;
   onClose: () => void;
 }) {
   return (
@@ -69,7 +72,7 @@ export function ShipInfoPopup({
             </View>
             <View style={s.ship}>
               <View style={s.sceneFit}>
-                <RoomScene items={items} />
+                <RoomScene items={items} avatar={avatar} />
               </View>
             </View>
           </ScrollView>

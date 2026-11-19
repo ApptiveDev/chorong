@@ -46,7 +46,7 @@ export default function DiagnosticsScreen() {
             {'\n'}
             {item[0]} {item[1]}
             {'\n'}
-            {item[3] === 'deferred'
+            {(item[3] as string) === 'deferred'
               ? 'UI만 배치 / 명세 변경 대기'
               : ['API-105', 'API-301'].includes(id)
                 ? '수동 API 시험 / 플랫폼 연동 대기'

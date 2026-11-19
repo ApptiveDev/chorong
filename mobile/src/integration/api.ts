@@ -171,6 +171,8 @@ export function createIntegrationApi(client: IntegrationClient) {
       client.request('API-702', contract.savedPlacements, {
         body: { placements: contract.placementRequest(placements) },
       }),
+    // 고양이 위치·상태 저장. 고양이는 배치(API-702)에 들어가지 않는다.
+    avatar: (body: m.Avatar) => client.request('API-704', m.avatar, { body }),
     inventory: (itemType?: 'FURNITURE' | 'OBJECT') =>
       client.request('API-907', contract.inventory, {
         query: itemType ? { itemType } : undefined,

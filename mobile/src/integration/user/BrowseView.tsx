@@ -519,7 +519,7 @@ const ShipPage = memo(function ShipPage({
         <View style={s.roomBox}>
           {visit ? (
             <View style={s.sceneFit}>
-              <RoomScene items={items} />
+              <RoomScene items={items} avatar={visit.avatar} />
             </View>
           ) : unavailable ? (
             <Text style={s.boxText}>볼 수 없는 우주선이에요.</Text>

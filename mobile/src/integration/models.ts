@@ -321,15 +321,17 @@ export const placement = object({
   width: optional(nullable(num)),
   height: optional(nullable(num)),
 });
+// 고양이 아바타 위치(0~1, 중심점)와 상태. API-701 응답과 API-704 요청·응답이 같은 모양이다.
+export const avatar = object({
+  x: real,
+  y: real,
+  state: enumeration('IDLE', 'SIT', 'SLEEP'),
+  placementId: nullable(num),
+});
 export const housingDetail = object({
   housing,
   placements: array(placement),
-  avatar: object({
-    x: real,
-    y: real,
-    state: enumeration('IDLE', 'SIT', 'SLEEP'),
-    placementId: nullable(num),
-  }),
+  avatar,
 });
 // FLOOR 바닥, WALL 벽지(별자리 완성 보너스로 상점에서 해금).
 export const itemType = enumeration('FURNITURE', 'OBJECT', 'FLOOR', 'WALL');
@@ -456,6 +458,7 @@ export type HousingVisit = Infer<typeof housingVisit>;
 export type LessonStartResponse = Infer<typeof lessonStart>;
 export type LessonCompleteResponse = Infer<typeof lessonComplete>;
 export type HousingDetail = Infer<typeof housingDetail>;
+export type Avatar = Infer<typeof avatar>;
 export type Placement = Infer<typeof placement>;
 export type ShopItem = Infer<typeof shopItem>;
 export type ShopOption = Infer<typeof shopOption>;

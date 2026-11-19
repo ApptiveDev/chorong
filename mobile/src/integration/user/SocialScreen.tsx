@@ -166,7 +166,7 @@ export default function SocialScreen() {
           {loaded ? (
             <>
               <View style={[s.socialScene, screenHeight < 750 && s.socialSceneShort]}>
-                <RoomScene items={sceneItems} />
+                <RoomScene items={sceneItems} avatar={own?.avatar} />
               </View>
               <View style={s.publicStatus}>
                 <Text style={s.socialMuted}>{isPublic ? '공개' : '비공개'}</Text>

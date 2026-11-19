@@ -17,4 +17,4 @@ Real API 모드는 `EXPO_PUBLIC_USE_MOCK=false`로 전환한다. `EXPO_PUBLIC_AP
 
 ## 명세 확인 필요
 
-Mock 응답은 `src/integration/models.ts`의 OpenAPI 0.2.0 타입을 따른다. 퀴즈 `options`의 실제 항목 구조와 `index` 의미는 확인이 필요하다. 공개 설정 API-703은 Mock에서도 호출한다. 아바타 설정 API-704는 화면에서 사용하지 않는다. 랭킹과 챌린지 API는 현재 명세와 화면에 없다.
+Mock 응답은 `src/integration/models.ts`의 OpenAPI 0.2.0 타입을 따른다. 퀴즈 `options`의 실제 항목 구조와 `index` 의미는 확인이 필요하다. 공개 설정 API-703은 Mock에서도 호출한다. 아바타 설정 API-704는 Mock에서 고양이 위치를 저장한다. 랭킹과 챌린지 API는 현재 명세와 화면에 없다.

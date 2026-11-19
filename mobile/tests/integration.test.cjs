@@ -241,18 +241,24 @@ test('base URL keeps a single version prefix and rejects credential URLs', () =>
   assert.equal(integrationBaseURL('https://test.invalid/api/v1/'), 'https://test.invalid/api/v1');
   assert.throws(() => integrationBaseURL('https://password@test.invalid'));
 });
-test('all 49 APIs are inventoried; unused avatar API remains deferred', async () => {
+test('all 49 APIs are inventoried and none is deferred', () => {
   assert.equal(Object.keys(catalog).length, 49);
-  const { c } = setup();
-  let sent = 0;
-  c.http.defaults.adapter = async (config) => {
-    sent++;
-    return respond(config, {});
-  };
   const deferred = Object.keys(catalog).filter((id) => catalog[id][3] === 'deferred');
-  assert.deepEqual(deferred, ['API-704']);
-  for (const id of deferred) await assert.rejects(c.request(id, null), /사용하지 않는 API/);
-  assert.equal(sent, 0);
+  assert.deepEqual(deferred, []);
+});
+test('avatar update sends API-704 body and reads avatar response', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  let request;
+  c.http.defaults.adapter = async (config) => {
+    request = config;
+    return respond(config, { data: JSON.parse(config.data) });
+  };
+  const avatar = await api.room.avatar({ x: 0.6, y: 0.7, state: 'IDLE', placementId: null });
+  assert.equal(request.method, 'patch');
+  assert.equal(request.url, '/housings/me/avatar');
+  assert.deepEqual(JSON.parse(request.data), { x: 0.6, y: 0.7, state: 'IDLE', placementId: null });
+  assert.deepEqual(avatar, { x: 0.6, y: 0.7, state: 'IDLE', placementId: null });
 });
 test('housing visibility update sends API-703 body and reads housing response', async () => {
   const { c, api } = setup();

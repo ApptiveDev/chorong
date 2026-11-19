@@ -1063,6 +1063,22 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       }));
       return response({ placements: state.placements.map(contractPlacement) });
     }
+    case 'API-704': {
+      const x = Number(input.x);
+      const y = Number(input.y);
+      if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1))
+        throw new Error('MOCK_VALIDATION_FAILED: x·y 는 0~1 이어야 합니다.');
+      const placementId = typeof input.placementId === 'number' ? input.placementId : null;
+      room.avatar = {
+        x,
+        y,
+        state: input.state === 'SIT' || input.state === 'SLEEP' ? input.state : 'IDLE',
+        placementId: state.placements.some((item) => item.placementId === placementId)
+          ? placementId
+          : null,
+      };
+      return response(room.avatar);
+    }
     case 'API-801':
       return response(
         {

@@ -16,6 +16,21 @@ import {
 
 // 6배로 내보낸 도트 방 그림(996×1032). 화면에서는 줄여 그려 선명하다.
 const roomSource = require('../../../assets/housing/room.png');
+// 고양이 아바타(초롱이). 6배 그림 150×156, 원본 캔버스 25×26. 모두 같은 고양이라 앱에 넣어 둔다.
+const catSource = require('../../../assets/housing/CAT_IDLE.png');
+const CAT_1X: Size = { width: 25, height: 26 };
+// 고양이는 가구 배치(API-702)가 아니라 아바타(API-704)로 저장한다. 장면에서 이 키로 구분한다.
+export const AVATAR_KEY = 'avatar';
+// 고양이는 항상 가구보다 앞에 그린다(서버에 고양이 layer 가 없다). 선택 도구(2000)보다는 뒤다.
+const AVATAR_Z = 1000;
+const DEFAULT_AVATAR: Point = { x: 0.5, y: 0.5 };
+
+// 서버 avatar 값에서 위치만 꺼낸다. 없거나 범위 밖이면 서버 기본값(방 가운데)을 쓴다.
+export const avatarPoint = (value: unknown): Point => {
+  const raw = (value ?? {}) as { x?: unknown; y?: unknown };
+  const valid = (n: unknown): n is number => typeof n === 'number' && n >= 0 && n <= 1;
+  return valid(raw.x) && valid(raw.y) ? { x: raw.x, y: raw.y } : DEFAULT_AVATAR;
+};
 const TOOL_MARGIN = 4;
 const TOOLS_WIDTH = 68;
 const TOOLS_HEIGHT = 32;
@@ -33,6 +48,8 @@ export type RoomSceneItem = {
   pending?: boolean;
   // 서버 가구 그림. 없으면 이름으로 고른 SVG 를 기본 상자 크기로 그린다.
   art?: FurnitureImage;
+  // 고양이 아바타. 앱에 넣은 그림을 쓰고 빼기·겹침 순서 메뉴가 없다.
+  avatar?: boolean;
 };
 
 // width·height 는 1배 px.
@@ -48,10 +65,13 @@ export const furnitureImage = (
     ? { uri, width, height }
     : undefined;
 
-const itemSize = (item: RoomSceneItem): Size => item.art ?? DEFAULT_FURNITURE_1X;
+const itemSize = (item: RoomSceneItem): Size =>
+  item.avatar ? CAT_1X : (item.art ?? DEFAULT_FURNITURE_1X);
 
 export function RoomScene({
   items,
+  avatar,
+  onMoveAvatar,
   editable = false,
   showGrid = editable,
   selectedKey,
@@ -64,6 +84,10 @@ export function RoomScene({
   onClearSelection,
 }: {
   items: RoomSceneItem[];
+  // 서버 avatar 값(API-701·802) 또는 편집 중 위치. 없으면 방 가운데에 그린다.
+  avatar?: unknown;
+  // 편집 화면에서 고양이를 옮기면 그리드에 스냅한 위치(0~1)를 준다.
+  onMoveAvatar?: (x: number, y: number) => void;
   editable?: boolean;
   // 꾸미기·상점 배치 화면에서만 격자를 그린다. 조회 화면은 기본값(editable=false)으로 숨긴다.
   showGrid?: boolean;
@@ -83,7 +107,15 @@ export function RoomScene({
     height: ROOM_1X.height * 2,
   });
   const [dragPreview, setDragPreview] = useState<{ point: Point; size: Size } | null>(null);
+  // 고양이를 고르면 selectedItem 이 없어 빼기·순서 도구가 나오지 않는다.
   const selectedItem = items.find((item) => item.key === selectedKey);
+  const cat: RoomSceneItem = {
+    key: AVATAR_KEY,
+    name: '초롱이',
+    ...avatarPoint(avatar),
+    layer: 0,
+    avatar: true,
+  };
   // 가구 크기를 장면 폭에 비례시켜 화면 크기가 달라도 같은 배치로 보이게 한다.
   const scale = furnitureScale(inner);
   const previewPixels = dragPreview ? toPixels(dragPreview.point, inner) : null;
@@ -150,9 +182,16 @@ export function RoomScene({
             onPreview={setDragPreview}
           />
         ))}
-      <View style={s.cat} pointerEvents="none">
-        <RoomCat />
-      </View>
+      <DraggableItem
+        item={cat}
+        inner={inner}
+        scale={scale}
+        editable={editable && Boolean(onMoveAvatar)}
+        selected={selectedKey === AVATAR_KEY}
+        onSelect={onSelect}
+        onMove={(_, x, y) => onMoveAvatar?.(x, y)}
+        onPreview={setDragPreview}
+      />
       {editable && selectedItem && onRemove ? (
         // Figma 656:2999 button: 68×32, 배경 #F1F1F1, 테두리 0.8 #000, 모서리 16, 왼쪽 4 · 간격 8
         <View style={[s.selectionTools, toolsPosition]}>
@@ -301,7 +340,7 @@ function DraggableItem({
           top: `${item.y * 100}%`,
           width: box.width,
           height: box.height,
-          zIndex: item.layer + 2,
+          zIndex: item.avatar ? AVATAR_Z : item.layer + 2,
         },
         selected && s.furnitureSelected,
         {
@@ -313,7 +352,14 @@ function DraggableItem({
         },
       ]}
     >
-      {item.art ? (
+      {item.avatar ? (
+        <Image
+          source={catSource}
+          style={s.furnitureImage}
+          resizeMode="stretch"
+          accessibilityIgnoresInvertColors
+        />
+      ) : item.art ? (
         <Image
           source={{ uri: item.art.uri }}
           style={s.furnitureImage}
@@ -545,29 +591,6 @@ function MoreIcon() {
   );
 }
 
-function RoomCat() {
-  return (
-    <Svg width={52} height={52} viewBox="0 0 64 64" accessibilityLabel="초롱이">
-      <Path
-        d="M14 29L12 10l17 12h9L53 9l-2 22c7 14 1 25-17 25S9 47 14 29z"
-        fill="#f6f0de"
-        stroke="#7d6e68"
-        strokeWidth={2}
-      />
-      <Path d="M18 22l-2-7 9 8M41 23l8-9-1 10" fill="#deb7ac" />
-      <Path d="M23 35v4M42 35v4" stroke="#6c5e5c" strokeWidth={3} strokeLinecap="round" />
-      <Path
-        d="M30 40l3 3 3-3M33 43v3m0 0l-4 2m4-2 4 2"
-        fill="none"
-        stroke="#b18f85"
-        strokeWidth={1.5}
-      />
-      <Path d="M8 37l12 3M7 45l12-2M47 40l12-3M47 44l13 1" stroke="#bfae9e" strokeWidth={1.5} />
-      <Path d="M29 25l2 5M36 25l-1 5" stroke="#d5bc99" strokeWidth={2.5} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
 const s = StyleSheet.create({
   // 방 그림이 테두리·창문·바닥을 모두 그린다. 모서리는 투명이다.
   scene: {
@@ -612,7 +635,6 @@ const s = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
   },
-  cat: { position: 'absolute', left: '69%', top: '65%', zIndex: 800 },
   selectionTools: {
     position: 'absolute',
     zIndex: 2000,
