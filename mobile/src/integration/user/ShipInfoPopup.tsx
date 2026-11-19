@@ -147,15 +147,10 @@ const s = StyleSheet.create({
     gap: 8,
   },
   likeText: { color: color.base, fontFamily: 'PretendardLight', fontSize: 14 },
-  // Figma 656:4420: 폭 262, 비율 239:230, 배경·테두리 #AAAAAA, 모서리 8
+  // Figma 656:4420: 폭 262, 비율 239:230. 방 그림이 테두리를 그리므로 회색 상자는 두지 않는다(홈·꾸미기와 같다).
   ship: {
     width: '100%',
     aspectRatio: 239 / 230,
-    backgroundColor: color.lght,
-    borderWidth: 1,
-    borderColor: color.lght,
-    borderRadius: 8,
-    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
