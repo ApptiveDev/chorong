@@ -2,8 +2,10 @@ package com.bawibase.chorong.domain.user.service
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.domain.notification.NotificationService
 import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.UserNicknamePolicy
+import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.controller.WalletBalancesResponse
 import com.bawibase.chorong.domain.user.entity.UserEntity
 import com.bawibase.chorong.domain.user.repository.UserAuthRepository
@@ -28,6 +30,7 @@ data class UserMeResponse(
     val userCode: String,
     val nickname: String,
     val nicknameRequired: Boolean,
+    val hasUnreadNotifications: Boolean,
     val status: String,
     val providers: List<String>,
     val wallet: WalletBalancesResponse,
@@ -45,6 +48,7 @@ class UserMeService(
     private val users: UserRepository,
     private val auths: UserAuthRepository,
     private val wallets: UserWalletService,
+    private val notifications: NotificationService,
 ) {
     @Transactional
     fun get(userId: Long): UserMeResponse {
@@ -86,6 +90,7 @@ class UserMeService(
             userCode = checkNotNull(user.userCode),
             nickname = UserNicknamePolicy.displayName(user.nickname, user.status),
             nicknameRequired = UserNicknamePolicy.required(user.nickname, user.status),
+            hasUnreadNotifications = user.status == UserStatus.ACTIVE && notifications.hasUnread(userId),
             status = user.status.name,
             providers = providers,
             wallet = wallets.balances(wallet),
