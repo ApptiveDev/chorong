@@ -39,6 +39,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @SpringBootTest(properties = ["spring.application.name=chorong-google-oauth-test"])
@@ -125,7 +126,9 @@ class GoogleOAuthApiTest {
         val id = first["user"]["userId"].asLong()
         assertTrue(first["isNew"].asBoolean())
         assertEquals("ACTIVE", first["user"]["status"].asText())
-        assertTrue(first["user"]["nickname"].asText().matches(Regex("^No\\. [0-9]{8}$")))
+        // 가입 직후에는 닉네임이 없어 앱이 닉네임 설정 모달을 띄운다.
+        assertEquals("사용자", first["user"]["nickname"].asText())
+        assertTrue(first["user"]["nicknameRequired"].asBoolean())
         assertTrue(first["user"]["userCode"].asText().matches(Regex("^42[0-9]{6}$")))
         assertEquals(id.toString(), decoder.decode(first["accessToken"].asText()).subject)
         assertEquals(id, checkNotNull(auths.findByProviderAndProviderUid(AuthProvider.GOOGLE, sub)).userId)
@@ -143,9 +146,10 @@ class GoogleOAuthApiTest {
         jdbc.update("INSERT INTO chorong_dev.user_wallet(user_id,coin) VALUES (?,321)", id)
         val data = request(access)["data"]
         assertEquals(id, data["user"]["userId"].asLong())
-        // 회원으로 바뀌어도 고유번호는 그대로이고, 비어 있던 닉네임은 기본값을 받는다.
+        // 회원으로 바뀌어도 고유번호는 그대로이고, 닉네임은 비어 있어 닉네임 설정 모달을 띄운다.
         assertEquals(guestCode, data["user"]["userCode"].asText())
-        assertTrue(data["user"]["nickname"].asText().startsWith("No. "))
+        assertNull(users.findById(id).orElseThrow().nickname)
+        assertTrue(data["user"]["nicknameRequired"].asBoolean())
         assertEquals("ACTIVE", data["user"]["status"].asText())
         assertFalse(data["isNew"].asBoolean())
         assertEquals(321L, jdbc.queryForObject("SELECT coin FROM chorong_dev.user_wallet WHERE user_id=?", Long::class.java, id))

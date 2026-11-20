@@ -29,12 +29,19 @@ data class UserBrief(
     val userId: Long,
     val userCode: String,
     val nickname: String,
+    val nicknameRequired: Boolean,
     val status: UserStatus,
 ) {
     companion object {
         fun of(
             userId: Long,
             user: UserEntity,
-        ) = UserBrief(userId, checkNotNull(user.userCode), UserNicknamePolicy.displayName(user.nickname, user.status), user.status)
+        ) = UserBrief(
+            userId,
+            checkNotNull(user.userCode),
+            UserNicknamePolicy.displayName(user.nickname, user.status),
+            UserNicknamePolicy.required(user.nickname, user.status),
+            user.status,
+        )
     }
 }

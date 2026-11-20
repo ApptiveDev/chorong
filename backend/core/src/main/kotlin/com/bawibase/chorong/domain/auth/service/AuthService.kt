@@ -6,7 +6,6 @@ import com.bawibase.chorong.domain.auth.dto.MeResponse
 import com.bawibase.chorong.domain.auth.dto.TokenResponse
 import com.bawibase.chorong.domain.user.AuthProvider
 import com.bawibase.chorong.domain.user.UserNicknamePolicy
-import com.bawibase.chorong.domain.user.UserNicknameService
 import com.bawibase.chorong.domain.user.UserStatus
 import com.bawibase.chorong.domain.user.entity.UserAuthEntity
 import com.bawibase.chorong.domain.user.entity.UserEntity
@@ -53,7 +52,6 @@ class AuthService(
     private val clock: Clock,
     private val guests: GuestAccountCoordinator,
     private val emails: EmailIdentityCoordinator,
-    private val nicknames: UserNicknameService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -130,10 +128,7 @@ class AuthService(
         val auth =
             if (currentUserId != null) {
                 activeUserId(currentUserId)
-                users.findById(currentUserId).orElseThrow().also {
-                    it.status = UserStatus.ACTIVE
-                    nicknames.assignDefaultIfMissing(it)
-                }
+                users.findById(currentUserId).orElseThrow().also { it.status = UserStatus.ACTIVE }
                 auths.save(UserAuthEntity(userId = currentUserId, provider = identity.provider, providerUid = identity.providerUid))
             } else {
                 createUserWithAuth(identity.provider, identity.providerUid, email = identity.email)
@@ -168,10 +163,9 @@ class AuthService(
         providerUid: String,
         email: String? = null,
     ): UserAuthEntity {
-        val nickname = if (provider == AuthProvider.GUEST) null else nicknames.newDefault()
         val user =
             users.save(
-                UserEntity(nickname = nickname, email = email).apply {
+                UserEntity(email = email).apply {
                     status = if (provider == AuthProvider.GUEST) UserStatus.GUEST else UserStatus.ACTIVE
                 },
             )

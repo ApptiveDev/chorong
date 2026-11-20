@@ -139,6 +139,9 @@ class EmailVerifyApiTest {
         val data = verify(f)["data"]
         assertEquals(f.userId, data["user"]["userId"].asLong())
         assertEquals("ACTIVE", data["user"]["status"].asText())
+        // 게스트 때 이미 닉네임이 있으면 그대로 두고 닉네임 설정을 요구하지 않는다.
+        assertFalse(data["user"]["nicknameRequired"].asBoolean())
+        assertEquals(users.findById(f.userId).orElseThrow().nickname, data["user"]["nickname"].asText())
         assertFalse(data["isNew"].asBoolean())
         assertEquals("MEMBER", decoder.decode(data["accessToken"].asText()).getClaimAsString("role"))
         assertEquals(123L, jdbc.queryForObject("SELECT coin FROM chorong_dev.user_wallet WHERE user_id=?", Long::class.java, f.userId))
