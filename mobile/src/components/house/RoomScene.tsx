@@ -45,7 +45,6 @@ export type RoomSceneItem = {
   y: number;
   layer: number;
   color?: string;
-  pending?: boolean;
   // 서버 가구 그림. 없으면 이름으로 고른 SVG 를 기본 상자 크기로 그린다.
   art?: FurnitureImage;
   // 고양이 아바타. 앱에 넣은 그림을 쓰고 빼기·겹침 순서 메뉴가 없다.
@@ -369,7 +368,6 @@ function DraggableItem({
       ) : (
         <FurnitureArt name={item.name} color={item.color} size={box.width * FALLBACK_ART_RATIO} />
       )}
-      {item.pending ? <View style={s.pendingDot} /> : null}
     </Animated.View>
   );
 }
@@ -623,17 +621,6 @@ const s = StyleSheet.create({
     borderWidth: 2,
     borderColor: SELECTED_BLUE,
     borderRadius: 8,
-  },
-  pendingDot: {
-    position: 'absolute',
-    right: 2,
-    top: 2,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#a58cbe',
-    borderWidth: 2,
-    borderColor: '#fff',
   },
   selectionTools: {
     position: 'absolute',
