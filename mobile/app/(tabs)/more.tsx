@@ -200,7 +200,7 @@ function MemberControlRoom({ go }: { go: (path: string) => void }) {
           </View>
           {task.error ? <Text style={s.memberError}>회원 정보를 불러오지 못했습니다.</Text> : null}
           <View style={s.guestMenu}>
-            <GuestMenuButton title="프로필과 계정" onPress={() => go('/profile')} />
+            <GuestMenuButton title="계정" onPress={() => go('/profile')} />
             <GuestMenuButton
               title="우주선 관리하기"
               onPress={() => go('/settings/universe')}

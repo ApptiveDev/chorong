@@ -27,6 +27,7 @@ import { ROOM_1X } from '../../components/house/placementGrid';
 import type { HousingCard, HousingVisit, ShopItem } from '../models';
 import { integrationApi as api } from '../runtime';
 import { shipColor as color, ShipTabsHeader } from './ShipStatus';
+import { NotificationBell } from './NotificationBell';
 import { BlockModal, ReportModal } from './SocialConfirmModals';
 
 // Figma D01_2 구경하기 (547:2653) · 더보기 열린 상태 (656:1471)
@@ -357,7 +358,7 @@ export function BrowseView({
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <View style={s.page}>
-        <ShipTabsHeader active="browse" onMine={onMyShip} />
+        <ShipTabsHeader active="browse" onMine={onMyShip} trailing={<NotificationBell />} />
         <View style={s.headerGap} />
         {status === 'loading' ? (
           <View style={s.state}>

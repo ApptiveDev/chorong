@@ -28,6 +28,7 @@ import type { ConstellationImage, StarLine } from './constellationLayouts';
 import { segmentStyle, type RecordStar, type StarState } from './constellationRecord';
 import { EnergyIcon } from './CompletionResult';
 import { DotTabsHeader, StarIcon } from './ShipStatus';
+import { NotificationBell } from './NotificationBell';
 import { UserStatus } from './Screen';
 import { WalletPopover, type PopoverAnchor } from './WalletPopover';
 import { GlowFilter, HUD_CORNER, HUD_DOTTED, HUD_RULER } from './constellationArt';
@@ -112,6 +113,7 @@ export function LearningHome({
             { key: 'learn', label: '학습' },
             { key: 'record', label: '별자리 기록', onPress: onOpenRecord },
           ]}
+          trailing={<NotificationBell />}
         />
         {notice ? <Text style={s.error}>{notice}</Text> : null}
         <View style={[s.column, { width: panelWidth }]}>

@@ -13,6 +13,8 @@ export const catalog = {
   'API-202': ['PATCH', '/users/me', '내 정보 수정', 'guest'],
   'API-301': ['PUT', '/push/devices', 'Push 토큰 등록·갱신', 'guest'],
   'API-302': ['DELETE', '/push/devices/{deviceUuid}', 'Push 토큰 삭제', 'guest'],
+  'API-303': ['GET', '/notifications', '알림함 목록', 'member'],
+  'API-304': ['POST', '/notifications/{notificationId}/read', '알림 읽음 처리', 'member'],
   'API-401': ['GET', '/courses', '코스 목록 조회', 'guest'],
   'API-402': ['GET', '/courses/{courseId}', '코스 상세 조회', 'guest'],
   'API-403': ['GET', '/lessons/{lessonId}', '레슨 상세 조회', 'guest'],

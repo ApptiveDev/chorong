@@ -5,6 +5,7 @@ import { SvgRasterHost } from '../src/lib/svgRaster';
 import { useWebHangulFonts } from '../src/lib/webHangulFonts';
 import { AuthProvider } from '../src/providers/AuthProvider';
 import { WebFrame } from '../src/components/WebFrame';
+import { NicknameSetupGate } from '../src/integration/user/NicknameSetupSheet';
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -61,6 +62,7 @@ export default function RootLayout() {
           <Stack.Screen name="account-email" options={{ headerShown: false }} />
           <Stack.Screen name="preview" options={{ title: 'UI 미리보기' }} />
           <Stack.Screen name="profile" options={{ headerShown: false }} />
+          <Stack.Screen name="notifications" options={{ headerShown: false }} />
           <Stack.Screen name="review" options={{ headerShown: false }} />
           <Stack.Screen name="review-start" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ title: '시작 안내' }} />
@@ -80,6 +82,8 @@ export default function RootLayout() {
           <Stack.Screen name="settings/dev-tools" options={{ title: '개발자 도구' }} />
           <Stack.Screen name="+not-found" options={{ title: '없는 페이지' }} />
         </Stack>
+        {/* M04_2 첫 닉네임 설정. 서버가 nicknameRequired=true 를 보내는 동안 모든 화면 위에 뜬다. */}
+        <NicknameSetupGate />
         <StatusBar style="auto" />
       </WebFrame>
     </AuthProvider>

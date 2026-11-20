@@ -17,7 +17,17 @@ const {
 } = require('../.expo/integration-tests/mockApi');
 const { mockVisibility } = require('../.expo/integration-tests/mockVisibility');
 const { firstStudyLesson } = require('../.expo/integration-tests/user/welcomeFlow');
-const { nicknameValidationError } = require('../.expo/integration-tests/user/profileNickname');
+const {
+  nicknameLengthError,
+  nicknameValidationError,
+} = require('../.expo/integration-tests/user/profileNickname');
+const { nicknameRequired, waitForNickname } = require('../.expo/integration-tests/nicknameSetup');
+const {
+  PUBLIC_VIEW_PARAM,
+  formatNotificationTime,
+  notificationMessage,
+  notificationTarget,
+} = require('../.expo/integration-tests/user/notificationTarget');
 const uuid = '12345678-1234-4234-8234-123456789abc';
 const user = { userId: 7, nickname: '시험', status: 'ACTIVE' };
 const tokens = { accessToken: 'access-private', refreshToken: 'refresh-private', expiresIn: 3600 };
@@ -241,8 +251,8 @@ test('base URL keeps a single version prefix and rejects credential URLs', () =>
   assert.equal(integrationBaseURL('https://test.invalid/api/v1/'), 'https://test.invalid/api/v1');
   assert.throws(() => integrationBaseURL('https://password@test.invalid'));
 });
-test('all 49 APIs are inventoried and none is deferred', () => {
-  assert.equal(Object.keys(catalog).length, 49);
+test('all 51 APIs are inventoried and none is deferred', () => {
+  assert.equal(Object.keys(catalog).length, 51);
   const deferred = Object.keys(catalog).filter((id) => catalog[id][3] === 'deferred');
   assert.deepEqual(deferred, []);
 });
@@ -3469,4 +3479,219 @@ test('첫 학습 경로는 첫 코스의 잠기지 않은 레슨을 열고 불�
     }),
     null,
   );
+});
+test('notification list sends API-303 cursor/size and reads page meta', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  let request;
+  const item = {
+    notificationId: 9,
+    type: 'HOUSING_LIKE',
+    actor: { userId: 3, nickname: '별이' },
+    read: false,
+    createdAt: '2026-11-20T14:00:00Z',
+  };
+  c.http.defaults.adapter = async (config) => {
+    request = config;
+    return respond(config, { data: { notifications: [item] }, meta: { nextCursor: 'next-1' } });
+  };
+  const page = await api.notifications.list({ size: 20, cursor: 'abc' });
+  assert.equal(request.method, 'get');
+  assert.equal(request.url, '/notifications');
+  assert.deepEqual(request.params, { size: 20, cursor: 'abc' });
+  assert.match(request.headers.Authorization, /^Bearer /);
+  assert.deepEqual(page.data.notifications, [item]);
+  assert.equal(page.meta.nextCursor, 'next-1');
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { data: { notifications: [{ ...item, type: 'UNKNOWN' }] }, meta: {} });
+  await assert.rejects(api.notifications.list({}), /명세 불일치/);
+});
+test('notification read posts API-304 and accepts an empty 204 body', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  let request;
+  c.http.defaults.adapter = async (config) => {
+    request = config;
+    return respond(config, '', 204);
+  };
+  assert.equal(await api.notifications.read(9), undefined);
+  assert.equal(request.method, 'post');
+  assert.equal(request.url, '/notifications/9/read');
+  c.http.defaults.adapter = async (config) => fail(config, 404, 'NOT_FOUND');
+  await assert.rejects(api.notifications.read(10), (error) => error.code === 'NOT_FOUND');
+  c.http.defaults.adapter = async (config) => fail(config, 403, 'MEMBER_ONLY');
+  await assert.rejects(
+    api.notifications.read(11),
+    (error) => error.code === 'MEMBER_ONLY' && error.status === 403,
+  );
+});
+test('guests never send notification requests', async () => {
+  const { c, api } = setup();
+  await login(c, 'GUEST');
+  let sent = false;
+  c.http.defaults.adapter = async (config) => {
+    sent = true;
+    return respond(config, '', 204);
+  };
+  await assert.rejects(api.notifications.list({}), (error) => error.code === 'MEMBER_ONLY');
+  await assert.rejects(api.notifications.read(1), (error) => error.code === 'MEMBER_ONLY');
+  assert.equal(sent, false);
+});
+test('Me.hasUnreadNotifications is read when present and may be omitted', async () => {
+  const { c, api } = setup();
+  await login(c, 'ACTIVE');
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { data: { ...me, hasUnreadNotifications: true } });
+  assert.equal((await api.account.me()).hasUnreadNotifications, true);
+  c.http.defaults.adapter = async (config) => respond(config, { data: me });
+  assert.equal((await api.account.me()).hasUnreadNotifications, undefined);
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { data: { ...me, hasUnreadNotifications: 'yes' } });
+  await assert.rejects(api.account.me(), /명세 불일치/);
+});
+test('mock notifications page by cursor and clear the unread flag after reads', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  await api.account.login('test@example.com', 'test');
+  const first = await api.notifications.list({ size: 20 });
+  assert.equal(first.data.notifications.length, 20);
+  assert.ok(first.meta.nextCursor);
+  const second = await api.notifications.list({ size: 20, cursor: first.meta.nextCursor });
+  assert.equal(second.meta.nextCursor, null);
+  const all = [...first.data.notifications, ...second.data.notifications];
+  assert.equal(new Set(all.map((item) => item.notificationId)).size, all.length);
+  const times = all.map((item) => Date.parse(item.createdAt));
+  assert.deepEqual(
+    times,
+    [...times].sort((a, b) => b - a),
+  );
+  assert.equal((await api.account.me()).hasUnreadNotifications, true);
+  for (const item of all.filter((entry) => !entry.read))
+    await api.notifications.read(item.notificationId);
+  // 이미 읽은 알림도 204
+  await api.notifications.read(all[0].notificationId);
+  assert.equal((await api.account.me()).hasUnreadNotifications, false);
+  await assert.rejects(api.notifications.read(1), (error) => error.code === 'NOT_FOUND');
+});
+test('notification copy, target and time follow API-303', () => {
+  const item = { type: 'HOUSING_LIKE', actor: { nickname: '별이' } };
+  assert.equal(notificationMessage(item), '별이님이 내 우주선에 좋아요를 눌렀어요.');
+  assert.deepEqual(notificationTarget(item), {
+    pathname: '/housing',
+    params: { open: PUBLIC_VIEW_PARAM },
+  });
+  assert.equal(formatNotificationTime('2026-11-20T14:03:00Z'), '2026. 11. 20 23:03');
+  assert.equal(formatNotificationTime('2026-11-20T15:30:00Z'), '2026. 11. 21 00:30');
+});
+test('first nickname (M04_2) checks only the API-202 length rule', () => {
+  assert.equal(nicknameLengthError(''), '닉네임을 1~10자로 입력해 주세요.');
+  assert.equal(nicknameLengthError('   '), '닉네임을 1~10자로 입력해 주세요.');
+  assert.equal(nicknameLengthError('가'), null);
+  assert.equal(nicknameLengthError('  가나다라마바사아자차  '), null);
+  assert.equal(nicknameLengthError('가나다라마바사아자차카'), '닉네임을 1~10자로 입력해 주세요.');
+  // 명세에 없는 글자 제한은 두지 않는다. 글자 수는 서버처럼 코드포인트로 센다.
+  assert.equal(nicknameLengthError('별 지기'), null);
+  assert.equal(nicknameLengthError('🌙🌙🌙🌙🌙🌙🌙🌙🌙🌙'), null);
+  // 프로필 닉네임 변경(M04_1)의 기존 글자 제한은 그대로다.
+  assert.equal(nicknameValidationError('별 지기'), '한글, 영문, 숫자만 입력할 수 있습니다.');
+});
+test('nicknameRequired follows the server flag for members only', () => {
+  assert.equal(nicknameRequired({ ...user, nicknameRequired: true }), true);
+  assert.equal(nicknameRequired({ ...user, nicknameRequired: false }), false);
+  assert.equal(nicknameRequired(user), false);
+  assert.equal(nicknameRequired({ ...user, status: 'GUEST', nicknameRequired: true }), false);
+  assert.equal(nicknameRequired(null), false);
+});
+test('auth responses and Me accept nicknameRequired or its omission', async () => {
+  const { c, api } = setup();
+  c.http.defaults.adapter = async (config) =>
+    respond(config, {
+      data: { ...tokens, user: { ...user, nicknameRequired: true }, isNew: true },
+    });
+  await api.account.login('test@example.com', 'pw');
+  assert.equal(c.getSnapshot().user.nicknameRequired, true);
+  c.http.defaults.adapter = async (config) => respond(config, { data: me });
+  assert.equal((await api.account.me()).nicknameRequired, undefined);
+  c.http.defaults.adapter = async (config) =>
+    respond(config, { data: { ...me, nicknameRequired: 'yes' } });
+  await assert.rejects(api.account.me(), /명세 불일치/);
+});
+test('waitForNickname resolves after API-202 saves and stops on account change', async () => {
+  const { c, api } = setup();
+  await c.authenticate(async () => ({ ...tokens, user: { ...user, nicknameRequired: false } }));
+  assert.equal(await waitForNickname(c), true);
+
+  await c.authenticate(async () => ({ ...tokens, user: { ...user, nicknameRequired: true } }));
+  let settled = null;
+  const waiting = waitForNickname(c).then((value) => (settled = value));
+  // 저장 실패: 아직 기다린다.
+  c.http.defaults.adapter = async (config) => fail(config, 400, 'VALIDATION_FAILED');
+  await assert.rejects(api.account.update({ nickname: '가나다라마바사아자차카' }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, null);
+  // 중복 닉네임도 저장된다(0.4.3). 저장하면 이어서 진행한다.
+  let request;
+  c.http.defaults.adapter = async (config) => {
+    request = config;
+    return respond(config, { data: { ...me, nickname: '시험', nicknameRequired: false } });
+  };
+  await api.account.update({ nickname: '시험' });
+  assert.equal(await waiting, true);
+  assert.equal(request.method, 'patch');
+  assert.equal(request.url, '/users/me');
+  assert.deepEqual(JSON.parse(request.data), { nickname: '시험' });
+
+  await c.authenticate(async () => ({ ...tokens, user: { ...user, nicknameRequired: true } }));
+  const cancelled = waitForNickname(c);
+  await c.clear();
+  assert.equal(await cancelled, false);
+});
+test('mock members need a first nickname only after signing up', async () => {
+  const storage = { get: async () => null, set: async () => {}, remove: async () => {} };
+  const c = new IntegrationClient(
+    'https://mock.invalid/api/v1',
+    storage,
+    () => uuid,
+    false,
+    mockApi,
+  );
+  c.http.defaults.adapter = async () => {
+    throw new Error('network request');
+  };
+  const api = createIntegrationApi(c);
+  // 게스트는 항상 false
+  await api.account.guest('IOS');
+  assert.equal(c.getSnapshot().user.nicknameRequired, false);
+  assert.equal((await api.account.me()).nicknameRequired, false);
+  // 게스트 전환 가입: 닉네임이 비어 있다
+  await api.account.oauth('google', { idToken: 'mock' });
+  assert.equal(c.getSnapshot().user.nicknameRequired, true);
+  assert.equal(c.getSnapshot().user.nickname, '사용자');
+  assert.equal((await api.account.me()).nicknameRequired, true);
+  await assert.rejects(
+    api.account.update({ nickname: '가나다라마바사아자차카' }),
+    (error) => error.code === 'VALIDATION_FAILED',
+  );
+  assert.equal(c.getSnapshot().user.nicknameRequired, true);
+  const saved = await api.account.update({ nickname: '  별 지기  ' });
+  assert.equal(saved.nickname, '별 지기');
+  assert.equal(saved.nicknameRequired, false);
+  // 기존 회원 로그인(API-104)은 다시 띄우지 않는다
+  await api.account.login('test@example.com', 'test');
+  assert.equal(c.getSnapshot().user.nicknameRequired, false);
+  // 이메일 가입 완료(API-103)는 새 회원이다
+  await api.account.verify('mock-verification', '123456');
+  assert.equal(c.getSnapshot().user.nicknameRequired, true);
+  await api.account.update({ nickname: '별 지기' });
+  assert.equal(c.getSnapshot().user.nicknameRequired, false);
 });

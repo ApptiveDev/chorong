@@ -30,7 +30,10 @@ export type ReportReason = 'INAPPROPRIATE_NAME' | 'ABUSE' | 'SPAM' | 'OTHER';
 export const status = enumeration('GUEST', 'ACTIVE', 'WITHDRAWN');
 // userCode: 42 로 시작하는 8자리 계정 고유번호(0.4.1). 서버가 아직 보내지 않으면 생략된다.
 const userCode = optional(str);
-export const userBrief = object({ userId: num, userCode, nickname: str, status });
+// 회원(ACTIVE)인데 닉네임을 저장하지 않았으면 true(0.4.3). 앱은 첫 닉네임 설정(M04_2)을 띄우고 API-202 로 저장해야 닫는다.
+// 서버가 아직 보내지 않으면 생략되며 설정이 필요 없는 것으로 본다.
+const nicknameRequired = optional(bool);
+export const userBrief = object({ userId: num, userCode, nickname: str, nicknameRequired, status });
 export const tokenPair = object({ accessToken: str, refreshToken: str, expiresIn: num });
 export const authResponse = object({
   accessToken: str,
@@ -51,6 +54,7 @@ export const me = object({
   userId: num,
   userCode,
   nickname: str,
+  nicknameRequired,
   status,
   providers: array(str),
   wallet,
@@ -60,6 +64,10 @@ export const me = object({
   pushEnabled: bool,
   streakDays: num,
   lastStudyDate: nullable(str),
+  // 알림함(API-303)에 읽지 않은 알림이 있으면 true(0.4.3). 게스트는 항상 false.
+  // 알림함 배포 전 서버는 이 칸을 보내지 않는다. 필수로 검증하면 API-201 이 실패해 로그인이 풀리므로
+  // 생략을 허용하고, 없으면 닷을 표시하지 않는다.
+  hasUnreadNotifications: optional(bool),
 });
 export const lessonStatus = enumeration('LOCKED', 'UNLOCKED', 'IN_PROGRESS', 'COMPLETED');
 export const lessonSummary = object({
@@ -439,6 +447,15 @@ export const rewardRecord = object({
   grantedAt: str,
   badge: optional(nullable(unknownObject)),
 });
+// 알림함 항목(API-303). actor.nickname 은 조회 시점의 닉네임이다.
+export const notificationType = enumeration('HOUSING_LIKE');
+export const notification = object({
+  notificationId: num,
+  type: notificationType,
+  actor: object({ userId: num, nickname: str }),
+  read: bool,
+  createdAt: str,
+});
 export const pageMeta = object({ nextCursor: nullable(str) });
 export type Me = Infer<typeof me>;
 export type UserBrief = Infer<typeof userBrief>;
@@ -464,4 +481,5 @@ export type ShopItem = Infer<typeof shopItem>;
 export type ShopOption = Infer<typeof shopOption>;
 export type InventoryItem = Infer<typeof inventoryItem>;
 export type BlockedUser = Infer<typeof blockedUser>;
+export type Notification = Infer<typeof notification>;
 export type Page<T> = { data: T; meta: Infer<typeof pageMeta> };

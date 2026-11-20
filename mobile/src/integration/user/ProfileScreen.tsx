@@ -198,7 +198,7 @@ export default function ProfileScreen() {
             >
               <BackArrow color="#f1f1f1" />
             </Pressable>
-            <Text style={s.title}>프로필과 계정</Text>
+            <Text style={s.title}>계정</Text>
           </View>
           <View style={s.center}>
             <View style={s.profileBlock}>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useIntegration, useTask } from '../hooks';
@@ -38,10 +38,12 @@ export function ShipTabsHeader({
   active,
   onMine,
   onBrowse,
+  trailing,
 }: {
   active: 'mine' | 'browse';
   onMine?: () => void;
   onBrowse?: () => void;
+  trailing?: ReactNode;
 }) {
   return (
     <DotTabsHeader
@@ -50,17 +52,21 @@ export function ShipTabsHeader({
         { key: 'mine', label: '내 우주선', onPress: onMine },
         { key: 'browse', label: '구경하기', onPress: onBrowse },
       ]}
+      trailing={trailing}
     />
   );
 }
 
 // 'A • B' 두 칸 헤더. 내 우주선(651:1361)과 학습 홈(757:3109 '학습 • 별자리 기록')이 같이 쓴다.
+// trailing: 헤더 오른쪽 끝(좌우 여백 24 안쪽)에 붙이는 요소. 알림 아이콘(NotificationBell)을 넣는다.
 export function DotTabsHeader<K extends string>({
   active,
   tabs,
+  trailing,
 }: {
   active: K;
   tabs: [DotTab<K>, DotTab<K>];
+  trailing?: ReactNode;
 }) {
   const tab = ({ key, label, onPress }: DotTab<K>) => (
     <Pressable
@@ -73,7 +79,7 @@ export function DotTabsHeader<K extends string>({
       <Text style={active === key ? s.headerSelected : s.headerDefault}>{label}</Text>
     </Pressable>
   );
-  return (
+  const header = (
     <View style={s.header} accessibilityRole="tablist">
       {tab(tabs[0])}
       <View style={s.headerStar}>
@@ -85,6 +91,13 @@ export function DotTabsHeader<K extends string>({
         </Svg>
       </View>
       {tab(tabs[1])}
+    </View>
+  );
+  if (trailing === undefined) return header;
+  return (
+    <View style={s.headerRow}>
+      {header}
+      {trailing}
     </View>
   );
 }
@@ -114,7 +127,7 @@ export function VisibilityBadge({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`내 우주선 공개 상태: ${label}`}
+      accessibilityLabel={`내 공개 모습 보기: ${label}`}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
@@ -132,7 +145,7 @@ export function VisibilityBadge({
             pressed && isPublic && s.visibilityTextPressed,
           ]}
         >
-          내 우주선 공개 상태
+          내 공개 모습 보기
         </Text>
       )}
     </Pressable>
@@ -191,6 +204,14 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  // 탭 묶음은 왼쪽 그대로, trailing 은 오른쪽 여백 24 안쪽에 둔다. 높이는 헤더와 같은 32.
+  headerRow: {
+    height: 32,
+    paddingRight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerTab: { height: 32, justifyContent: 'center' },
   headerSelected: {

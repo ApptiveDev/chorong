@@ -13,7 +13,8 @@ import { useIntegration, useTask } from '../hooks';
 import { GoogleButtonOverlay } from '../GoogleButtonOverlay';
 import { signInWithGoogle } from '../googleSignIn';
 import type { OAuthCredential } from '../models';
-import { devicePlatform, integrationApi as api, useMockApi } from '../runtime';
+import { nicknameRequired, waitForNickname } from '../nicknameSetup';
+import { client, devicePlatform, integrationApi as api, useMockApi } from '../runtime';
 import { AuthResultModal } from './AuthResultModals';
 import { socialLoginErrorModal, type SocialLoginModalKind } from './socialLoginResult';
 import { firstStudyRoute } from './welcomeFlow';
@@ -73,10 +74,13 @@ type SocialAttempt = {
 export function useSocialLogin({
   onSignedIn,
   noAccountWhenNew = false,
+  beforeNickname,
 }: {
   onSignedIn: (result: SocialLoginResult) => void;
   // 기존 계정으로 로그인하러 왔는데 서버가 새 회원을 만들었으면 바로 넘어가지 않고 M01_3 을 띄운다.
   noAccountWhenNew?: boolean;
+  // 첫 닉네임 설정(M04_2)을 기다리기 전에 부른다. 로그인 모달은 여기서 닫혀야 그 아래의 설정 시트가 보인다.
+  beforeNickname?: () => void;
 }) {
   const router = useRouter();
   const session = useIntegration();
@@ -84,6 +88,20 @@ export function useSocialLogin({
   const [modal, setModal] = useState<SocialLoginModalKind | null>(null);
   const attempt = useRef<SocialAttempt | null>(null);
   const newMember = useRef<SocialLoginResult>({ isNew: true });
+
+  // 서버가 nicknameRequired=true 를 보냈으면(신규·전환 가입, 닉네임 미저장 회원) 루트의 M04_2 시트에서
+  // 닉네임을 저장한 뒤에 원래 목적지로 간다. 저장 전에 로그아웃·계정 전환이 일어나면 이동하지 않는다.
+  const needsNickname = () => nicknameRequired(client.getSnapshot().user);
+  const afterNickname = (next: () => void) => {
+    if (!needsNickname()) {
+      next();
+      return;
+    }
+    beforeNickname?.();
+    void waitForNickname(client).then((saved) => {
+      if (saved) next();
+    });
+  };
 
   const run = (next: SocialAttempt) => {
     if (task.busy) return;
@@ -108,7 +126,7 @@ export function useSocialLogin({
           setModal('noAccount');
           return;
         }
-        onSignedIn(result);
+        afterNickname(() => onSignedIn(result));
         if (__DEV__) console.log('[social] signedIn done');
       } catch (error) {
         if (__DEV__)
@@ -123,7 +141,10 @@ export function useSocialLogin({
     if (task.busy) return;
     setModal(null);
     // M01_3 을 닫아도 새 계정은 이미 만들어졌으므로 로그인 뒤 흐름을 이어 간다.
-    if (modal === 'noAccount') onSignedIn(newMember.current);
+    if (modal === 'noAccount') {
+      const result = newMember.current;
+      afterNickname(() => onSignedIn(result));
+    }
   };
   // 다시 시도는 자격 증명을 새로 받는다. 만료된 토큰을 다시 보내지 않기 위해서다.
   const retry = () => {
@@ -135,11 +156,15 @@ export function useSocialLogin({
   };
   const startFirstStudy = () => {
     if (task.busy) return;
-    void task.run(async () => {
-      const route = await firstStudyRoute(api.learning);
-      setModal(null);
-      router.replace(route ?? '/');
-    });
+    const start = () =>
+      void task.run(async () => {
+        const route = await firstStudyRoute(api.learning);
+        setModal(null);
+        router.replace(route ?? '/');
+      });
+    // M01_3 을 먼저 닫아야 그 아래의 닉네임 설정 시트가 보인다.
+    if (needsNickname()) setModal(null);
+    afterNickname(start);
   };
 
   return {

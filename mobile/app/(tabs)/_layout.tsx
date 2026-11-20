@@ -119,7 +119,9 @@ function TabNavigator() {
           }}
         />
       ))}
-      <Tabs.Screen name="social" options={{ href: null }} />
+      {/* 구경하기. 하단 탭바(DockBar)는 dockItems 만 그리므로 버튼은 생기지 않는다.
+          href: null 을 주면 expo-router 58 이 숨긴 탭으로 보고 들어오는 즉시 첫 탭(학습)으로 되돌린다. */}
+      <Tabs.Screen name="social" options={{ title: '구경하기' }} />
     </Tabs>
   );
 

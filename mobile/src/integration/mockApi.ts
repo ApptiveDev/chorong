@@ -149,6 +149,49 @@ const response = (data?: unknown, paged = false) => ({
 });
 const id = (options: { path?: Record<string, string | number> }, key: string) =>
   Number(options.path?.[key]);
+// 알림함(API-303·304). 페이지 넘김을 시험하도록 기본 크기(20)보다 많이 둔다. 최신순이며 앞 3개만 읽지 않음.
+// 목업 스냅샷에는 저장하지 않는다(앱을 다시 열면 처음 상태).
+const mockNotificationActors = ['별이', '달토끼', '혜성', '오로라', '은하수'];
+const mockNotifications = Array.from({ length: 25 }, (_, index) => ({
+  notificationId: 300 - index,
+  type: 'HOUSING_LIKE' as const,
+  actor: {
+    userId: 10 + (index % mockNotificationActors.length),
+    nickname: mockNotificationActors[index % mockNotificationActors.length],
+  },
+  read: index >= 3,
+  createdAt: new Date(Date.UTC(2026, 10, 20, 14) - index * 7 * 60 * 60 * 1000).toISOString(),
+}));
+const visibleNotifications = () =>
+  empty || state.user.status !== 'ACTIVE' ? [] : mockNotifications;
+const mockMe = () => ({
+  ...state.user,
+  wallet: state.wallet,
+  housing: { ...state.user.housing, isPublic: mockVisibility.get() },
+  hasUnreadNotifications: visibleNotifications().some((item) => !item.read),
+  // 게스트는 항상 false(명세 Me.nicknameRequired).
+  nicknameRequired: state.user.status === 'ACTIVE' && state.user.nicknameRequired === true,
+});
+const memberOnly = () => {
+  if (state.user.status !== 'ACTIVE')
+    throw new IntegrationError('MEMBER_ONLY: 회원 전용 기능입니다. (HTTP 403)', 'MEMBER_ONLY', 403);
+};
+// 서버 커서 대역: 다음 페이지 첫 항목의 위치를 문자열로 준다.
+const pagedNotifications = (query: unknown) => {
+  const params = (query ?? {}) as { cursor?: string; size?: number };
+  const size = Math.min(100, Math.max(1, Number(params.size) || 20));
+  const start = params.cursor ? Number(params.cursor) : 0;
+  const all = visibleNotifications();
+  const page = all.slice(start, start + size);
+  return {
+    status: 200,
+    data: {
+      data: { notifications: page.map((item) => ({ ...item, actor: { ...item.actor } })) },
+      meta: { nextCursor: start + size < all.length ? String(start + size) : null },
+    },
+    headers: {},
+  };
+};
 // 서버처럼 학습 레슨의 첫 퀴즈는 채점하지 않는다(QuizPublic.graded=false, 0.4.1).
 // 목업 첫 레슨(lessons[0])의 퀴즈는 온보딩 퀴즈와 ID 가 같아 구분할 수 없으므로 두 번째 레슨부터 적용한다.
 const ungradedFirstQuizIds = new Set(
@@ -330,9 +373,19 @@ const auth = () => ({
   accessToken: 'mock-access',
   refreshToken: 'mock-refresh',
   expiresIn: 1800,
-  user: { userId: state.user.userId, nickname: state.user.nickname, status: state.user.status },
+  user: {
+    userId: state.user.userId,
+    nickname: state.user.nickname,
+    nicknameRequired: state.user.status === 'ACTIVE' && state.user.nicknameRequired === true,
+    status: state.user.status,
+  },
   isNew: false,
 });
+// 서버(0.4.3)처럼 새로 회원이 되면 닉네임이 비어 있다(표시 이름 '사용자', nicknameRequired=true).
+// API-202 로 닉네임을 저장하면 풀린다.
+const becomeNewMember = () => {
+  state.user = { ...state.user, nickname: '사용자', nicknameRequired: true };
+};
 const body = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -540,11 +593,18 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
   const input = body(options.body);
   switch (apiId) {
     case 'API-101':
-      state.user = { ...state.user, status: 'GUEST', providers: ['GUEST'] };
+      state.user = {
+        ...state.user,
+        status: 'GUEST',
+        providers: ['GUEST'],
+        nicknameRequired: false,
+      };
       return response({ ...auth(), isNew: true });
     case 'API-103':
     case 'API-104':
       state.user = { ...state.user, status: 'ACTIVE', providers: ['EMAIL'] };
+      // API-103 은 이메일 가입 완료(새 회원), API-104 는 기존 회원 로그인이다.
+      if (apiId === 'API-103') becomeNewMember();
       return response(auth());
     case 'API-105': {
       // 소셜 로그인 결과 모달을 시험하는 시나리오(EXPO_PUBLIC_MOCK_SCENARIO).
@@ -573,6 +633,8 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         status: 'ACTIVE',
         providers: [String(options.path?.provider ?? '').toUpperCase()],
       };
+      // 게스트 전환 가입과 oauth-new(새 회원 가입)는 닉네임이 비어 있다. 그 밖의 목업 로그인은 기존 회원이다.
+      if (guest || scenario === 'oauth-new') becomeNewMember();
       // oauth-new: 기존 계정 없이 새 회원이 만들어진 경우(M01_3). 게스트 전환은 새 회원이 아니다.
       return response({ ...auth(), isNew: scenario === 'oauth-new' && !guest });
     }
@@ -608,23 +670,48 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-109':
       return response({ providers: ['EMAIL'] });
     case 'API-201':
-      return response({
-        ...state.user,
-        wallet: state.wallet,
-        housing: { ...state.user.housing, isPublic: mockVisibility.get() },
-      });
-    case 'API-202':
+      return response(mockMe());
+    case 'API-303':
+      memberOnly();
+      return pagedNotifications(options.query);
+    case 'API-304': {
+      memberOnly();
+      const found = visibleNotifications().find(
+        (item) => item.notificationId === id(options, 'notificationId'),
+      );
+      if (!found)
+        throw new IntegrationError(
+          'NOT_FOUND: 알림을 찾을 수 없습니다. (HTTP 404)',
+          'NOT_FOUND',
+          404,
+        );
+      found.read = true;
+      return response();
+    }
+    case 'API-202': {
+      // 서버 UserNicknamePolicy: 앞뒤 공백을 뺀 1~10자(코드포인트), 중복 허용.
+      const nickname = typeof input.nickname === 'string' ? input.nickname.trim() : undefined;
+      if (nickname !== undefined && scenario === 'nickname-error')
+        throw new IntegrationError(
+          'INTERNAL: 서버 오류가 발생했습니다. (HTTP 500)',
+          'INTERNAL',
+          500,
+        );
+      if (nickname !== undefined && (nickname.length < 1 || Array.from(nickname).length > 10))
+        throw new IntegrationError(
+          'VALIDATION_FAILED: 닉네임은 1~10자로 입력하세요. (HTTP 400)',
+          'VALIDATION_FAILED',
+          400,
+        );
       state.user = {
         ...state.user,
-        nickname: typeof input.nickname === 'string' ? input.nickname : state.user.nickname,
+        nickname: nickname ?? state.user.nickname,
+        nicknameRequired: nickname !== undefined ? false : state.user.nicknameRequired,
         pushEnabled:
           typeof input.pushEnabled === 'boolean' ? input.pushEnabled : state.user.pushEnabled,
       };
-      return response({
-        ...state.user,
-        wallet: state.wallet,
-        housing: { ...state.user.housing, isPublic: mockVisibility.get() },
-      });
+      return response(mockMe());
+    }
     case 'API-401':
       return response({
         courses: empty

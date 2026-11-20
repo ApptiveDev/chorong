@@ -156,6 +156,14 @@ export function createIntegrationApi(client: IntegrationClient) {
     blocks: (query: m.PageQuery) =>
       client.page('API-808', object({ users: array(m.blockedUser) }), { query }),
   };
+  // 알림함(API-303·304). 회원 전용이라 게스트 세션이면 요청 전에 MEMBER_ONLY 로 막는다(client.request).
+  const notifications = {
+    // 최근 30일, 최신순. 목록을 읽기만 해서는 읽음 처리되지 않는다.
+    list: (query: m.PageQuery) =>
+      client.page('API-303', object({ notifications: array(m.notification) }), { query }),
+    // 204 본문 없음. 이미 읽은 알림도 204.
+    read: (notificationId: number) => client.request('API-304', null, { path: { notificationId } }),
+  };
   const benefits = {
     wallet: () => client.request('API-904', m.wallet),
     rewards: (query: m.PageQuery) =>
@@ -198,5 +206,5 @@ export function createIntegrationApi(client: IntegrationClient) {
         { body: { items: contract.purchaseRequest(items) }, key },
       ),
   };
-  return { account, learning, review, onboarding, social, benefits, room };
+  return { account, learning, review, onboarding, social, notifications, benefits, room };
 }

@@ -370,7 +370,6 @@ function Room({ initialTab }: { initialTab: CatalogTab }) {
       y: item.transform.y,
       layer: item.transform.layer,
       color: optionColor(item.option),
-      pending: true,
       art: optionArt(item.itemId, item.optionId),
     })),
   ];
