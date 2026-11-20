@@ -69,6 +69,8 @@ class SecurityConfig(
                         "/api/v1/reports",
                         "/api/v1/blocks",
                         "/api/v1/blocks/**",
+                        "/api/v1/notifications",
+                        "/api/v1/notifications/**",
                     ).access(memberOnly())
                     .requestMatchers(HttpMethod.GET, "/api/v1/housings/*")
                     .access(memberOnly())

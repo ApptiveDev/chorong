@@ -2,6 +2,7 @@ package com.bawibase.chorong.domain.housing.service
 
 import com.bawibase.chorong.common.api.ApiErrorCode
 import com.bawibase.chorong.common.api.ApiV1Exception
+import com.bawibase.chorong.domain.notification.NotificationService
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -15,6 +16,7 @@ data class LikeStateResponse(
 @Service
 class HousingLikeService(
     private val jdbc: JdbcTemplate,
+    private val notifications: NotificationService,
 ) {
     @Transactional
     fun like(
@@ -24,11 +26,13 @@ class HousingLikeService(
         validateIds(userId, housingId)
         if (userId == housingId) throw ApiV1Exception(ApiErrorCode.SELF_TARGET)
         requireVisible(userId, housingId)
-        jdbc.update(
-            "INSERT INTO housing_like(housing_user_id,liker_user_id) VALUES (?,?) ON CONFLICT DO NOTHING",
-            housingId,
-            userId,
-        )
+        val inserted =
+            jdbc.update(
+                "INSERT INTO housing_like(housing_user_id,liker_user_id) VALUES (?,?) ON CONFLICT DO NOTHING",
+                housingId,
+                userId,
+            )
+        if (inserted == 1) notifications.recordHousingLike(housingId, userId)
         return state(userId, housingId)
     }
 

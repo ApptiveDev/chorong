@@ -78,7 +78,7 @@ class NoteControllerTest {
                 operations += Triple(operationId, (method as String).uppercase(), path as String)
             }
         }
-        assertEquals(49, operations.size)
+        assertEquals(51, operations.size)
         assertEquals(operations.size, operations.map { it.first }.toSet().size, "operationId 중복")
         val expected =
             """
@@ -96,6 +96,8 @@ class NoteControllerTest {
             API-202 PATCH /users/me
             API-301 PUT /push/devices
             API-302 DELETE /push/devices/{deviceUuid}
+            API-303 GET /notifications
+            API-304 POST /notifications/{notificationId}/read
             API-401 GET /courses
             API-402 GET /courses/{courseId}
             API-403 GET /lessons/{lessonId}

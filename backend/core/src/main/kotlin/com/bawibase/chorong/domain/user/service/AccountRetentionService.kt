@@ -49,6 +49,7 @@ class AccountRetentionService(
         )
         jdbc.update("DELETE FROM housing_like WHERE housing_user_id=? OR liker_user_id=?", userId, userId)
         jdbc.update("DELETE FROM user_block WHERE user_id=? OR blocked_user_id=?", userId, userId)
+        jdbc.update("DELETE FROM user_notification WHERE user_id=? OR actor_user_id=?", userId, userId)
         jdbc.update("DELETE FROM idempotency_record WHERE user_id=?", userId)
         jdbc.update("DELETE FROM user_refresh_token WHERE user_id=?", userId)
         jdbc.update("DELETE FROM email_signup_verification WHERE user_id=?", userId)
