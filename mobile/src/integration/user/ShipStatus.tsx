@@ -127,7 +127,7 @@ export function VisibilityBadge({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`내 우주선 공개 상태: ${label}`}
+      accessibilityLabel={`내 공개 모습 보기: ${label}`}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
@@ -145,7 +145,7 @@ export function VisibilityBadge({
             pressed && isPublic && s.visibilityTextPressed,
           ]}
         >
-          내 우주선 공개 상태
+          내 공개 모습 보기
         </Text>
       )}
     </Pressable>
