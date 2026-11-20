@@ -10,6 +10,12 @@ object UserNicknamePolicy {
         status: UserStatus,
     ): String = nickname ?: if (status == UserStatus.GUEST) GUEST_DEFAULT else DEFAULT
 
+    /** 회원인데 닉네임을 저장하지 않았으면 true. 앱은 닉네임 설정 모달을 띄운다. */
+    fun required(
+        nickname: String?,
+        status: UserStatus,
+    ): Boolean = status == UserStatus.ACTIVE && nickname == null
+
     const val GUEST_DEFAULT = "게스트"
     const val DEFAULT = "사용자"
 

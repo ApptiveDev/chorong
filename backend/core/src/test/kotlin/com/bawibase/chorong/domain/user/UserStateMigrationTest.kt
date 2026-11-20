@@ -211,6 +211,45 @@ class UserStateMigrationTest {
         }
     }
 
+    @Test fun `v58 clears default nicknames and allows duplicates`() {
+        val schema = "nickname_optional_upgrade"
+
+        fun migrate(target: String) =
+            Flyway
+                .configure()
+                .dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
+                .schemas(schema)
+                .defaultSchema(schema)
+                .target(target)
+                .load()
+                .migrate()
+        migrate("57")
+        val jdbc = JdbcTemplate(DriverManagerDataSource(postgres.jdbcUrl, postgres.username, postgres.password))
+        for ((id, nickname) in listOf(
+            10L to "No. 58302917",
+            20L to "No. 42001002",
+            30L to "초롱",
+            40L to "No. 1234",
+            50L to null,
+        )) {
+            jdbc.update("INSERT INTO $schema.app_user(user_id,nickname) VALUES (?,?)", id, nickname)
+        }
+        migrate("58")
+        val nicknames =
+            jdbc
+                .queryForList("SELECT user_id, nickname FROM $schema.app_user ORDER BY user_id")
+                .associate { (it["user_id"] as Number).toLong() to it["nickname"] }
+        // 기본 닉네임 모양만 비우고, 사용자가 정한 닉네임은 그대로 둔다.
+        assertEquals(null, nicknames.getValue(10))
+        assertEquals(null, nicknames.getValue(20))
+        assertEquals("초롱", nicknames.getValue(30))
+        assertEquals("No. 1234", nicknames.getValue(40))
+        assertEquals(null, nicknames.getValue(50))
+
+        jdbc.update("UPDATE $schema.app_user SET nickname='초롱' WHERE user_id=10")
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*)::int FROM $schema.app_user WHERE nickname='초롱'", Int::class.java))
+    }
+
     companion object {
         @Container
         @JvmField

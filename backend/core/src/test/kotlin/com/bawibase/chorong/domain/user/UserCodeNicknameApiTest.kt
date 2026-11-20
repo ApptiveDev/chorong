@@ -74,7 +74,7 @@ class UserCodeNicknameApiTest {
         )
     }
 
-    @Test fun `nickname is trimmed limited to ten characters and unique`() {
+    @Test fun `nickname is trimmed limited to ten characters and may duplicate`() {
         val (_, owner) = guest()
         val (_, other) = guest()
         val name = "별" + UUID.randomUUID().toString().take(8)
@@ -83,27 +83,40 @@ class UserCodeNicknameApiTest {
             status { isOk() }
             jsonPath("$.data.nickname") { value(name) }
         }
-        // 내 닉네임을 그대로 다시 저장하는 것은 중복이 아니다.
         patchNickname(owner, name).andExpect { status { isOk() } }
-        patchNickname(other, name).andExpect {
-            status { isConflict() }
-            jsonPath("$.error.code") { value("NICKNAME_TAKEN") }
-        }
+        // 다른 계정이 쓰는 닉네임도 저장할 수 있다.
         patchNickname(other, " $name ").andExpect {
-            status { isConflict() }
-            jsonPath("$.error.code") { value("NICKNAME_TAKEN") }
+            status { isOk() }
+            jsonPath("$.data.nickname") { value(name) }
         }
         patchNickname(other, "가".repeat(11)).andExpect { status { isBadRequest() } }
         patchNickname(other, "   ").andExpect { status { isBadRequest() } }
+        patchNickname(other, "가".repeat(10)).andExpect { status { isOk() } }
         patchNickname(other, "가").andExpect { status { isOk() } }
     }
 
-    @Test fun `legacy member signup gets a default nickname`() {
+    @Test fun `member without nickname must set one and guest does not`() {
+        val (_, guestToken) = guest()
+        mvc.get("/api/v1/users/me") { header(HttpHeaders.AUTHORIZATION, "Bearer $guestToken") }.andExpect {
+            jsonPath("$.data.nickname") { value("게스트") }
+            jsonPath("$.data.nicknameRequired") { value(false) }
+        }
+
         val email = "code-${UUID.randomUUID()}@example.com"
         val token = auth.passwordSignUp(email, "password-1234!", null).accessToken
         val user = users.findById(decoder.decode(token).subject.toLong()).orElseThrow()
-        assertTrue(checkNotNull(user.nickname).matches(Regex("^No\\. [0-9]{8}$")))
+        assertEquals(null, user.nickname)
         assertEquals(UserStatus.ACTIVE, user.status)
+        mvc.get("/api/v1/users/me") { header(HttpHeaders.AUTHORIZATION, "Bearer $token") }.andExpect {
+            jsonPath("$.data.nickname") { value("사용자") }
+            jsonPath("$.data.nicknameRequired") { value(true) }
+        }
+
+        patchNickname(token, "초롱").andExpect {
+            status { isOk() }
+            jsonPath("$.data.nickname") { value("초롱") }
+            jsonPath("$.data.nicknameRequired") { value(false) }
+        }
     }
 
     @Test fun `stored entity without nickname keeps null for guests`() {
