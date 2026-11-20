@@ -23,6 +23,7 @@
     "../src/integration/user/profileNickname.ts",
     "../src/integration/user/sliderQuizState.ts",
     "../src/integration/user/chosungInput.ts",
-    "../src/integration/user/narrationContent.ts"
+    "../src/integration/user/narrationContent.ts",
+    "../src/integration/user/notificationTarget.ts"
   ]
 }

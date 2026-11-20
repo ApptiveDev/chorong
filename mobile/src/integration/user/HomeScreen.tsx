@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RoomScene } from '../../components/house/RoomScene';
@@ -8,6 +8,8 @@ import { housingVisibility } from '../housingVisibility';
 import { integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
 import type { HousingDetail, InventoryItem } from '../models';
+import { NotificationBell } from './NotificationBell';
+import { PUBLIC_VIEW_PARAM } from './notificationTarget';
 import { UserStatus } from './Screen';
 import { savedSceneItems, ShipInfoPopup } from './ShipInfoPopup';
 import {
@@ -34,6 +36,10 @@ function Home() {
   const [infoOpen, setInfoOpen] = useState(false);
   const openBrowse = () => router.push({ pathname: '/social', params: { view: 'browse' } });
   const visibility = useVisibilityControl(openBrowse);
+  // 불러오기(API-701 등)에 성공한 횟수. 알림함에서 왔을 때 그 뒤에 끝난 최신 결과로 공개 상태를 본다.
+  const [loadCount, setLoadCount] = useState(0);
+  const [publicViewAfter, setPublicViewAfter] = useState<number | null>(null);
+  const { open } = useLocalSearchParams<{ open?: string }>();
 
   const load = () =>
     task.run(async () => {
@@ -46,8 +52,21 @@ function Home() {
       housingVisibility.set(housing.housing.isPublic);
       setInventory(owned.items);
       setStarBalance(wallet.stardust);
+      setLoadCount((count) => count + 1);
       return housing;
     });
+  // 알림함 HOUSING_LIKE: 화면에 들어와 다시 불러온 결과가 공개면 '내 공개 모습'을 연다.
+  // 비공개면 공개 안내 없이 이 화면에 머문다.
+  useEffect(() => {
+    if (open !== PUBLIC_VIEW_PARAM) return;
+    setPublicViewAfter(loadCount);
+    router.setParams({ open: undefined });
+  }, [open, router]);
+  useEffect(() => {
+    if (publicViewAfter === null || loadCount <= publicViewAfter || !room) return;
+    setPublicViewAfter(null);
+    if (room.housing.isPublic) setInfoOpen(true);
+  }, [publicViewAfter, loadCount, room]);
   useFocusEffect(
     useCallback(() => {
       if (session.ready && session.authenticated) void load();
@@ -67,7 +86,7 @@ function Home() {
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <View style={s.page}>
         <View style={s.top}>
-          <ShipTabsHeader active="mine" onBrowse={pressBrowse} />
+          <ShipTabsHeader active="mine" onBrowse={pressBrowse} trailing={<NotificationBell />} />
 
           <View style={s.headerGap} />
 

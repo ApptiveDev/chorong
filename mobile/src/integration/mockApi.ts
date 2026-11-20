@@ -149,6 +149,47 @@ const response = (data?: unknown, paged = false) => ({
 });
 const id = (options: { path?: Record<string, string | number> }, key: string) =>
   Number(options.path?.[key]);
+// 알림함(API-303·304). 페이지 넘김을 시험하도록 기본 크기(20)보다 많이 둔다. 최신순이며 앞 3개만 읽지 않음.
+// 목업 스냅샷에는 저장하지 않는다(앱을 다시 열면 처음 상태).
+const mockNotificationActors = ['별이', '달토끼', '혜성', '오로라', '은하수'];
+const mockNotifications = Array.from({ length: 25 }, (_, index) => ({
+  notificationId: 300 - index,
+  type: 'HOUSING_LIKE' as const,
+  actor: {
+    userId: 10 + (index % mockNotificationActors.length),
+    nickname: mockNotificationActors[index % mockNotificationActors.length],
+  },
+  read: index >= 3,
+  createdAt: new Date(Date.UTC(2026, 10, 20, 14) - index * 7 * 60 * 60 * 1000).toISOString(),
+}));
+const visibleNotifications = () =>
+  empty || state.user.status !== 'ACTIVE' ? [] : mockNotifications;
+const mockMe = () => ({
+  ...state.user,
+  wallet: state.wallet,
+  housing: { ...state.user.housing, isPublic: mockVisibility.get() },
+  hasUnreadNotifications: visibleNotifications().some((item) => !item.read),
+});
+const memberOnly = () => {
+  if (state.user.status !== 'ACTIVE')
+    throw new IntegrationError('MEMBER_ONLY: 회원 전용 기능입니다. (HTTP 403)', 'MEMBER_ONLY', 403);
+};
+// 서버 커서 대역: 다음 페이지 첫 항목의 위치를 문자열로 준다.
+const pagedNotifications = (query: unknown) => {
+  const params = (query ?? {}) as { cursor?: string; size?: number };
+  const size = Math.min(100, Math.max(1, Number(params.size) || 20));
+  const start = params.cursor ? Number(params.cursor) : 0;
+  const all = visibleNotifications();
+  const page = all.slice(start, start + size);
+  return {
+    status: 200,
+    data: {
+      data: { notifications: page.map((item) => ({ ...item, actor: { ...item.actor } })) },
+      meta: { nextCursor: start + size < all.length ? String(start + size) : null },
+    },
+    headers: {},
+  };
+};
 // 서버처럼 학습 레슨의 첫 퀴즈는 채점하지 않는다(QuizPublic.graded=false, 0.4.1).
 // 목업 첫 레슨(lessons[0])의 퀴즈는 온보딩 퀴즈와 ID 가 같아 구분할 수 없으므로 두 번째 레슨부터 적용한다.
 const ungradedFirstQuizIds = new Set(
@@ -608,11 +649,24 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
     case 'API-109':
       return response({ providers: ['EMAIL'] });
     case 'API-201':
-      return response({
-        ...state.user,
-        wallet: state.wallet,
-        housing: { ...state.user.housing, isPublic: mockVisibility.get() },
-      });
+      return response(mockMe());
+    case 'API-303':
+      memberOnly();
+      return pagedNotifications(options.query);
+    case 'API-304': {
+      memberOnly();
+      const found = visibleNotifications().find(
+        (item) => item.notificationId === id(options, 'notificationId'),
+      );
+      if (!found)
+        throw new IntegrationError(
+          'NOT_FOUND: 알림을 찾을 수 없습니다. (HTTP 404)',
+          'NOT_FOUND',
+          404,
+        );
+      found.read = true;
+      return response();
+    }
     case 'API-202':
       state.user = {
         ...state.user,
@@ -620,11 +674,7 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         pushEnabled:
           typeof input.pushEnabled === 'boolean' ? input.pushEnabled : state.user.pushEnabled,
       };
-      return response({
-        ...state.user,
-        wallet: state.wallet,
-        housing: { ...state.user.housing, isPublic: mockVisibility.get() },
-      });
+      return response(mockMe());
     case 'API-401':
       return response({
         courses: empty

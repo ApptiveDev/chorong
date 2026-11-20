@@ -61,6 +61,7 @@ export default function RootLayout() {
           <Stack.Screen name="account-email" options={{ headerShown: false }} />
           <Stack.Screen name="preview" options={{ title: 'UI 미리보기' }} />
           <Stack.Screen name="profile" options={{ headerShown: false }} />
+          <Stack.Screen name="notifications" options={{ headerShown: false }} />
           <Stack.Screen name="review" options={{ headerShown: false }} />
           <Stack.Screen name="review-start" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ title: '시작 안내' }} />

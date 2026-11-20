@@ -60,6 +60,10 @@ export const me = object({
   pushEnabled: bool,
   streakDays: num,
   lastStudyDate: nullable(str),
+  // 알림함(API-303)에 읽지 않은 알림이 있으면 true(0.4.3). 게스트는 항상 false.
+  // 알림함 배포 전 서버는 이 칸을 보내지 않는다. 필수로 검증하면 API-201 이 실패해 로그인이 풀리므로
+  // 생략을 허용하고, 없으면 닷을 표시하지 않는다.
+  hasUnreadNotifications: optional(bool),
 });
 export const lessonStatus = enumeration('LOCKED', 'UNLOCKED', 'IN_PROGRESS', 'COMPLETED');
 export const lessonSummary = object({
@@ -439,6 +443,15 @@ export const rewardRecord = object({
   grantedAt: str,
   badge: optional(nullable(unknownObject)),
 });
+// 알림함 항목(API-303). actor.nickname 은 조회 시점의 닉네임이다.
+export const notificationType = enumeration('HOUSING_LIKE');
+export const notification = object({
+  notificationId: num,
+  type: notificationType,
+  actor: object({ userId: num, nickname: str }),
+  read: bool,
+  createdAt: str,
+});
 export const pageMeta = object({ nextCursor: nullable(str) });
 export type Me = Infer<typeof me>;
 export type UserBrief = Infer<typeof userBrief>;
@@ -464,4 +477,5 @@ export type ShopItem = Infer<typeof shopItem>;
 export type ShopOption = Infer<typeof shopOption>;
 export type InventoryItem = Infer<typeof inventoryItem>;
 export type BlockedUser = Infer<typeof blockedUser>;
+export type Notification = Infer<typeof notification>;
 export type Page<T> = { data: T; meta: Infer<typeof pageMeta> };

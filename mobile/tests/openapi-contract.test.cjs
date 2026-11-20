@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 
-test('API 목록은 OpenAPI 0.4.1의 경로·메서드·operationId와 일치한다', () => {
+test('API 목록은 OpenAPI 0.4.3의 경로·메서드·operationId와 일치한다', () => {
   const spec = readFileSync(resolve(__dirname, '../../docs/openapi.yaml'), 'utf8');
   const catalog = readFileSync(resolve(__dirname, '../src/integration/catalog.ts'), 'utf8');
   const operations = [];
@@ -30,7 +30,15 @@ test('API 목록은 OpenAPI 0.4.1의 경로·메서드·operationId와 일치한
     ...catalog.matchAll(/^  '(API-\d+)': \['(GET|POST|PUT|PATCH|DELETE)', '([^']+)'/gm),
   ].map(([, id, entryMethod, entryPath]) => [id, entryMethod, entryPath]);
 
-  assert.equal(operations.length, 49);
+  assert.equal(operations.length, 51);
+  // 0.4.3 알림함(버전 유지 추가분)
+  for (const operation of [
+    ['API-303', 'GET', '/notifications'],
+    ['API-304', 'POST', '/notifications/{notificationId}/read'],
+  ]) {
+    assert.ok(operations.some((item) => item.join(' ') === operation.join(' ')));
+    assert.ok(entries.some((item) => item.join(' ') === operation.join(' ')));
+  }
   assert.equal(new Set(operations.map(([id]) => id)).size, operations.length);
   assert.equal(new Set(entries.map(([id]) => id)).size, entries.length);
   assert.deepEqual(
