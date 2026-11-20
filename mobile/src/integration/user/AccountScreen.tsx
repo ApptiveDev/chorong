@@ -3,8 +3,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { integrationApi as api } from '../runtime';
+import { client, integrationApi as api } from '../runtime';
 import { useIntegration, useTask } from '../hooks';
+import { waitForNickname } from '../nicknameSetup';
 import { UserStatus } from './Screen';
 import { WelcomeCat } from './WelcomeScreen';
 
@@ -19,12 +20,17 @@ export default function AccountScreen() {
   const [code, setCode] = useState('');
   const [verificationId, setVerificationId] = useState('');
   const canSubmit = Boolean(email.trim() && password);
+  // 서버가 nicknameRequired=true 를 보냈으면 루트의 첫 닉네임 설정(M04_2)을 저장한 뒤에 원래 목적지로 간다.
+  const leave = () =>
+    void waitForNickname(client).then((saved) => {
+      if (saved) router.replace(afterLogin);
+    });
 
   const login = () =>
     void task.run(async () => {
       await api.account.login(email.trim(), password);
       setPassword('');
-      router.replace(afterLogin);
+      leave();
     });
   const signup = () =>
     void task.run(
@@ -39,7 +45,7 @@ export default function AccountScreen() {
     void task.run(async () => {
       await api.account.verify(verificationId, code.trim());
       setCode('');
-      router.replace(afterLogin);
+      leave();
     });
 
   return (

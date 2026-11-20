@@ -30,7 +30,10 @@ export type ReportReason = 'INAPPROPRIATE_NAME' | 'ABUSE' | 'SPAM' | 'OTHER';
 export const status = enumeration('GUEST', 'ACTIVE', 'WITHDRAWN');
 // userCode: 42 로 시작하는 8자리 계정 고유번호(0.4.1). 서버가 아직 보내지 않으면 생략된다.
 const userCode = optional(str);
-export const userBrief = object({ userId: num, userCode, nickname: str, status });
+// 회원(ACTIVE)인데 닉네임을 저장하지 않았으면 true(0.4.3). 앱은 첫 닉네임 설정(M04_2)을 띄우고 API-202 로 저장해야 닫는다.
+// 서버가 아직 보내지 않으면 생략되며 설정이 필요 없는 것으로 본다.
+const nicknameRequired = optional(bool);
+export const userBrief = object({ userId: num, userCode, nickname: str, nicknameRequired, status });
 export const tokenPair = object({ accessToken: str, refreshToken: str, expiresIn: num });
 export const authResponse = object({
   accessToken: str,
@@ -51,6 +54,7 @@ export const me = object({
   userId: num,
   userCode,
   nickname: str,
+  nicknameRequired,
   status,
   providers: array(str),
   wallet,

@@ -169,6 +169,8 @@ const mockMe = () => ({
   wallet: state.wallet,
   housing: { ...state.user.housing, isPublic: mockVisibility.get() },
   hasUnreadNotifications: visibleNotifications().some((item) => !item.read),
+  // 게스트는 항상 false(명세 Me.nicknameRequired).
+  nicknameRequired: state.user.status === 'ACTIVE' && state.user.nicknameRequired === true,
 });
 const memberOnly = () => {
   if (state.user.status !== 'ACTIVE')
@@ -371,9 +373,19 @@ const auth = () => ({
   accessToken: 'mock-access',
   refreshToken: 'mock-refresh',
   expiresIn: 1800,
-  user: { userId: state.user.userId, nickname: state.user.nickname, status: state.user.status },
+  user: {
+    userId: state.user.userId,
+    nickname: state.user.nickname,
+    nicknameRequired: state.user.status === 'ACTIVE' && state.user.nicknameRequired === true,
+    status: state.user.status,
+  },
   isNew: false,
 });
+// 서버(0.4.3)처럼 새로 회원이 되면 닉네임이 비어 있다(표시 이름 '사용자', nicknameRequired=true).
+// API-202 로 닉네임을 저장하면 풀린다.
+const becomeNewMember = () => {
+  state.user = { ...state.user, nickname: '사용자', nicknameRequired: true };
+};
 const body = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -581,11 +593,18 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
   const input = body(options.body);
   switch (apiId) {
     case 'API-101':
-      state.user = { ...state.user, status: 'GUEST', providers: ['GUEST'] };
+      state.user = {
+        ...state.user,
+        status: 'GUEST',
+        providers: ['GUEST'],
+        nicknameRequired: false,
+      };
       return response({ ...auth(), isNew: true });
     case 'API-103':
     case 'API-104':
       state.user = { ...state.user, status: 'ACTIVE', providers: ['EMAIL'] };
+      // API-103 은 이메일 가입 완료(새 회원), API-104 는 기존 회원 로그인이다.
+      if (apiId === 'API-103') becomeNewMember();
       return response(auth());
     case 'API-105': {
       // 소셜 로그인 결과 모달을 시험하는 시나리오(EXPO_PUBLIC_MOCK_SCENARIO).
@@ -614,6 +633,8 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
         status: 'ACTIVE',
         providers: [String(options.path?.provider ?? '').toUpperCase()],
       };
+      // 게스트 전환 가입과 oauth-new(새 회원 가입)는 닉네임이 비어 있다. 그 밖의 목업 로그인은 기존 회원이다.
+      if (guest || scenario === 'oauth-new') becomeNewMember();
       // oauth-new: 기존 계정 없이 새 회원이 만들어진 경우(M01_3). 게스트 전환은 새 회원이 아니다.
       return response({ ...auth(), isNew: scenario === 'oauth-new' && !guest });
     }
@@ -667,14 +688,30 @@ export const mockApi: MockResponder = (apiId: EnabledApiId, options) => {
       found.read = true;
       return response();
     }
-    case 'API-202':
+    case 'API-202': {
+      // 서버 UserNicknamePolicy: 앞뒤 공백을 뺀 1~10자(코드포인트), 중복 허용.
+      const nickname = typeof input.nickname === 'string' ? input.nickname.trim() : undefined;
+      if (nickname !== undefined && scenario === 'nickname-error')
+        throw new IntegrationError(
+          'INTERNAL: 서버 오류가 발생했습니다. (HTTP 500)',
+          'INTERNAL',
+          500,
+        );
+      if (nickname !== undefined && (nickname.length < 1 || Array.from(nickname).length > 10))
+        throw new IntegrationError(
+          'VALIDATION_FAILED: 닉네임은 1~10자로 입력하세요. (HTTP 400)',
+          'VALIDATION_FAILED',
+          400,
+        );
       state.user = {
         ...state.user,
-        nickname: typeof input.nickname === 'string' ? input.nickname : state.user.nickname,
+        nickname: nickname ?? state.user.nickname,
+        nicknameRequired: nickname !== undefined ? false : state.user.nicknameRequired,
         pushEnabled:
           typeof input.pushEnabled === 'boolean' ? input.pushEnabled : state.user.pushEnabled,
       };
       return response(mockMe());
+    }
     case 'API-401':
       return response({
         courses: empty

@@ -95,6 +95,11 @@ function SocialLoginModal({
       leaving.current = true;
       onSignedIn();
     },
+    // 신규·전환 가입이면 이 모달을 먼저 닫는다. 첫 닉네임 설정(M04_2)을 저장하면 onSignedIn 이 이어서 불린다.
+    beforeNickname: () => {
+      leaving.current = true;
+      onDismiss();
+    },
   });
 
   const signIn = (provider: SocialProvider) => {
